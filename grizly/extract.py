@@ -201,9 +201,12 @@ class Extract():
                 return df
 
         if not delayed:
-            from_sfdc()
+            if output == "df":
+                return from_sfdc() # return df
+            else:
+                from_sfdc() # call without returning; will return self
         else:
-            self.task = dask.delayed(from_sfdc)()
+            self.task = dask.delayed()(from_sfdc)
         return self
 
 
