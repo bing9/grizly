@@ -138,7 +138,7 @@ def get_sfdc_columns(table, columns=None, column_types=True):
         raise NotImplementedError("Retrieving columns only is currently not supported")
 
 
-def get_denodo_columns(schema, table, column_types=False, columns=None, date_format="DATE"):
+def get_denodo_columns(schema, table, column_types=False, columns=None, date_format="DATE", engine_str:str=None, db="denodo"):
     """Get column names (and optionally types) from Denodo view.
 
     Parameters
@@ -151,9 +151,11 @@ def get_denodo_columns(schema, table, column_types=False, columns=None, date_for
         True means user wants to get also data types.
     date_format : str
         Denodo date format differs from those from other databases. User can choose which format is desired.
+    engine_str : str
+        Engine string
+    db : str
+        Key in etl_config.json (read if engine_str is None)
     """
-
-
     if column_types==False:
         sql = f"""
             SELECT column_name
@@ -168,7 +170,8 @@ def get_denodo_columns(schema, table, column_types=False, columns=None, date_for
             WHERE view_name = '{table}'
             AND database_name = '{schema}'
     """
-    engine = create_engine(config["denodo"], encoding='utf8', poolclass=NullPool)
+    engine_str = engine_str or config.get(db) or "mssql+pyodbc://DenodoODBC"
+    engine = create_engine(engine_str, encoding='utf8', poolclass=NullPool)
 
     try:
         con = engine.connect().connection
@@ -212,7 +215,7 @@ def get_denodo_columns(schema, table, column_types=False, columns=None, date_for
         return col_names, col_types
 
 
-def get_redshift_columns(schema, table, column_types=False):
+def get_redshift_columns(schema, table, column_types=False, engine_str:str=None, db="redshift"):
     """Get column names (and optionally types) from a Redshift table.
 
     Parameters
@@ -225,8 +228,14 @@ def get_redshift_columns(schema, table, column_types=False):
         Whether to retrieve field types.
     date_format : str
         Denodo date format differs from those from other databases. User can choose which format is desired.
+    engine_str : str
+        Engine string
+    db : str
+        Key in etl_config.json (read if engine_str is None)
     """
-    con = get_connection(db="redshift")
+    engine_str = engine_str or config.get(db) or "mssql+pyodbc://Redshift"
+    engine = create_engine(engine_str, encoding='utf8', poolclass=NullPool)
+    con = engine.connect().connection
     cursor = con.cursor()
     sql = f"""
         SELECT ordinal_position AS position, column_name, data_type,
@@ -267,13 +276,13 @@ def get_redshift_columns(schema, table, column_types=False):
     return to_return
 
 
-def get_columns(table, schema=None, column_types=False, date_format="DATE", db="denodo", columns=None):
+def get_columns(table, schema=None, column_types=False, date_format="DATE", db="denodo", columns=None, engine_str:str=None):
     """ Retrieves column names and optionally other table metadata """
     db = db.lower()
     if db == "denodo":
-        return get_denodo_columns(schema=schema, table=table, column_types=column_types, date_format=date_format, columns=columns)
+        return get_denodo_columns(schema=schema, table=table, column_types=column_types, date_format=date_format, columns=columns, engine_str=engine_str)
     elif db == "redshift":
-        return get_redshift_columns(schema=schema, table=table, column_types=column_types)
+        return get_redshift_columns(schema=schema, table=table, column_types=column_types, engine_str=engine_str)
     elif db == "sfdc":
         return get_sfdc_columns(table=table, column_types=column_types, columns=columns)
     else:
