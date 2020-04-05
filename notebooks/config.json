@@ -1,0 +1,41 @@
+{
+  "config": {
+    "standard": {
+      "proxies": {
+        "http": "first_proxy",
+        "https": "second_proxy"
+      },
+      "email": {
+        "email_address": "my_email@example.com",
+        "email_password": "my_password",
+        "send_as": "Team"
+      },
+      "github": {
+        "username": "my_login",
+        "proxies": {
+          "http": "first_proxy",
+          "https": "second_proxy"
+        },
+        "pages": 100,
+        "username_password": "my_password"
+      },
+      "sfdc": {
+        "stage": {
+          "username": "my_login",
+          "instance_url": "https://na1.salesforce.com",
+          "password": "my_password",
+          "organizationId": "OrgId"
+        },
+        "prod": {
+          "username": "my_login",
+          "password": "my_password",
+          "organizationId": "OrgId"
+        }
+      },
+	  "sqldb": {
+          "redshift": "mssql+pyodbc://redshift_acoe",
+          "denodo": "mssql+pyodbc://DenodoPROD"
+      }
+    }
+  }
+}

@@ -1,11 +1,11 @@
 
 How to install
---------------------
+--------------
 
 [install anaconda]
 
 Add anaconda paths to environment variables
-~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Go to system properties
 
@@ -53,7 +53,7 @@ then you should add this path and also
 
 
 Add https proxy to environment variables
-~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Create a new environment variable
 

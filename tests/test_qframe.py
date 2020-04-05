@@ -4,18 +4,15 @@ from copy import deepcopy
 from sqlalchemy import create_engine
 from pandas import read_sql, read_csv, merge, concat
 
-from grizly.utils import get_path
+from ..grizly.utils import get_path
 
-from grizly.qframe import (
+from ..grizly.tools.qframe import (
     QFrame,
     union,
     join,
-    initiate
-)
-
-from grizly.sqlbuilder import (
-    build_column_strings,
-    get_sql
+    initiate,
+    _build_column_strings,
+    _get_sql,
 )
 
 excel_path = get_path("tables.xlsx", from_where="here")
@@ -24,47 +21,28 @@ engine_string = "sqlite:///" + get_path("Chinook.sqlite", from_where="here")
 orders = {
     "select": {
         "fields": {
-            "Order": {
-                "type": "dim",
-                "as": "Bookings"
-            },
-            "Part": {
-                "type": "dim",
-                "as": "Part"
-            },
-            "Customer": {
-                "type": "dim",
-                "as": "Customer"
-            },
-            "Value": {"type": "num"
-            },
+            "Order": {"type": "dim", "as": "Bookings"},
+            "Part": {"type": "dim", "as": "Part"},
+            "Customer": {"type": "dim", "as": "Customer"},
+            "Value": {"type": "num"},
         },
-        "table": "Orders"
+        "table": "Orders",
     }
 }
 
 customers = {
     "select": {
         "fields": {
-            "Country": {
-                "type": "dim",
-                "as": "Country"
-            },
-            "Customer": {
-                "type": "dim",
-                "as": "Customer"
-            }
+            "Country": {"type": "dim", "as": "Country"},
+            "Customer": {"type": "dim", "as": "Customer"},
         },
-    "table": "Customers"
+        "table": "Customers",
     }
 }
 
 
 def write_out(out):
-    with open(
-        get_path("output.sql", from_where="here"),
-        "w",
-    ) as f:
+    with open(get_path("output.sql", from_where="here"), "w",) as f:
         f.write(out)
 
 
@@ -80,17 +58,17 @@ def clean_testexpr(testsql):
 
 def test_save_json_and_read_json1():
     q = QFrame().read_dict(deepcopy(customers))
-    q.save_json('qframe_data.json')
-    q.read_json('qframe_data.json')
-    os.remove(os.path.join(os.getcwd(), 'qframe_data.json'))
+    q.save_json("qframe_data.json")
+    q.read_json("qframe_data.json")
+    os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.data == customers
 
 
 def test_save_json_and_read_json2():
     q = QFrame().read_dict(deepcopy(customers))
-    q.save_json('qframe_data.json', 'alias')
-    q.read_json('qframe_data.json', 'alias')
-    os.remove(os.path.join(os.getcwd(), 'qframe_data.json'))
+    q.save_json("qframe_data.json", "alias")
+    q.read_json("qframe_data.json", "alias")
+    os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.data == customers
 
 
@@ -103,6 +81,7 @@ def test_validation_data():
 
     assert data["select"]["fields"]["Customer"]["as"] == "ABC_DEF"
 
+
 def test_read_dict():
     q = QFrame().read_dict(deepcopy(customers))
     assert q.data["select"]["fields"]["Country"] == {"type": "dim", "as": "Country"}
@@ -111,65 +90,72 @@ def test_read_dict():
     assert q.data["select"]["fields"]["Value"] == {"type": "num"}
 
 
-def test_read_excel():
-    q = QFrame().read_excel(excel_path,sheet_name="orders")
-    assert q.data["select"]["fields"]["Order_Nr"] == {
-        "type": "dim",
-        "group_by": "group",
-        "as": "Order_Number",
-    }
-
 def test_create_sql_blocks():
     q = QFrame().read_dict(deepcopy(orders))
-    assert build_column_strings(q.data)["select_names"] == ["Order as Bookings","Part", "Customer", "Value"]
-    assert build_column_strings(q.data)["select_aliases"] == ["Bookings", "Part","Customer", "Value"]
-    assert q.create_sql_blocks().data["select"]["sql_blocks"] == build_column_strings(q.data)
+    assert _build_column_strings(q.data)["select_names"] == [
+        "Order as Bookings",
+        "Part",
+        "Customer",
+        "Value",
+    ]
+    assert _build_column_strings(q.data)["select_aliases"] == [
+        "Bookings",
+        "Part",
+        "Customer",
+        "Value",
+    ]
+    assert q.create_sql_blocks().data["select"]["sql_blocks"] == _build_column_strings(
+        q.data
+    )
 
 
 def test_rename():
     q = QFrame().read_dict(deepcopy(orders))
-    q.rename({'Customer': 'Customer Name', 'Value': 'Sales'})
-    assert q.data['select']['fields']['Customer']['as'] == 'Customer_Name'
-    assert q.data['select']['fields']['Value']['as'] == 'Sales'
+    q.rename({"Customer": "Customer Name", "Value": "Sales"})
+    assert q.data["select"]["fields"]["Customer"]["as"] == "Customer_Name"
+    assert q.data["select"]["fields"]["Value"]["as"] == "Sales"
 
 
 def test_remove():
     q = QFrame().read_dict(deepcopy(orders))
-    q.remove(['Part', 'Order'])
-    assert 'Part' and 'Order' not in q.data['select']['fields']
+    q.remove(["Part", "Order"])
+    assert "Part" and "Order" not in q.data["select"]["fields"]
 
 
 def test_distinct():
     q = QFrame().read_dict(deepcopy(orders))
     q.distinct()
-    sql = q.get_sql().sql
-    assert sql[7:15].upper() == 'DISTINCT'
+    sql = q.get_sql()
+    assert sql[7:15].upper() == "DISTINCT"
 
 
 def test_query():
     q = QFrame().read_dict(deepcopy(orders))
     q.query("country!='France'")
-    q.query("country!='Italy'",if_exists='replace')
+    q.query("country!='Italy'", if_exists="replace")
     q.query("(Customer='Enel' or Customer='Agip')")
-    q.query("Value>1000",operator='or'
-    )
+    q.query("Value>1000", operator="or")
     testexpr = "country!='Italy' and (Customer='Enel' or Customer='Agip') or Value>1000"
     assert q.data["select"]["where"] == testexpr
+
 
 def test_having():
     q = QFrame().read_dict(deepcopy(orders))
     q.query("sum(Value)==1000")
-    q.query("sum(Value)>1000",if_exists='replace')
+    q.query("sum(Value)>1000", if_exists="replace")
     q.query("count(Customer)<=65")
     testexpr = "sum(Value)>1000 and count(Customer)<=65"
     assert q.data["select"]["where"] == testexpr
 
+
 def test_assign():
     q = QFrame().read_dict(deepcopy(orders))
     value_x_two = "Value * 2"
-    q.assign(value_x_two=value_x_two, type='num')
-    q.assign(extract_date="format('yyyy-MM-dd', '2019-04-05 13:00:09')", custom_type='date')
-    q.assign(Value_div="Value/100", type='num', order_by='DESC')
+    q.assign(value_x_two=value_x_two, type="num")
+    q.assign(
+        extract_date="format('yyyy-MM-dd', '2019-04-05 13:00:09')", custom_type="date"
+    )
+    q.assign(Value_div="Value/100", type="num", order_by="DESC")
     assert q.data["select"]["fields"]["value_x_two"]["expression"] == "Value * 2"
     assert q.data["select"]["fields"]["Value_div"] == {
         "type": "num",
@@ -177,16 +163,16 @@ def test_assign():
         "group_by": "",
         "order_by": "DESC",
         "custom_type": "",
-        "expression": "Value/100"
-        }
+        "expression": "Value/100",
+    }
     assert q.data["select"]["fields"]["extract_date"] == {
         "type": "dim",
         "as": "extract_date",
         "group_by": "",
         "custom_type": "date",
         "order_by": "",
-        "expression": "format('yyyy-MM-dd', '2019-04-05 13:00:09')"
-        }
+        "expression": "format('yyyy-MM-dd', '2019-04-05 13:00:09')",
+    }
 
 
 def test_groupby():
@@ -208,14 +194,13 @@ def test_agg():
 def test_orderby():
     q = QFrame().read_dict(deepcopy(orders))
     q.orderby("Value")
-    assert q.data["select"]["fields"]["Value"]["order_by"] == 'ASC'
+    assert q.data["select"]["fields"]["Value"]["order_by"] == "ASC"
 
     q.orderby(["Order", "Part"], ascending=[False, True])
-    assert q.data["select"]["fields"]["Order"]["order_by"] == 'DESC'
-    assert q.data["select"]["fields"]["Part"]["order_by"] == 'ASC'
+    assert q.data["select"]["fields"]["Order"]["order_by"] == "DESC"
+    assert q.data["select"]["fields"]["Part"]["order_by"] == "ASC"
 
-    q.get_sql()
-    sql = q.sql
+    sql = q.get_sql()
 
     testsql = """
             SELECT
@@ -234,17 +219,16 @@ def test_orderby():
 def test_limit():
     q = QFrame().read_dict(deepcopy(orders))
     q.limit(10)
-    sql = q.get_sql().sql
-    assert sql[-8:].upper() == 'LIMIT 10'
+    sql = q.get_sql()
+    assert sql[-8:].upper() == "LIMIT 10"
 
 
 def test_select():
     q = QFrame().read_dict(deepcopy(orders))
-    q.select(['Customer', 'Value'])
-    q.groupby('sq.Customer')['sq.Value'].agg('sum')
-    q.get_sql()
+    q.select(["Customer", "Value"])
+    q.groupby("sq.Customer")["sq.Value"].agg("sum")
 
-    sql = q.sql
+    sql = q.get_sql()
     # write_out(str(sql))
     testsql = """
             SELECT sq.Customer AS Customer,
@@ -266,6 +250,7 @@ def test_rearrange():
     q.rearrange(["Customer", "Country"])
     assert q.get_fields() == ["Customer", "Country"]
 
+
 def test_get_fields():
     q = QFrame().read_dict(deepcopy(customers))
     fields = ["Country", "Customer"]
@@ -286,59 +271,40 @@ def test_get_sql():
                         ELSE 0
                     END AS New_case
                 FROM Orders
-                GROUP BY Bookings,
+                GROUP BY Order,
                         Part,
                         Customer,
                         New_case
                 LIMIT 5
             """
-    sql = q.get_sql().sql
+    sql = q.get_sql()
     # write_out(str(sql))
     assert clean_testexpr(sql) == clean_testexpr(testsql)
-    assert q.get_sql().sql == get_sql(q.data)
-
-
-def test_get_sql_with_select_attr():
-    q = QFrame().read_excel(excel_path, sheet_name="orders")
-
-    testsql = """
-        SELECT Order_Nr AS Order_Number,
-                Part,
-                CustomerID_1,
-                sum(Value) AS Value,
-                CASE
-                    WHEN CustomerID_1 <> NULL THEN CustomerID_1
-                    ELSE CustomerID_2
-                END AS CustomerID
-        FROM orders_schema.orders
-        GROUP BY Order_Number,
-                Part,
-                CustomerID_1,
-                CustomerID_2
-            """
-
-    sql = q.get_sql().sql
-    # write_out(str(sql))
-    assert clean_testexpr(sql) == clean_testexpr(testsql)
-    assert clean_testexpr(q.get_sql().sql) == clean_testexpr(get_sql(q.data))
-
+    assert sql == _get_sql(q.data)
 
 
 def test_to_csv():
-    q = QFrame(engine=engine_string,data = {'select':{
-        'fields':{  'InvoiceLineId':{'type': 'dim'},
-                    'InvoiceId': {'type': 'dim'},
-                    'TrackId': {'type': 'dim'},
-                    'UnitPrice': {'type': 'num'},
-                    'Quantity': {'type': 'num'}
+    q = QFrame(
+        engine=engine_string,
+        data={
+            "select": {
+                "fields": {
+                    "InvoiceLineId": {"type": "dim"},
+                    "InvoiceId": {"type": "dim"},
+                    "TrackId": {"type": "dim"},
+                    "UnitPrice": {"type": "num"},
+                    "Quantity": {"type": "num"},
                 },
-        'table':'InvoiceLine'}})
-    q.assign(UnitPriceFlag='CASE WHEN UnitPrice>1 THEN 1 ELSE 0 END', type='dim')
-    q.rename({'TrackId': 'Track'})
+                "table": "InvoiceLine",
+            }
+        },
+    )
+    q.assign(UnitPriceFlag="CASE WHEN UnitPrice>1 THEN 1 ELSE 0 END", type="dim")
+    q.rename({"TrackId": "Track"})
 
-    csv_path = os.path.join(os.getcwd(), 'invoice_items_test.csv')
+    csv_path = os.path.join(os.getcwd(), "invoice_items_test.csv")
     q.to_csv(csv_path)
-    df_from_qf = read_csv(csv_path, sep='\t')
+    df_from_qf = read_csv(csv_path, sep="\t")
 
     os.remove(csv_path)
 
@@ -348,13 +314,22 @@ def test_to_csv():
     assert df_from_qf.equals(test_df)
 
 
-
 def test_to_df():
-    q = QFrame(engine=engine_string).read_excel(
-        excel_path,
-        sheet_name="cb_invoices",
-    )
-    q.assign(sales="Quantity*UnitPrice", type='num')
+    data = {
+        "select": {
+            "fields": {
+                "InvoiceLineId": {"type": "dim"},
+                "InvoiceId": {"type": "dim"},
+                "TrackId": {"type": "dim"},
+                "UnitPrice": {"type": "num"},
+                "Quantity": {"type": "num"},
+            },
+            "table": "InvoiceLine",
+        }
+    }
+
+    q = QFrame(engine=engine_string).read_dict(data)
+    q.assign(sales="Quantity*UnitPrice", type="num")
     q.groupby(["TrackId"])["Quantity"].agg("sum")
     df_from_qf = q.to_df()
 
@@ -364,53 +339,56 @@ def test_to_df():
     assert df_from_qf.equals(test_df)
 
 
-def test_copy():
-    qf = QFrame().read_excel(excel_path, sheet_name="orders")
-
-    qf_copy = qf.copy()
-    assert qf_copy.data == qf.data and qf_copy.sql == qf.sql and qf_copy.engine == qf.engine
-
-    qf_copy.remove('Part').get_sql()
-    assert qf_copy.data != qf.data and qf_copy.sql != qf.sql and qf_copy.engine == qf.engine
-
-
 playlists = {
     "select": {
-        "fields": {
-            "PlaylistId": {"type" : "dim"},
-            "Name": {"type" : "dim"}
-        },
-        "table" : "Playlist"
+        "fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}},
+        "table": "Playlist",
     }
 }
 
 
 playlist_track = {
     "select": {
-        "fields":{
-            "PlaylistId": {"type" : "dim"},
-            "TrackId": {"type" : "dim"}
-        },
-        "table" : "PlaylistTrack"
+        "fields": {"PlaylistId": {"type": "dim"}, "TrackId": {"type": "dim"}},
+        "table": "PlaylistTrack",
     }
 }
 
 
-tracks = {  'select': {
-                'fields': {
-                    'TrackId': { 'type': 'dim'},
-                    'Name': {'type': 'dim'},
-                    'AlbumId': {'type': 'dim'},
-                    'MediaTypeId': {'type': 'dim'},
-                    'GenreId': {'type': 'dim'},
-                    'Composer': {'type': 'dim'},
-                    'Milliseconds': {'type': 'num'},
-                    'Bytes' : {'type': 'num'},
-                    'UnitPrice': {'type': 'num'}
-                },
-                'table': 'Track'
-            }
+tracks = {
+    "select": {
+        "fields": {
+            "TrackId": {"type": "dim"},
+            "Name": {"type": "dim"},
+            "AlbumId": {"type": "dim"},
+            "MediaTypeId": {"type": "dim"},
+            "GenreId": {"type": "dim"},
+            "Composer": {"type": "dim"},
+            "Milliseconds": {"type": "num"},
+            "Bytes": {"type": "num"},
+            "UnitPrice": {"type": "num"},
+        },
+        "table": "Track",
+    }
 }
+
+
+def test_copy():
+    qf = QFrame().read_dict(deepcopy(playlist_track))
+
+    qf_copy = qf.copy()
+    assert (
+        qf_copy.data == qf.data
+        and qf_copy.sql == qf.sql
+        and qf_copy.engine == qf.engine
+    )
+
+    qf_copy.remove("TrackId").get_sql()
+    assert (
+        qf_copy.data != qf.data
+        and qf_copy.sql != qf.sql
+        and qf_copy.engine == qf.engine
+    )
 
 
 def test_join_1():
@@ -419,7 +397,11 @@ def test_join_1():
     playlist_track_qf = QFrame(engine=engine_string).read_dict(deepcopy(playlist_track))
     playlists_qf = QFrame(engine=engine_string).read_dict(deepcopy(playlists))
 
-    joined_qf = join([playlist_track_qf,playlists_qf], join_type="left join", on="sq1.PlaylistId=sq2.PlaylistId")
+    joined_qf = join(
+        [playlist_track_qf, playlists_qf],
+        join_type="left join",
+        on="sq1.PlaylistId=sq2.PlaylistId",
+    )
     joined_df = joined_qf.to_df()
 
     # using pandas
@@ -431,26 +413,29 @@ def test_join_1():
     playlists_qf.get_sql()
     pl_df = read_sql(sql=playlists_qf.sql, con=engine)
 
-    test_df = merge(pl_track_df, pl_df, how='left', on=['PlaylistId'])
+    test_df = merge(pl_track_df, pl_df, how="left", on=["PlaylistId"])
 
     assert joined_df.equals(test_df)
 
     # using grizly
     tracks_qf = QFrame(engine=engine_string).read_dict(deepcopy(tracks))
 
-    joined_qf = join(qframes=[playlist_track_qf, playlists_qf, tracks_qf], join_type=
-                    ['left join', 'left join'], on=[
-                    'sq1.PlaylistId=sq2.PlaylistId', 'sq1.TrackId=sq3.TrackId'], unique_col=False)
+    joined_qf = join(
+        qframes=[playlist_track_qf, playlists_qf, tracks_qf],
+        join_type=["left join", "left join"],
+        on=["sq1.PlaylistId=sq2.PlaylistId", "sq1.TrackId=sq3.TrackId"],
+        unique_col=False,
+    )
 
-    joined_qf.remove(['sq2.PlaylistId', 'sq3.TrackId'])
-    joined_qf.rename({'sq2.Name': 'Name_x', 'sq3.Name': 'Name_y'})
+    joined_qf.remove(["sq2.PlaylistId", "sq3.TrackId"])
+    joined_qf.rename({"sq2.Name": "Name_x", "sq3.Name": "Name_y"})
     joined_df = joined_qf.to_df()
 
     # using pandas
     tracks_qf.get_sql()
     tracks_df = read_sql(sql=tracks_qf.sql, con=engine)
 
-    test_df = merge(test_df, tracks_df, how='left', on=['TrackId'])
+    test_df = merge(test_df, tracks_df, how="left", on=["TrackId"])
 
     assert joined_df.equals(test_df)
 
@@ -460,9 +445,9 @@ def test_join_2():
     playlist_track_qf = QFrame(engine=engine_string).read_dict(deepcopy(playlist_track))
     playlists_qf = QFrame(engine=engine_string).read_dict(deepcopy(playlists))
 
-    joined_qf = join([playlist_track_qf,playlists_qf], join_type="cross join", on=0)
+    joined_qf = join([playlist_track_qf, playlists_qf], join_type="cross join", on=0)
 
-    sql = joined_qf.get_sql().sql
+    sql = joined_qf.get_sql()
 
     testsql = """
             SELECT sq1.PlaylistId AS PlaylistId,
@@ -480,9 +465,13 @@ def test_join_2():
 
     assert clean_testexpr(sql) == clean_testexpr(testsql)
 
-    joined_qf = join([joined_qf, playlist_track_qf,playlists_qf], join_type=["RIGHT JOIN","full join"], on=['sq1.PlaylistId=sq2.PlaylistId', 'sq2.PlaylistId=sq3.PlaylistId'])
+    joined_qf = join(
+        [joined_qf, playlist_track_qf, playlists_qf],
+        join_type=["RIGHT JOIN", "full join"],
+        on=["sq1.PlaylistId=sq2.PlaylistId", "sq2.PlaylistId=sq3.PlaylistId"],
+    )
 
-    sql = joined_qf.get_sql().sql
+    sql = joined_qf.get_sql()
 
     testsql = """
                 SELECT sq1.PlaylistId AS PlaylistId,
@@ -516,7 +505,7 @@ def test_join_2():
 def test_union():
     playlists_qf = QFrame(engine=engine_string).read_dict(deepcopy(playlists))
 
-    unioned_qf =  union([playlists_qf, playlists_qf], 'union')
+    unioned_qf = union([playlists_qf, playlists_qf], "union")
 
     testsql = """
             SELECT PlaylistId,
@@ -527,12 +516,12 @@ def test_union():
                 Name
             FROM Playlist
             """
-    sql = unioned_qf.get_sql().sql
+    sql = unioned_qf.get_sql()
 
     assert clean_testexpr(sql) == clean_testexpr(testsql)
     assert unioned_qf.to_df().equals(playlists_qf.to_df())
 
-    unioned_qf =  union([playlists_qf, playlists_qf], 'union all')
+    unioned_qf = union([playlists_qf, playlists_qf], "union all")
 
     testsql = """
             SELECT PlaylistId,
@@ -543,20 +532,22 @@ def test_union():
                 Name
             FROM Playlist
             """
-    sql = unioned_qf.get_sql().sql
+    sql = unioned_qf.get_sql()
 
     assert clean_testexpr(sql) == clean_testexpr(testsql)
-    assert unioned_qf.to_df().equals(concat([playlists_qf.to_df(), playlists_qf.to_df()], ignore_index=True))
+    assert unioned_qf.to_df().equals(
+        concat([playlists_qf.to_df(), playlists_qf.to_df()], ignore_index=True)
+    )
 
     qf1 = playlists_qf.copy()
-    qf1.rename({'Name': 'Old_name'})
+    qf1.rename({"Name": "Old_name"})
     qf1.assign(New_name="Name || '_new'")
 
     qf2 = playlists_qf.copy()
-    qf2.rename({'Name': 'New_name'})
+    qf2.rename({"Name": "New_name"})
     qf2.assign(Old_name="Name || '_old'")
 
-    unioned_qf = union([qf1, qf2], union_type='union', union_by='name')
+    unioned_qf = union([qf1, qf2], union_type="union", union_by="name")
 
     testsql = """
             SELECT PlaylistId,
@@ -569,19 +560,26 @@ def test_union():
                 Name AS New_name
             FROM Playlist
             """
-    sql = unioned_qf.get_sql().sql
+    sql = unioned_qf.get_sql()
 
     # write_out(sql)
     assert clean_testexpr(sql) == clean_testexpr(testsql)
 
 
 def test_initiate():
-    columns = ['customer', 'billings']
-    json = 'test.json'
-    sq='test'
-    initiate(columns=columns, schema='test_schema', table='test_table', json_path=json, subquery=sq)
+    columns = ["customer", "billings"]
+    json = "test.json"
+    sq = "test"
+    initiate(
+        columns=columns,
+        schema="test_schema",
+        table="test_table",
+        engine_str="engine",
+        json_path=json,
+        subquery=sq,
+    )
     q = QFrame().read_json(json_path=json, subquery=sq)
-    os.remove('test.json')
+    os.remove("test.json")
 
     testsql = """
         SELECT customer,
@@ -589,5 +587,6 @@ def test_initiate():
         FROM test_schema.test_table
         """
 
-    sql = q.get_sql().sql
-    assert clean_testexpr(testsql) == clean_testexpr(testsql) 
+    sql = q.get_sql()
+    assert clean_testexpr(sql) == clean_testexpr(testsql)
+

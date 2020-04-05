@@ -1,0 +1,552 @@
+{
+  "sales_daily_news_emea": {
+    "select": {
+      "table": "sales_daily_news_emea",
+      "schema": "te_global_data",
+      "fields": {
+        "business_unit_group": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(10)"
+        },
+        "business_unit_group_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(40)"
+        },
+        "business_unit_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(45)"
+        },
+        "company_code": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(4)"
+        },
+        "company_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(21)"
+        },
+        "current_fiscal_month_short_number": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "current_fiscal_quarter_short_number": {
+          "type": "",
+          "as": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "current_fiscal_week_short_number": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "current_fiscal_year": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "customer_account_number_suffix": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(2)"
+        },
+        "customer_name": {
+          "type": "dim",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "REPLACE(REPLACE(customer_name, '\"',''),'''','') ",
+          "select": "",
+          "custom_type": ""
+        },
+        "customer_number": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(8)"
+        },
+        "customer_request_ship_fiscal_month_short_number": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(1000)"
+        },
+        "customer_request_ship_fiscal_year": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "fiscal_month_short_number": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(1000)"
+        },
+        "fiscal_quarter_short_number": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(1000)"
+        },
+        "fiscal_week_short_number": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(1000)"
+        },
+        "fiscal_year": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(1000)"
+        },
+        "material_number": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(18)"
+        },
+        "order_amount_budget_rate_c": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": ""
+        },
+        "order_created_date_item": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(1000)"
+        },
+        "product_structure_level_1_name_cbc1": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(50)"
+        },
+        "product_structure_level_2_name_cbc2": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(50)"
+        },
+        "product_structure_level_3_name_cbc3": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(50)"
+        },
+        "product_structure_level_4_name_cbc4": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(50)"
+        },
+        "product_structure_level_5_name_cbc5": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(50)"
+        },
+        "profit_center": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(10)"
+        },
+        "region": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(1000)"
+        },
+        "reporting_org_id": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(4)"
+        },
+        "sales_amount_budget_rate_c": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": ""
+        },
+        "sales_authoritative_cost_amount_budget_rate_c": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": ""
+        },
+        "sales_territory_level_1_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(26)"
+        },
+        "sales_territory_level_1": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(12)"
+        },
+        "sales_territory_level_2_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(26)"
+        },
+        "sales_territory_level_2": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(12)"
+        },
+        "sales_territory_level_3_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(26)"
+        },
+        "sales_territory_level_3": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(12)"
+        },
+        "sales_territory_level_4_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(26)"
+        },
+        "sales_territory_level_4": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(12)"
+        },
+        "sales_territory_level_5_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(26)"
+        },
+        "sales_territory_level_5": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(12)"
+        },
+        "sales_territory_level_6_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(26)"
+        },
+        "sales_territory_level_6": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(12)"
+        },
+        "sales_territory_level_7_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(26)"
+        },
+        "sales_territory_level_7": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(12)"
+        },
+        "sub_region": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(1000)"
+        },
+        "total_work_days_month": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "total_work_days_week": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "work_day_of_month": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "worldwide_customer_level_1": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "NVARCHAR(24)"
+        },
+        "worldwide_customer_level_1_name": {
+          "type": "dim",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": ""
+        },
+        "company_country_region_name_level_1": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(40)"
+        },
+        "company_region_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(21)"
+        },
+        "segment_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(40)"
+        },
+        "transaction_date": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "TIMESTAMP"
+        },
+        "last_update": {
+          "type": "dim",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "CURRENT_DATE()",
+          "select": "",
+          "custom_type": "TIMESTAMP"
+        }
+      },
+      "where": "trade_interco_indicator = 'T' AND segment_name = 'Industrial Solutions'",
+      "distinct": "",
+      "having": "",
+      "limit": ""
+    }
+  },
+  "sales_daily_news_emea_2": {
+    "select": {
+      "table": "sales_daily_news_emea",
+      "schema": "te_global_data",
+      "fields": {
+        "business_unit_group": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(10)"
+        },
+        "business_unit_group_name": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "VARCHAR(40)"
+        },
+        "current_fiscal_week_short_number": {
+          "type": "",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        }
+      }
+    }
+  }
+}

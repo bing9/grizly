@@ -7,18 +7,17 @@ Welcome to grizly's documentation!
 ==================================
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
    :caption: Contents:
 
    content/how_to_install
-   content/tutorial_qframe
-   content/tutorial_qframe_new
-   content/tutorial_store
+   content/tutorials
    content/api_QFrame
    content/api_Email
-   content/api_Extract
-   content/api_Load
-   content/api_AWS
+   content/api_S3
+   content/api_Config
+   content/api_SQLDB
+   content/api_Crosstab
 
 
 Indices and tables

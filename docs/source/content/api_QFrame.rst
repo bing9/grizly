@@ -1,5 +1,5 @@
 ============
-QFrame
+Class QFrame
 ============
 .. currentmodule:: grizly
 

@@ -16,11 +16,14 @@ grizly.QFrame
       ~QFrame.__init__
       ~QFrame.agg
       ~QFrame.assign
+      ~QFrame.build_subquery
       ~QFrame.copy
       ~QFrame.create_sql_blocks
       ~QFrame.create_table
       ~QFrame.csv_to_s3
       ~QFrame.distinct
+      ~QFrame.from_json
+      ~QFrame.get_dtypes
       ~QFrame.get_fields
       ~QFrame.get_sql
       ~QFrame.groupby
@@ -29,7 +32,6 @@ grizly.QFrame
       ~QFrame.orderby
       ~QFrame.query
       ~QFrame.read_dict
-      ~QFrame.read_excel
       ~QFrame.read_json
       ~QFrame.rearrange
       ~QFrame.remove

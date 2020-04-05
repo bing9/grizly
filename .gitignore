@@ -2,6 +2,7 @@ __pycache__
 *.ini
 *.egg-info
 build
-.pyest_cache
+.pytest_cache
 *.egg
 .ipynb_checkpoints
+.vscode

@@ -23,3 +23,7 @@ croniter>=0.3.29
 graphviz>=0.12
 sphinx_rtd_theme
 nbsphinx
+configparser
+fpdf
+jupyter_sphinx
+deprecation
