@@ -18,11 +18,8 @@ class SFDC:
 
     Examples
     --------
-    >>> from .s3 import S3
-    >>> S3(file_name='acoe_config.json', s3_key='acoe_internal/', file_dir=r'C:\\Users').to_file()
-    >>> config_path = get_path('.grizly', 'acoe_config.json') # contains SFDC username and password
+    >>> config_path = get_path('.grizly', 'config.json') # contains SFDC username and password
     >>> config = Config().from_json(config_path)
-    >>> os.remove(r'C:\\Users\\acoe_config.json')
 
     Returns
     -------
@@ -42,9 +39,7 @@ class SFDC:
     ):
         self.env = env
         try:
-            config = Config().get_service(
-                config_key=config_key, service="sfdc", env=env
-            )
+            config = Config().get_service(config_key=config_key, service="sfdc", env=env)
         except:
             config = None
         # first lookup in parameters, then config, then env variables
@@ -118,9 +113,7 @@ class SFDC:
         next_batch = self.get_next_batch(sf, raw_response)
 
         while next_batch:
-            self.logger.info(
-                f"Batch of size {len(next_batch)} added. Loading next batch..."
-            )
+            self.logger.info(f"Batch of size {len(next_batch)} added. Loading next batch...")
             raw_response.extend(next_batch)
             next_batch = self.get_next_batch(sf, next_batch)
 
@@ -183,9 +176,7 @@ class SFDCResponse:
                 row.append(item[column])
             l.append(row)
 
-        df = pd.DataFrame(l, columns=self.columns, dtype=dtype).replace(
-            to_replace=["None"], value=np.nan
-        )
+        df = pd.DataFrame(l, columns=self.columns, dtype=dtype).replace(to_replace=["None"], value=np.nan)
 
         return df
 
@@ -216,11 +207,7 @@ class SFDCResponseBulk(SFDCResponse):
         self.logger = logger
 
     def to_df(self, dtype=None):
-        df = (
-            pd.DataFrame(self.data)
-            .drop("attributes", axis=1)
-            .replace(to_replace=["None"], value=np.nan)
-        )
+        df = pd.DataFrame(self.data).drop("attributes", axis=1).replace(to_replace=["None"], value=np.nan)
         return df
 
     def to_csv(self, file_path, sep="\t"):

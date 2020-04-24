@@ -9,7 +9,7 @@ with open("requirements.txt", "r") as f:
 
 setuptools.setup(
     name="grizly",
-    version="0.3.1",
+    version="0.3.2",
     author="Alessio Civitillo",
     description="Small package to build SQL with a Pandas api",
     long_description=long_description,

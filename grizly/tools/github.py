@@ -89,6 +89,7 @@ class GitHub(Extract):
                         "repository_name",
                         "user_login",
                         "assignees_login",
+                        "milestone_id",
                         "milestone_title",
                         "milestone_description",
                         "milestone_open_issues",
@@ -115,6 +116,7 @@ class GitHub(Extract):
                     )
                 )
                 try:
+                    record.append(data.json()[i]["milestone"]["id"])
                     record.append(data.json()[i]["milestone"]["title"])
                     record.append(data.json()[i]["milestone"]["description"])
                     record.append(data.json()[i]["milestone"]["open_issues"])
@@ -125,6 +127,7 @@ class GitHub(Extract):
                     record.append(data.json()[i]["milestone"]["due_on"])
                 except:
                     no_milestones = [
+                        0,
                         "no_milestone",
                         "no_milestone",
                         0,

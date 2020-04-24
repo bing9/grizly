@@ -1,3 +1,4 @@
+import pendulum
 import datetime as dt
 import json
 import logging
@@ -32,12 +33,10 @@ from ..utils import get_path
 from ..tools.sqldb import SQLDB
 
 
-workflows_dir = os.getenv("WORKFLOWS_ROOT_DIR") or "/home/acoe_workflows"
+workflows_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows"
 if sys.platform.startswith("win"):
     workflows_dir = get_path("acoe_projects")
 LISTENER_STORE = os.path.join(workflows_dir, "workflows", "etc", "listener_store.json")
-
-# logger = logging.getLogger(__name__)
 
 
 def cast_to_date(maybe_date: Any) -> dt.date:
@@ -89,16 +88,24 @@ class Schedule:
         - ValueError: if the cron string is invalid
     """
 
-    def __init__(self, cron, name=None, start_date=None, end_date=None):
+    def __init__(self, cron, name=None, start_date=None, end_date=None, timezone: str = None):
         if not croniter.is_valid(cron):
             raise ValueError("Invalid cron string: {}".format(cron))
-        self.cron = cron
+        self.timezone = timezone
+        self.cron = self.to_utc(cron, self.timezone)
         self.name = name
         self.start_date = start_date
         self.end_date = end_date
 
     def __repr__(self):
         return f"{type(self).__name__}({self.cron})"
+    
+    @staticmethod
+    def to_utc(cron_local: str, timezone: str = None):
+        cron_hour = cron_local.split()[1]
+        offset = int(pendulum.now(timezone).offset_hours)
+        cron_adjusted_hour = str(int(cron_hour) - offset)
+        return cron_local.replace(cron_hour, cron_adjusted_hour)
 
     def emit_dates(self, start_date: datetime = None) -> Iterable[datetime]:
         """

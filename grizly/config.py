@@ -75,9 +75,7 @@ class Config:
                 raise ValueError("config is empty")
 
             for key in data["config"].keys():
-                _validate_config(
-                    data["config"][key], services=list(data["config"][key])
-                )
+                _validate_config(data["config"][key], services=list(data["config"][key]))
 
             Config.data = data["config"]
             self.logger.debug("Config data has been saved.")
@@ -95,7 +93,7 @@ class Config:
 
         Examples
         --------
-        >>> json_path = get_path('dev', 'grizly', 'notebooks', 'config.json')
+        >>> json_path = get_path('grizly_dev', 'notebooks', 'config.json')
         >>> conf = Config().from_json(json_path)
 
         Returns
@@ -111,9 +109,7 @@ class Config:
                 raise ValueError("config is empty")
 
             for key in data["config"].keys():
-                _validate_config(
-                    data["config"][key], services=list(data["config"][key])
-                )
+                _validate_config(data["config"][key], services=list(data["config"][key]))
 
             Config.data = data["config"]
             self.logger.debug("Config data has been saved.")
@@ -154,11 +150,7 @@ class Config:
         Config
         """
         if if_exists not in ("skip", "replace"):
-            raise ValueError(
-                "'{}' is not valid for if_exists. Valid values: 'skip', 'replace'".format(
-                    if_exists
-                )
-            )
+            raise ValueError("'{}' is not valid for if_exists. Valid values: 'skip', 'replace'".format(if_exists))
         for key in data.keys():
             if key in list(Config.data.keys()):
                 if if_exists == "skip":
@@ -176,10 +168,7 @@ class Config:
         return Config()
 
     def get_service(
-        self,
-        service: {"email", "github", "sfdc", "proxies", "sqldb"},
-        config_key: str = None,
-        env: str = None,
+        self, service: {"email", "github", "sfdc", "proxies", "sqldb"}, config_key: str = None, env: str = None,
     ):
         """Returns dictionary data for given service and config key.
 
@@ -204,17 +193,12 @@ class Config:
 
         Examples
         --------
-        >>> json_path = get_path('dev', 'grizly', 'notebooks', 'config.json')
+        >>> json_path = get_path('grizly_dev', 'notebooks', 'config.json')
         >>> conf = Config().from_json(json_path)
         >>> conf.get_service(service='email')
-        {'email_address': 'my_email@example.com',
-        'email_password': 'my_password',
-        'send_as': 'Team'}
+        {'email_address': 'my_email@example.com', 'email_password': 'my_password', 'send_as': 'Team'}
         >>> conf.get_service(service='sfdc', env='stage')
-        {'username': 'my_login',
-        'instance_url': 'https://na1.salesforce.com',
-        'password': 'my_password',
-        'organizationId': 'OrgId'}
+        {'username': 'my_login', 'instance_url': 'https://na1.salesforce.com', 'password': 'my_password', 'organizationId': 'OrgId'}
 
         Returns
         -------
@@ -225,9 +209,7 @@ class Config:
         env = env or "prod"
 
         if config_key not in Config.data.keys():
-            raise KeyError(
-                f"Key {config_key} not found in config. Please check Config class documentation."
-            )
+            raise KeyError(f"Key {config_key} not found in config. Please check Config class documentation.")
 
         _validate_config(self.data[config_key], services=service, env=env)
         if service == "sfdc":
@@ -272,9 +254,7 @@ def _validate_config(config: dict, services: list = None, env: str = None):
     valid_services = {"email", "github", "sfdc", "proxies", "sqldb"}
     invalid_keys = set(config.keys()) - valid_services
     if invalid_keys != set():
-        raise KeyError(
-            f"Root invalid keys {invalid_keys} in config. Valid keys: {valid_services}"
-        )
+        raise KeyError(f"Root invalid keys {invalid_keys} in config. Valid keys: {valid_services}")
 
     if services == None:
         services = list(valid_services)
@@ -285,15 +265,11 @@ def _validate_config(config: dict, services: list = None, env: str = None):
 
     invalid_services = set(services) - valid_services
     if invalid_services != set():
-        raise ValueError(
-            f"Invalid values in services {invalid_services}. Valid values: {valid_services}"
-        )
+        raise ValueError(f"Invalid values in services {invalid_services}. Valid values: {valid_services}")
 
     env = env if env else "prod"
     if env not in ("prod", "stage"):
-        raise ValueError(
-            f"Invalid value '{env}' in env. Valid values: 'prod', 'stage', None"
-        )
+        raise ValueError(f"Invalid value '{env}' in env. Valid values: 'prod', 'stage', None")
 
     for service in services:
         if service not in config.keys():
@@ -316,17 +292,10 @@ def _validate_config(config: dict, services: list = None, env: str = None):
 
         invalid_keys = set(config[service].keys()) - valid_keys
         if invalid_keys != set():
-            raise KeyError(
-                f"Invalid keys {invalid_keys} in config['{service}']. Valid keys: {valid_keys}"
-            )
+            raise KeyError(f"Invalid keys {invalid_keys} in config['{service}']. Valid keys: {valid_keys}")
 
         not_found_keys = valid_keys - set(config[service].keys())
-        if (
-            not_found_keys != set()
-            and service != "sfdc"
-            or service == "sfdc"
-            and env in not_found_keys
-        ):
+        if not_found_keys != set() and service != "sfdc" or service == "sfdc" and env in not_found_keys:
             raise KeyError(f"Keys {not_found_keys} not found in config['{service}']")
 
         if service == "sfdc":
@@ -343,15 +312,11 @@ def _validate_config(config: dict, services: list = None, env: str = None):
 
                 invalid_keys = set(config["sfdc"][env].keys()) - valid_keys
                 if invalid_keys != set():
-                    raise KeyError(
-                        f"Invalid keys {invalid_keys} in config['sfdc']['{env}']. Valid keys: {valid_keys}"
-                    )
+                    raise KeyError(f"Invalid keys {invalid_keys} in config['sfdc']['{env}']. Valid keys: {valid_keys}")
 
                 not_found_keys = valid_keys - set(config["sfdc"][env].keys())
                 if not_found_keys != set():
-                    raise KeyError(
-                        f"Keys {not_found_keys} not found in config['sfdc']['{env}']"
-                    )
+                    raise KeyError(f"Keys {not_found_keys} not found in config['sfdc']['{env}']")
             else:
                 raise KeyError(f"Key '{env}' not found in config['sfdc']")
 

@@ -1,11 +1,13 @@
-from pandas import read_sql
+import pandas as pd
+
 import re
 import os
 import sqlparse
-import logging
 from copy import deepcopy
 import json
 import logging
+import pyarrow as pa
+import math
 
 from .s3 import S3
 from .sqldb import SQLDB, check_if_valid_type
@@ -16,11 +18,7 @@ from .extract import Extract
 import deprecation
 from functools import partial
 
-deprecation.deprecated = partial(
-    deprecation.deprecated, deprecated_in="0.3", removed_in="0.4"
-)
-
-logger = logging.getLogger(__name__)
+deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
 
 def prepend_table(data, expression):
@@ -56,7 +54,9 @@ class QFrame(Extract):
     """
 
     # KM: can we delete sql argument?
-    def __init__(self, data={}, engine: str = None, sql=None, getfields=[]):
+    def __init__(
+        self, data={}, engine: str = None, sql=None, getfields=[], chunksize=None, interface: str = None, logger=None
+    ):
         self.tool_name = "QFrame"
         self.engine = engine if engine else "mssql+pyodbc://DenodoODBC"
         if not isinstance(self.engine, str):
@@ -64,18 +64,11 @@ class QFrame(Extract):
         self.data = data
         self.sql = sql or ""
         self.getfields = getfields
-        self.fieldattrs = [
-            "type",
-            "as",
-            "group_by",
-            "expression",
-            "select",
-            "custom_type",
-            "order_by",
-        ]
         self.fieldtypes = ["dim", "num"]
-        self.metaattrs = ["limit", "where", "having"]
         self.dtypes = {}
+        self.chunksize = chunksize
+        self.interface = interface or "sqlalchemy"
+        self.logger = logger or logging.getLogger(__name__)
         super().__init__()
 
     def create_sql_blocks(self):
@@ -115,9 +108,7 @@ class QFrame(Extract):
             print("\033[1m", "DUPLICATED COLUMNS: \n", "\033[0m")
             for key in duplicates.keys():
                 print(f"{key}:\t {duplicates[key]}\n")
-            print(
-                "Use your_qframe.remove() to remove or your_qframe.rename() to rename columns."
-            )
+            print("Use your_qframe.remove() to remove or your_qframe.rename() to rename columns.")
 
         else:
             print("There are no duplicated columns.")
@@ -152,9 +143,7 @@ class QFrame(Extract):
         return self
 
     def build_subquery(self, store_path, subquery, database):
-        return SubqueryUI(store_path=store_path).build_subquery(
-            self, subquery, database
-        )
+        return SubqueryUI(store_path=store_path).build_subquery(self, subquery, database)
 
     def from_json(self, json_path, subquery=""):
         """Reads QFrame.data from json file.
@@ -218,17 +207,18 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> print(qf)
         SELECT CustomerId,
-            Sales
+               Sales
         FROM schema.table
 
         Returns
         -------
         QFrame
         """
-        self.data = self.validate_data(data)
+        self.data = self.validate_data(deepcopy(data))
         return self
 
     def select(self, fields):
@@ -239,19 +229,20 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim', 'as': 'Id'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim', 'as': 'Id'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> print(qf)
         SELECT CustomerId AS Id,
-            Sales
+               Sales
         FROM schema.table
         >>> qf = qf.select(["CustomerId", "Sales"])
         >>> print(qf)
         SELECT sq.Id AS Id,
-            sq.Sales AS Sales
+               sq.Sales AS Sales
         FROM
-        (SELECT CustomerId AS Id,
-                Sales
-        FROM schema.table) sq
+          (SELECT CustomerId AS Id,
+                  Sales
+           FROM schema.table) sq
 
         Parameters
         ----------
@@ -289,13 +280,8 @@ class QFrame(Extract):
                     "type": sq_fields[field]["type"],
                     "as": alias,
                 }
-                if (
-                    "custom_type" in sq_fields[field]
-                    and sq_fields[field]["custom_type"] != ""
-                ):
-                    new_fields[f"sq.{alias}"]["custom_type"] = sq_fields[field][
-                        "custom_type"
-                    ]
+                if "custom_type" in sq_fields[field] and sq_fields[field]["custom_type"] != "":
+                    new_fields[f"sq.{alias}"]["custom_type"] = sq_fields[field]["custom_type"]
 
         if new_fields:
             data = {"select": {"fields": new_fields}, "sq": self.data}
@@ -313,11 +299,12 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> qf = qf.rename({'Sales': 'Billings'})
         >>> print(qf)
         SELECT CustomerId,
-            Sales AS Billings
+               Sales AS Billings
         FROM schema.table
 
         Returns
@@ -326,9 +313,7 @@ class QFrame(Extract):
         """
         for field in fields:
             if field in self.data["select"]["fields"]:
-                self.data["select"]["fields"][field]["as"] = fields[field].replace(
-                    " ", "_"
-                )
+                self.data["select"]["fields"][field]["as"] = fields[field].replace(" ", "_")
         return self
 
     def remove(self, fields):
@@ -341,7 +326,8 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> qf = qf.remove(['Sales'])
         >>> print(qf)
         SELECT CustomerId
@@ -364,7 +350,8 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> qf = qf.distinct()
         >>> print(qf)
         SELECT DISTINCT CustomerId,
@@ -393,11 +380,12 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> qf = qf.query("Sales != 0")
         >>> print(qf)
         SELECT CustomerId,
-            Sales
+               Sales
         FROM schema.table
         WHERE Sales != 0
 
@@ -406,20 +394,14 @@ class QFrame(Extract):
         QFrame
         """
         if if_exists not in ["append", "replace"]:
-            raise ValueError(
-                "Invalid value in if_exists. Valid values: 'append', 'replace'."
-            )
+            raise ValueError("Invalid value in if_exists. Valid values: 'append', 'replace'.")
         if operator not in ["and", "or"]:
             raise ValueError("Invalid value in operator. Valid values: 'and', 'or'.")
 
         if "union" in self.data["select"]:
             print("You can't add where clause inside union. Use select() method first.")
         else:
-            if (
-                "where" not in self.data["select"]
-                or self.data["select"]["where"] == ""
-                or if_exists == "replace"
-            ):
+            if "where" not in self.data["select"] or self.data["select"]["where"] == "" or if_exists == "replace":
                 self.data["select"]["where"] = query
             elif if_exists == "append":
                 self.data["select"]["where"] += f" {operator} {query}"
@@ -439,12 +421,13 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> qf = qf.having("sum(sales)>100")
         >>> print(qf)
         SELECT CustomerId,
-            sum(Sales) AS Sales
+               sum(Sales) AS Sales
         FROM schema.table
         GROUP BY CustomerId
         HAVING sum(sales)>100
@@ -454,9 +437,7 @@ class QFrame(Extract):
         QFrame
         """
         if if_exists not in ["append", "replace"]:
-            raise ValueError(
-                "Invalid value in if_exists. Valid values: 'append', 'replace'."
-            )
+            raise ValueError("Invalid value in if_exists. Valid values: 'append', 'replace'.")
         if operator not in ["and", "or"]:
             raise ValueError("Invalid value in operator. Valid values: 'and', 'or'.")
 
@@ -495,23 +476,24 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> qf = qf.assign(Sales_Div="Sales/100", type='num')
         >>> print(qf)
         SELECT CustomerId,
-            Sales,
-            Sales/100 AS Sales_Div
+               Sales,
+               Sales/100 AS Sales_Div
         FROM schema.table
 
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame().read_dict(data)
         >>> qf = qf.assign(Sales_Positive="CASE WHEN Sales>0 THEN 1 ELSE 0 END")
         >>> print(qf)
         SELECT CustomerId,
-            Sales,
-            CASE
-                WHEN Sales>0 THEN 1
-                ELSE 0
-            END AS Sales_Positive
+               Sales,
+               CASE
+                   WHEN Sales>0 THEN 1
+                   ELSE 0
+               END AS Sales_Positive
         FROM schema.table
 
         Returns
@@ -519,9 +501,7 @@ class QFrame(Extract):
         QFrame
         """
         if type not in ["dim", "num"] and custom_type == "":
-            raise ValueError(
-                "Custom type is not provided and invalid value in type. Valid values: 'dim', 'num'."
-            )
+            raise ValueError("Custom type is not provided and invalid value in type. Valid values: 'dim', 'num'.")
         if group_by.lower() not in [
             "group",
             "sum",
@@ -536,13 +516,9 @@ class QFrame(Extract):
                 "Invalid value in group_by. Valid values: 'group', 'sum', 'count', 'min', 'max', 'avg', 'stddev', ''."
             )
         if order_by.lower() not in ["asc", "desc", ""]:
-            raise ValueError(
-                "Invalid value in order_by. Valid values: 'ASC', 'DESC', ''."
-            )
+            raise ValueError("Invalid value in order_by. Valid values: 'ASC', 'DESC', ''.")
         if "union" in self.data["select"]:
-            print(
-                "You can't assign expressions inside union. Use select() method first."
-            )
+            print("You can't assign expressions inside union. Use select() method first.")
         else:
             if kwargs is not None:
                 for key in kwargs:
@@ -567,11 +543,12 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> print(qf)
         SELECT CustomerId,
-            sum(Sales) AS Sales
+               sum(Sales) AS Sales
         FROM schema.table
         GROUP BY CustomerId
 
@@ -579,9 +556,7 @@ class QFrame(Extract):
         -------
         QFrame
         """
-        assert (
-            "union" not in self.data["select"]
-        ), "You can't group by inside union. Use select() method first."
+        assert "union" not in self.data["select"], "You can't group by inside union. Use select() method first."
 
         if isinstance(fields, str):
             fields = [fields]
@@ -605,8 +580,8 @@ class QFrame(Extract):
         >>> qf = qf.groupby(['CustomerId'])['Sales', 'Orders'].agg('sum')
         >>> print(qf)
         SELECT CustomerId,
-            sum(Sales) AS Sales,
-            sum(Orders) AS Orders
+               sum(Sales) AS Sales,
+               sum(Orders) AS Orders
         FROM schema.table
         GROUP BY CustomerId
 
@@ -647,8 +622,8 @@ class QFrame(Extract):
         >>> qf = qf.groupby(['CustomerId']).sum()
         >>> print(qf)
         SELECT CustomerId,
-            sum(Sales) AS Sales,
-            sum(Orders) AS Orders
+               sum(Sales) AS Sales,
+               sum(Orders) AS Orders
         FROM schema.table
         GROUP BY CustomerId
 
@@ -681,7 +656,7 @@ class QFrame(Extract):
         >>> qf = qf.orderby(["Sales"])
         >>> print(qf)
         SELECT CustomerId,
-            Sales
+               Sales
         FROM schema.table
         ORDER BY Sales
 
@@ -689,7 +664,7 @@ class QFrame(Extract):
         >>> qf = qf.orderby(["Sales"], ascending=False)
         >>> print(qf)
         SELECT CustomerId,
-            Sales
+               Sales
         FROM schema.table
         ORDER BY Sales DESC
 
@@ -730,7 +705,7 @@ class QFrame(Extract):
         >>> qf = qf.limit(100)
         >>> print(qf)
         SELECT CustomerId,
-            Sales
+               Sales
         FROM schema.table
         LIMIT 100
 
@@ -742,6 +717,110 @@ class QFrame(Extract):
 
         return self
 
+    def offset(self, offset):
+        """Adds OFFSET statement.
+
+        Parameters
+        ----------
+        offset : int or str
+            The row from which to start the data.
+
+        Examples
+        --------
+        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = qf.offset(100)
+        >>> print(qf)
+        SELECT CustomerId,
+               Sales
+        FROM schema.table
+        OFFSET 100
+
+        Returns
+        -------
+        QFrame
+        """
+        self.data["select"]["offset"] = str(offset)
+
+        return self
+
+    def window(self, offset: int = None, limit: int = None, deterministic: bool = True):
+        """Sorts records and adds LIMIT and OFFSET parameters to QFrame, creating a chunk.
+
+        Parameters
+        ----------
+        offset : int, optional
+            The row from which to start the data, by default None
+        limit : int, optional
+            Number of rows to select, by default None
+        deterministic : bool, optional
+            Whether the result should be deterministic, by default True
+
+        Examples
+        --------
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
+        >>> qf = qf.window(5, 10)
+        >>> print(qf)
+        SELECT CustomerId,
+               Sales
+        FROM schema.table
+        ORDER BY CustomerId,
+                 Sales
+        OFFSET 5
+        LIMIT 10
+
+        Returns
+        -------
+        QFrame
+        """
+        qf = self.copy()
+        if deterministic:
+            qf.orderby(qf.get_fields())
+        if offset:
+            qf.offset(offset)
+        if limit:
+            qf.limit(limit)
+        return qf
+
+    def cut(self, chunksize: int, deterministic: bool = True):
+        """Divides a QFrame into multiple smaller QFrames, each containing chunksize rows.
+
+        Examples
+        --------
+        >>> playlists = {"select": {"fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}}, "table": "Playlist",}}
+        >>> engine = "sqlite:///" + get_path("grizly_dev", "tests", "Chinook.sqlite")
+        >>> qf = QFrame(engine=engine).read_dict(playlists)
+        >>> qframes = qf.cut(5)
+        >>> len(qframes)
+        4
+
+        Parameters
+        ----------
+        chunksize : int
+            Size of a single chunk
+        deterministic : bool, optional
+            Whether the result should be deterministic, by default True
+
+        Returns
+        -------
+        list
+            List of QFrames
+        """
+        db = "denodo" if "denodo" in self.engine else "redshift"
+        con = SQLDB(db=db, engine_str=self.engine, interface=self.interface).get_connection()
+        query = f"SELECT COUNT(*) FROM ({self.get_sql()})"
+        try:
+            no_rows = con.execute(query).fetchval()
+        except:
+            no_rows = con.execute(query).fetchone()[0]
+        con.close()
+        self.logger.debug(f"Retrieving {no_rows} rows...")
+        qfs = []
+        for chunk in range(1, no_rows, chunksize):  # may need to use no_rows+1
+            qf = self.window(offset=chunk, limit=chunksize, deterministic=deterministic)
+            qfs.append(qf)
+        return qfs
+
     def rearrange(self, fields):
         """Changes order of the columns.
 
@@ -752,11 +831,12 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> qf = qf.rearrange(['Sales', 'CustomerId'])
         >>> print(qf)
         SELECT Sales,
-            CustomerId
+               CustomerId
         FROM schema.table
 
         Returns
@@ -791,7 +871,8 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> qf.get_fields()
         ['CustomerId', 'Sales']
 
@@ -815,7 +896,8 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> qf.get_dtypes()
         ['VARCHAR(500)', 'FLOAT(53)']
 
@@ -833,10 +915,11 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame().read_dict(data)
         >>> print(qf.get_sql())
         SELECT CustomerId,
-            Sales
+               Sales
         FROM schema.table
 
         Returns
@@ -864,7 +947,7 @@ class QFrame(Extract):
         """
         engine_str = engine_str or self.engine
         self.create_sql_blocks()
-        sqldb = SQLDB(db="redshift", engine_str=engine_str)
+        sqldb = SQLDB(db="redshift", engine_str=engine_str, interface=self.interface)
         sqldb.create_table(
             columns=self.get_fields(aliased=True),
             types=self.get_dtypes(),
@@ -874,9 +957,7 @@ class QFrame(Extract):
         )
         return self
 
-    @deprecation.deprecated(
-        details="Use QFrame.to_csv, S3.from_file and S3.to_rds instead",
-    )
+    @deprecation.deprecated(details="Use QFrame.to_csv, S3.from_file and S3.to_rds instead",)
     def to_rds(
         self,
         table,
@@ -923,7 +1004,7 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> engine_string = "sqlite:///" + get_path("dev", "grizly", "tests", "Chinook.sqlite")
+        >>> engine_string = "sqlite:///" + get_path("grizly_dev", "tests", "Chinook.sqlite")
         >>> playlist_track = {"select": {"fields":{"PlaylistId": {"type" : "dim"}, "TrackId": {"type" : "dim"}}, "table" : "PlaylistTrack"}}
         >>> qf = QFrame(engine=engine_string).read_dict(playlist_track).limit(5)
         >>> qf = qf.to_rds(table='test', csv_path=get_path('test.csv'), schema='sandbox', if_exists='replace', redshift_str='mssql+pyodbc://redshift_acoe', bucket='acoe-s3', keep_csv=False)
@@ -947,11 +1028,7 @@ class QFrame(Extract):
         else:
             column_order = None
         s3.to_rds(
-            table=table,
-            schema=schema,
-            if_exists=if_exists,
-            sep=sep,
-            column_order=column_order,
+            table=table, schema=schema, if_exists=if_exists, sep=sep, column_order=column_order,
         )
         return self
 
@@ -976,7 +1053,7 @@ class QFrame(Extract):
         QFrame
         """
         self.create_sql_blocks()
-        sqldb = SQLDB(db="redshift", engine_str=self.engine)
+        sqldb = SQLDB(db="redshift", engine_str=self.engine, interface=self.interface)
         sqldb.create_table(
             columns=self.get_fields(aliased=True),
             types=self.get_dtypes(),
@@ -985,31 +1062,75 @@ class QFrame(Extract):
             char_size=char_size,
         )
         sqldb.write_to(
-            table=table,
-            columns=self.get_fields(aliased=True),
-            sql=self.get_sql(),
-            schema=schema,
-            if_exists=if_exists,
+            table=table, columns=self.get_fields(aliased=True), sql=self.get_sql(), schema=schema, if_exists=if_exists,
         )
         return self
 
-    def to_df(self):
+    def to_df(self, db="redshift", chunksize: int = None):
         """Writes QFrame to DataFrame. Uses pandas.read_sql.
 
         TODO: DataFarme types should correspond to types defined in QFrame data.
 
+        Parameters
+        ---------
+        db : not really used but has to be provided
+        
         Returns
         -------
         DataFrame
             Data generated from sql.
         """
         sql = self.get_sql()
-        sqldb = SQLDB(db="redshift", engine_str=self.engine)
+        sqldb = SQLDB(db=db, engine_str=self.engine, interface=self.interface, logger=self.logger)
         con = sqldb.get_connection()
-        df = read_sql(sql=sql, con=con)
-        self.df = df
+        offset = 0
+        dfs = []
+        if chunksize:
+            if not "limit" in sql.lower():  # respect existing LIMIT
+                while True:
+                    chunk_sql = sql + f"\nOFFSET {offset} LIMIT {self.chunksize}"
+                    chunk_df = pd.read_sql(chunk_sql, con)
+                    dfs.append(chunk_df)
+                    offset += chunksize
+                    if len(dfs[-1]) < chunksize:
+                        break
+                df = pd.concat(dfs)
+            else:
+                self.logger.warning(f"LIMIT already exists in query. Chunksize will not be applied")
+        else:
+            df = pd.read_sql(sql, con)
+
+        # df = read_sql(sql=sql, con=con)
+        # import io
+        # from sqlalchemy import create_engine
+        # copy_sql = f"COPY ({sql}) TO STDOUT WITH CSV HEADER"
+        # engine_str = "mssql+pyodbc://DenodoPROD"
+        # engine = create_engine(engine_str)
+        # conn = engine.raw_connection()
+        # cur = conn.cursor()
+        # store = io.StringIO()
+        # cur.copy_expert(copy_sql, store)
+        # store.seek(0)
+        # df = read_csv(store)
+        # self.df = df
         con.close()
+        del sqldb
         return df
+
+    def to_arrow(self, db="redshift", debug=False):
+        sql = self.get_sql()
+        sqldb = SQLDB(db=db, engine_str=self.engine, interface="turbodbc", logger=self.logger)
+        con = sqldb.get_connection()
+        cursor = con.cursor()
+        cursor.execute(sql)
+        rowcount = cursor.rowcount
+        batches = cursor.fetcharrowbatches(strings_as_dictionary=True)  # string_as.. - similar to pd.Categorical
+        arrow_table = pa.concat_tables(batches)
+        cursor.close()
+        con.close()
+        if debug:
+            return arrow_table, rowcount
+        return arrow_table
 
     def to_sql(
         self,
@@ -1060,7 +1181,7 @@ class QFrame(Extract):
             * callable with signature ``(pd_table, conn, keys, data_iter)``.
         """
         df = self.to_df()
-        sqldb = SQLDB(db="redshift", engine_str=self.engine)
+        sqldb = SQLDB(db="redshift", engine_str=self.engine, interface=self.interface)
         con = sqldb.get_connection()
 
         df.to_sql(
@@ -1094,25 +1215,12 @@ class QFrame(Extract):
         -------
         QFrame
         """
-        s3 = S3(
-            file_name=os.path.basename(csv_path),
-            s3_key=s3_key,
-            bucket=bucket,
-            file_dir=os.path.dirname(csv_path),
-        )
+        s3 = S3(file_name=os.path.basename(csv_path), s3_key=s3_key, bucket=bucket, file_dir=os.path.dirname(csv_path),)
         return s3.from_file(keep_file=keep_csv)
 
     @deprecation.deprecated(details="Use S3.to_rds function instead",)
     def s3_to_rds(
-        self,
-        table,
-        s3_name,
-        schema="",
-        if_exists="fail",
-        sep="\t",
-        use_col_names=True,
-        redshift_str=None,
-        bucket=None,
+        self, table, s3_name, schema="", if_exists="fail", sep="\t", use_col_names=True, redshift_str=None, bucket=None,
     ):
         """Writes s3 to Redshift database.
 
@@ -1146,19 +1254,13 @@ class QFrame(Extract):
         """
         file_name = s3_name.split("/")[-1]
         s3_key = "/".join(s3_name.split("/")[:-1])
-        s3 = S3(
-            file_name=file_name, s3_key=s3_key, bucket=bucket, redshift_str=redshift_str
-        )
+        s3 = S3(file_name=file_name, s3_key=s3_key, bucket=bucket, redshift_str=redshift_str)
         if use_col_names:
             column_order = self.get_fields(aliased=True)
         else:
             column_order = None
         s3.to_rds(
-            table=table,
-            schema=schema,
-            if_exists=if_exists,
-            sep=sep,
-            column_order=column_order,
+            table=table, schema=schema, if_exists=if_exists, sep=sep, column_order=column_order,
         )
         return self
 
@@ -1173,7 +1275,8 @@ class QFrame(Extract):
         engine = deepcopy(self.engine)
         sql = deepcopy(self.sql)
         getfields = deepcopy(self.getfields)
-        return QFrame(data=data, engine=engine, sql=sql, getfields=getfields)
+        logger = self.logger
+        return QFrame(data=data, engine=engine, sql=sql, getfields=getfields, logger=self.logger)
 
     def __str__(self):
         sql = self.get_sql()
@@ -1224,13 +1327,13 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     >>> playlist_track_qf = QFrame().read_dict(playlist_track)
     >>> print(playlist_track_qf)
     SELECT PlaylistId,
-        TrackId
+           TrackId
     FROM PlaylistTrack
     >>> playlists = {"select": {"fields": {"PlaylistId": {"type" : "dim"}, "Name": {"type" : "dim"}}, "table" : "Playlist"}}
     >>> playlists_qf = QFrame().read_dict(playlists)
     >>> print(playlists_qf)
     SELECT PlaylistId,
-        Name
+           Name
     FROM Playlist
     >>> joined_qf = join(qframes=[playlist_track_qf, playlists_qf], join_type='left join', on='sq1.PlaylistId=sq2.PlaylistId')
     Data joined successfully.
@@ -1252,13 +1355,9 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     QFrame
     """
     assert (
-        len(qframes) == len(join_type) + 1
-        or len(qframes) == 2
-        and isinstance(join_type, str)
+        len(qframes) == len(join_type) + 1 or len(qframes) == 2 and isinstance(join_type, str)
     ), "Incorrect list size."
-    assert (
-        len(qframes) == 2 and isinstance(on, (int, str)) or len(join_type) == len(on)
-    ), "Incorrect list size."
+    assert len(qframes) == 2 and isinstance(on, (int, str)) or len(join_type) == len(on), "Incorrect list size."
 
     data = {"select": {"fields": {}}}
     aliases = []
@@ -1280,22 +1379,15 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
             else:
                 aliases.append(alias)
                 for field in sq["fields"]:
-                    if (
-                        field == alias
-                        or "as" in sq["fields"][field]
-                        and sq["fields"][field]["as"] == alias
-                    ):
+                    if field == alias or "as" in sq["fields"][field] and sq["fields"][field]["as"] == alias:
                         data["select"]["fields"][f"sq{iterator}.{alias}"] = {
                             "type": sq["fields"][field]["type"],
                             "as": alias,
                         }
-                        if (
-                            "custom_type" in sq["fields"][field]
-                            and sq["fields"][field]["custom_type"] != ""
-                        ):
-                            data["select"]["fields"][f"sq{iterator}.{alias}"][
+                        if "custom_type" in sq["fields"][field] and sq["fields"][field]["custom_type"] != "":
+                            data["select"]["fields"][f"sq{iterator}.{alias}"]["custom_type"] = sq["fields"][field][
                                 "custom_type"
-                            ] = sq["fields"][field]["custom_type"]
+                            ]
                         break
 
     if isinstance(join_type, str):
@@ -1356,18 +1448,14 @@ def union(qframes=[], union_type=None, union_by="position"):
     if isinstance(union_type, str):
         union_type = [union_type]
 
-    assert (
-        len(qframes) >= 2
-    ), "You have to specify at least 2 qframes to perform a union."
+    assert len(qframes) >= 2, "You have to specify at least 2 qframes to perform a union."
     assert len(qframes) == len(union_type) + 1, "Incorrect list size."
     assert set(item.upper() for item in union_type) <= {
         "UNION",
         "UNION ALL",
     }, "Incorrect union type. Valid types: 'UNION', 'UNION ALL'."
     if union_by not in {"position", "name"}:
-        raise ValueError(
-            "Invalid value for union_by. Valid values: 'position', 'name'."
-        )
+        raise ValueError("Invalid value for union_by. Valid values: 'position', 'name'.")
 
     data = {"select": {"fields": {}}}
 
@@ -1398,11 +1486,7 @@ def union(qframes=[], union_type=None, union_by="position"):
             for new_field in new_fields:
                 fields = deepcopy(qf.data["select"]["fields"])
                 for field in fields:
-                    if (
-                        field == new_field
-                        or "as" in fields[field]
-                        and fields[field]["as"] == new_field
-                    ):
+                    if field == new_field or "as" in fields[field] and fields[field]["as"] == new_field:
                         ordered_fields.append(field)
                         break
             qf.rearrange(ordered_fields)
@@ -1430,13 +1514,8 @@ def union(qframes=[], union_type=None, union_by="position"):
                 alias = field
 
             data["select"]["fields"][alias] = {"type": old_fields[field]["type"]}
-            if (
-                "custom_type" in old_fields[field]
-                and old_fields[field]["custom_type"] != ""
-            ):
-                data["select"]["fields"][alias]["custom_type"] = old_fields[field][
-                    "custom_type"
-                ]
+            if "custom_type" in old_fields[field] and old_fields[field]["custom_type"] != "":
+                data["select"]["fields"][alias]["custom_type"] = old_fields[field]["custom_type"]
 
     data["select"]["union"] = {"union_type": union_type}
 
@@ -1453,12 +1532,7 @@ def _validate_data(data):
 
     select = data["select"]
 
-    if (
-        "table" not in select
-        and "join" not in select
-        and "union" not in select
-        and "sq" not in data
-    ):
+    if "table" not in select and "join" not in select and "union" not in select and "sq" not in data:
         raise AttributeError("Missing 'table' attribute.")
 
     if "fields" not in select:
@@ -1519,10 +1593,7 @@ def _validate_data(data):
                 raise ValueError(
                     f"""Field '{field}' has invalid value in  group_by: '{group_by}'. Valid values: '', 'group', 'sum', 'count', 'max', 'min', 'avg','stddev' """
                 )
-            elif (
-                group_by.upper() in ["SUM", "COUNT", "MAX", "MIN", "AVG", "STDDEV"]
-                and field_type != "num"
-            ):
+            elif group_by.upper() in ["SUM", "COUNT", "MAX", "MIN", "AVG", "STDDEV"] and field_type != "num":
                 raise ValueError(
                     f"Field '{field}' has value '{field_type}' in type and value '{group_by}' in group_by. In case of aggregation type should be 'num'."
                 )
@@ -1544,25 +1615,26 @@ def _validate_data(data):
     if "distinct" in select and select["distinct"] != "":
         distinct = select["distinct"]
         if str(int(distinct)) != "1":
-            raise ValueError(
-                f"""Distinct attribute has invalid value: '{distinct}'.  Valid values: '', '1'"""
-            )
+            raise ValueError(f"""Distinct attribute has invalid value: '{distinct}'.  Valid values: '', '1'""")
+
+    if "offset" in select and select["offset"] != "":
+        offset = select["offset"]
+        try:
+            int(offset)
+        except:
+            raise ValueError(f"""Limit attribute has invalid value: '{offset}'.  Valid values: '', integer """)
 
     if "limit" in select and select["limit"] != "":
         limit = select["limit"]
         try:
             int(limit)
         except:
-            raise ValueError(
-                f"""Limit attribute has invalid value: '{limit}'.  Valid values: '', integer """
-            )
+            raise ValueError(f"""Limit attribute has invalid value: '{limit}'.  Valid values: '', integer """)
 
     return data
 
 
-def initiate(
-    columns, schema, table, json_path, engine_str="", subquery="", col_types=None
-):
+def initiate(columns, schema, table, json_path, engine_str="", subquery="", col_types=None):
     """Creates a dictionary with fields information for a Qframe and saves the data in json file.
 
     Parameters
@@ -1627,6 +1699,7 @@ def initiate(
             "where": "",
             "distinct": "",
             "having": "",
+            "offset": "",
             "limit": "",
         }
     }
@@ -1647,11 +1720,7 @@ def _get_duplicated_columns(data):
     fields = data["select"]["fields"]
 
     for field in fields:
-        alias = (
-            field
-            if "as" not in fields[field] or fields[field]["as"] == ""
-            else fields[field]["as"]
-        )
+        alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
         if alias in columns.keys():
             columns[alias].append(field)
         else:
@@ -1688,11 +1757,7 @@ def _build_column_strings(data):
             if "expression" not in fields[field] or fields[field]["expression"] == ""
             else fields[field]["expression"]
         )
-        alias = (
-            field
-            if "as" not in fields[field] or fields[field]["as"] == ""
-            else fields[field]["as"]
-        )
+        alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
 
         if "group_by" in fields[field]:
             if fields[field]["group_by"].upper() == "GROUP":
@@ -1716,11 +1781,7 @@ def _build_column_strings(data):
                 expr = f"{agg}({expr})"
                 group_values.append(alias)
 
-        if (
-            "select" not in fields[field]
-            or "select" in fields[field]
-            and fields[field]["select"] == ""
-        ):
+        if "select" not in fields[field] or "select" in fields[field] and fields[field]["select"] == "":
             select_name = field if expr == alias else f"{expr} as {alias}"
 
             if "custom_type" in fields[field] and fields[field]["custom_type"] != "":
@@ -1786,9 +1847,7 @@ def _get_sql(data):
 
         if "table" in data["select"]:
             if "schema" in data["select"] and data["select"]["schema"] != "":
-                sql += " FROM {}.{}".format(
-                    data["select"]["schema"], data["select"]["table"]
-                )
+                sql += " FROM {}.{}".format(data["select"]["schema"], data["select"]["table"])
             else:
                 sql += " FROM {}".format(data["select"]["table"])
 
@@ -1809,11 +1868,7 @@ def _get_sql(data):
                     sql += f" ON {on}"
                 iterator += 1
 
-        elif (
-            "table" not in data["select"]
-            and "join" not in data["select"]
-            and "sq" in data
-        ):
+        elif "table" not in data["select"] and "join" not in data["select"] and "sq" in data:
             sq_data = deepcopy(data["sq"])
             sq = _get_sql(sq_data)
             sql += f" FROM ({sq}) sq"
@@ -1831,6 +1886,9 @@ def _get_sql(data):
     if data["select"]["sql_blocks"]["order_by"] != []:
         order_by = ", ".join(data["select"]["sql_blocks"]["order_by"])
         sql += f" ORDER BY {order_by}"
+
+    if "offset" in data["select"] and data["select"]["offset"] != "":
+        sql += " OFFSET {}".format(data["select"]["offset"])
 
     if "limit" in data["select"] and data["select"]["limit"] != "":
         sql += " LIMIT {}".format(data["select"]["limit"])

@@ -32,10 +32,7 @@ orders = {
 
 customers = {
     "select": {
-        "fields": {
-            "Country": {"type": "dim", "as": "Country"},
-            "Customer": {"type": "dim", "as": "Customer"},
-        },
+        "fields": {"Country": {"type": "dim", "as": "Country"}, "Customer": {"type": "dim", "as": "Customer"},},
         "table": "Customers",
     }
 }
@@ -104,9 +101,7 @@ def test_create_sql_blocks():
         "Customer",
         "Value",
     ]
-    assert q.create_sql_blocks().data["select"]["sql_blocks"] == _build_column_strings(
-        q.data
-    )
+    assert q.create_sql_blocks().data["select"]["sql_blocks"] == _build_column_strings(q.data)
 
 
 def test_rename():
@@ -152,9 +147,7 @@ def test_assign():
     q = QFrame().read_dict(deepcopy(orders))
     value_x_two = "Value * 2"
     q.assign(value_x_two=value_x_two, type="num")
-    q.assign(
-        extract_date="format('yyyy-MM-dd', '2019-04-05 13:00:09')", custom_type="date"
-    )
+    q.assign(extract_date="format('yyyy-MM-dd', '2019-04-05 13:00:09')", custom_type="date")
     q.assign(Value_div="Value/100", type="num", order_by="DESC")
     assert q.data["select"]["fields"]["value_x_two"]["expression"] == "Value * 2"
     assert q.data["select"]["fields"]["Value_div"] == {
@@ -339,19 +332,11 @@ def test_to_df():
     assert df_from_qf.equals(test_df)
 
 
-playlists = {
-    "select": {
-        "fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}},
-        "table": "Playlist",
-    }
-}
+playlists = {"select": {"fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}}, "table": "Playlist",}}
 
 
 playlist_track = {
-    "select": {
-        "fields": {"PlaylistId": {"type": "dim"}, "TrackId": {"type": "dim"}},
-        "table": "PlaylistTrack",
-    }
+    "select": {"fields": {"PlaylistId": {"type": "dim"}, "TrackId": {"type": "dim"}}, "table": "PlaylistTrack",}
 }
 
 
@@ -377,18 +362,10 @@ def test_copy():
     qf = QFrame().read_dict(deepcopy(playlist_track))
 
     qf_copy = qf.copy()
-    assert (
-        qf_copy.data == qf.data
-        and qf_copy.sql == qf.sql
-        and qf_copy.engine == qf.engine
-    )
+    assert qf_copy.data == qf.data and qf_copy.sql == qf.sql and qf_copy.engine == qf.engine
 
     qf_copy.remove("TrackId").get_sql()
-    assert (
-        qf_copy.data != qf.data
-        and qf_copy.sql != qf.sql
-        and qf_copy.engine == qf.engine
-    )
+    assert qf_copy.data != qf.data and qf_copy.sql != qf.sql and qf_copy.engine == qf.engine
 
 
 def test_join_1():
@@ -397,11 +374,7 @@ def test_join_1():
     playlist_track_qf = QFrame(engine=engine_string).read_dict(deepcopy(playlist_track))
     playlists_qf = QFrame(engine=engine_string).read_dict(deepcopy(playlists))
 
-    joined_qf = join(
-        [playlist_track_qf, playlists_qf],
-        join_type="left join",
-        on="sq1.PlaylistId=sq2.PlaylistId",
-    )
+    joined_qf = join([playlist_track_qf, playlists_qf], join_type="left join", on="sq1.PlaylistId=sq2.PlaylistId",)
     joined_df = joined_qf.to_df()
 
     # using pandas
@@ -535,9 +508,7 @@ def test_union():
     sql = unioned_qf.get_sql()
 
     assert clean_testexpr(sql) == clean_testexpr(testsql)
-    assert unioned_qf.to_df().equals(
-        concat([playlists_qf.to_df(), playlists_qf.to_df()], ignore_index=True)
-    )
+    assert unioned_qf.to_df().equals(concat([playlists_qf.to_df(), playlists_qf.to_df()], ignore_index=True))
 
     qf1 = playlists_qf.copy()
     qf1.rename({"Name": "Old_name"})
@@ -571,12 +542,7 @@ def test_initiate():
     json = "test.json"
     sq = "test"
     initiate(
-        columns=columns,
-        schema="test_schema",
-        table="test_table",
-        engine_str="engine",
-        json_path=json,
-        subquery=sq,
+        columns=columns, schema="test_schema", table="test_table", engine_str="engine", json_path=json, subquery=sq,
     )
     q = QFrame().read_json(json_path=json, subquery=sq)
     os.remove("test.json")
@@ -590,3 +556,12 @@ def test_initiate():
     sql = q.get_sql()
     assert clean_testexpr(sql) == clean_testexpr(testsql)
 
+
+def test_pyodbc_interface():
+    qf = QFrame(engine="mssql+pyodbc://redshift_acoe", interface="pyodbc").read_dict(
+        data={"select": {"fields": {"col1": {"type": "dim"}}, "schema": "administration", "table": "table_tutorial"}}
+    )
+    assert qf.interface == "pyodbc"
+
+    df = qf.to_df(db="redshift")
+    assert not df.empty

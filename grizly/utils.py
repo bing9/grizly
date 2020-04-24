@@ -9,9 +9,7 @@ from functools import partial
 import deprecation
 import logging
 
-deprecation.deprecated = partial(
-    deprecation.deprecated, deprecated_in="0.3", removed_in="0.4"
-)
+deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
 logger = logging.getLogger(__name__)
 
@@ -83,20 +81,14 @@ def get_sfdc_columns(table, columns=None, column_types=True):
     sfdc_pw = config["sfdc_password"]
 
     try:
-        sf = Salesforce(
-            password=sfdc_pw, username=sfdc_username, organizationId="00DE0000000Hkve"
-        )
+        sf = Salesforce(password=sfdc_pw, username=sfdc_username, organizationId="00DE0000000Hkve")
     except SalesforceAuthenticationFailed:
         logger.info(
             "Could not log in to SFDC. Are you sure your password hasn't expired and your proxy is set up correctly?"
         )
         raise SalesforceAuthenticationFailed
-    field_descriptions = eval(
-        f'sf.{table}.describe()["fields"]'
-    )  # change to variable table
-    types = {
-        field["name"]: (field["type"], field["length"]) for field in field_descriptions
-    }
+    field_descriptions = eval(f'sf.{table}.describe()["fields"]')  # change to variable table
+    types = {field["name"]: (field["type"], field["length"]) for field in field_descriptions}
 
     if columns:
         fields = columns
@@ -117,15 +109,6 @@ def get_sfdc_columns(table, columns=None, column_types=True):
         return dtypes
     else:
         raise NotImplementedError("Retrieving columns only is currently not supported")
-
-
-def set_cwd(*args):
-    try:
-        cwd = os.environ["USERPROFILE"]
-    except KeyError:
-        cwd = "Error with UserProfile"
-    cwd = os.path.join(cwd, *args)
-    return cwd
 
 
 def get_path(*args, from_where="python"):
@@ -153,9 +136,7 @@ def get_path(*args, from_where="python"):
         elif platform.startswith("win"):
             home_env = "USERPROFILE"
         else:
-            raise NotImplementedError(
-                f"Unable to retrieve home env variable for {platform}"
-            )
+            raise NotImplementedError(f"Unable to retrieve home env variable for {platform}")
 
         home_path = os.getenv(home_env) or "/root"
         cwd = os.path.join(home_path, *args)
@@ -165,6 +146,10 @@ def get_path(*args, from_where="python"):
         cwd = os.path.abspath("")
         cwd = os.path.join(cwd, *args)
         return cwd
+
+
+def set_cwd(*args):
+    return get_path(*args)
 
 
 def file_extension(file_path: str):
@@ -187,12 +172,8 @@ def clean_colnames(df):
 
     reserved_words = ["user"]
 
-    df.columns = df.columns.str.strip().str.replace(
-        " ", "_"
-    )  # Redshift won't accept column names with spaces
-    df.columns = [
-        f'"{col}"' if col.lower() in reserved_words else col for col in df.columns
-    ]
+    df.columns = df.columns.str.strip().str.replace(" ", "_")  # Redshift won't accept column names with spaces
+    df.columns = [f'"{col}"' if col.lower() in reserved_words else col for col in df.columns]
 
     return df
 
@@ -237,9 +218,7 @@ def clean(df):
         df_string_cols.applymap(remove_inside_quotes)
         .applymap(remove_inside_single_quote)
         .replace(to_replace="\\", value="")
-        .replace(
-            to_replace="\n", value="", regex=True
-        )  # regex=True means "find anywhere within the string"
+        .replace(to_replace="\n", value="", regex=True)  # regex=True means "find anywhere within the string"
     )
     df.loc[:, df.columns.isin(df_string_cols.columns)] = df_string_cols
 

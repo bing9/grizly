@@ -28,7 +28,7 @@ class Crosstab:
             )
         for group in df[dimensions].values:
             filters = [
-                f"`{column}`=='{item}'" for column, item in zip(dimensions, group)
+                f""" `{column}`=="{item}" """ for column, item in zip(dimensions, group)
             ]
             query = " and ".join(filters)
             group = tuple(group)
