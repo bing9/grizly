@@ -15,6 +15,7 @@ from os.path import basename
 import os
 import logging
 from typing import Union, List
+from time import sleep
 
 
 class EmailAccount:
@@ -250,7 +251,12 @@ class Email:
         try:
             m.send_and_save()
         except Exception as e:
-            self.logger.exception(f"Email not sent.")
-            raise
+            # retry once
+            sleep(1)
+            try:
+                m.send_and_save()
+            except:
+                self.logger.exception(f"Email not sent.")
+                raise
 
         return None

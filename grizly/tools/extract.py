@@ -3,6 +3,7 @@ import pandas as pd
 import openpyxl
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
+from .sqldb import SQLDB
 import logging
 from os.path import basename
 
@@ -19,7 +20,7 @@ class Extract:
         if self.tool_name == "QFrame":
             self.sql = self.get_sql()
             if "denodo" in self.engine.lower():
-                self.sql += " CONTEXT('swap' = 'ON', 'swapsize' = '400', 'swapblocksize' = '1000', 'maxresultsize' = '100', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'off')"
+                self.sql += " CONTEXT('swap' = 'ON', 'swapsize' = '400', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'off')"
             row_count = to_csv(
                 columns=self.get_fields(aliased=True),
                 csv_path=csv_path,
@@ -28,6 +29,7 @@ class Extract:
                 sep=sep,
                 chunksize=chunksize,
                 cursor=cursor,
+                interface=self.interface
             )
             self.logger.info(f"Successfully wrote to '{basename(csv_path)}'")
             if debug:
@@ -121,7 +123,7 @@ def copy_df_to_excel(
 
 
 def to_csv(
-    columns, csv_path, sql, engine=None, sep="\t", chunksize=None, debug=False, cursor=None,
+    columns, csv_path, sql, engine=None, sep="\t", chunksize=None, debug=False, cursor=None, interface=None
 ):
     """
     Writes table to csv file.
@@ -140,24 +142,31 @@ def to_csv(
     cursor : Cursor, optional
         The cursor to be used to execute the SQL, by default None
     """
+    interface = interface or "sqlalchemy"
     if cursor:
         cursor.execute(sql)
         close_cursor = False
 
     else:
-        engine = create_engine(engine, encoding="utf8", poolclass=NullPool)
-
-        try:
-            con = engine.connect().connection
-            cursor = con.cursor()
-            cursor.execute(sql)
-        except:
+        db = "denodo" if "denodo" in engine else "redshift"
+        
+        if interface == "sqlalchemy":
+            engine = create_engine(engine)
             try:
                 con = engine.connect().connection
                 cursor = con.cursor()
                 cursor.execute(sql)
             except:
-                raise
+                try:
+                    con = engine.connect().connection
+                    cursor = con.cursor()
+                    cursor.execute(sql)
+                except:
+                    raise
+        else:
+            con = SQLDB(db=db, engine_str=engine, interface=interface).get_connection()
+            cursor = con.cursor()
+            cursor.execute(sql)
 
         close_cursor = True
 

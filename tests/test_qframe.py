@@ -565,3 +565,15 @@ def test_pyodbc_interface():
 
     df = qf.to_df(db="redshift")
     assert not df.empty
+
+
+def test_cut():
+    qf = QFrame(engine=engine_string).read_dict(deepcopy(playlists))
+    assert len(qf) == 18
+
+    qframes = qf.cut(1)
+    test_len = 0
+    for q in qframes:
+        test_len += len(q)
+    len(qframes)
+    assert len(qf) == test_len

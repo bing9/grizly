@@ -18,6 +18,8 @@ from .extract import Extract
 import deprecation
 from functools import partial
 
+from sqlalchemy import create_engine
+
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
 
@@ -266,10 +268,10 @@ class QFrame(Extract):
 
         for field in fields:
             if field not in sq_fields:
-                logger.debug(f"Field {field} not found")
+                self.logger.debug(f"Field {field} not found")
 
             elif "select" in sq_fields[field] and sq_fields[field]["select"] == 0:
-                logger.debug(f"Field {field} is not selected in subquery.")
+                self.logger.debug(f"Field {field} is not selected in subquery.")
 
             else:
                 if "as" in sq_fields[field] and sq_fields[field]["as"] != "":
@@ -609,7 +611,7 @@ class QFrame(Extract):
                 if field in self.data["select"]["fields"]:
                     self.data["select"]["fields"][field]["group_by"] = aggtype
                 else:
-                    logger.debug("Field not found.")
+                    self.logger.debug("Field not found.")
 
         return self
 
@@ -685,7 +687,7 @@ class QFrame(Extract):
                 order = "ASC" if ascending[iterator] else "DESC"
                 self.data["select"]["fields"][field]["order_by"] = order
             else:
-                logger.debug(f"Field {field} not found.")
+                self.logger.debug(f"Field {field} not found.")
 
             iterator += 1
 
@@ -774,11 +776,11 @@ class QFrame(Extract):
         QFrame
         """
         qf = self.copy()
-        if deterministic:
+        if deterministic is not None:
             qf.orderby(qf.get_fields())
-        if offset:
+        if offset is not None:
             qf.offset(offset)
-        if limit:
+        if limit is not None:
             qf.limit(limit)
         return qf
 
@@ -808,7 +810,7 @@ class QFrame(Extract):
         """
         db = "denodo" if "denodo" in self.engine else "redshift"
         con = SQLDB(db=db, engine_str=self.engine, interface=self.interface).get_connection()
-        query = f"SELECT COUNT(*) FROM ({self.get_sql()})"
+        query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
         try:
             no_rows = con.execute(query).fetchval()
         except:
@@ -816,7 +818,7 @@ class QFrame(Extract):
         con.close()
         self.logger.debug(f"Retrieving {no_rows} rows...")
         qfs = []
-        for chunk in range(1, no_rows, chunksize):  # may need to use no_rows+1
+        for chunk in range(0, no_rows, chunksize):  # may need to use no_rows+1
             qf = self.window(offset=chunk, limit=chunksize, deterministic=deterministic)
             qfs.append(qf)
         return qfs
@@ -881,9 +883,8 @@ class QFrame(Extract):
         list
             List of field names
         """
-
         if aliased:
-            self.get_sql(0)
+            self.create_sql_blocks()
             fields = self.data["select"]["sql_blocks"]["select_aliases"]
         else:
             fields = list(self.data["select"]["fields"].keys()) if self.data else []
@@ -906,7 +907,7 @@ class QFrame(Extract):
         list
             List of field data dtypes
         """
-        self.get_sql(0)
+        self.create_sql_blocks()
         dtypes = self.data["select"]["sql_blocks"]["types"]
         return dtypes
 
@@ -1081,25 +1082,31 @@ class QFrame(Extract):
             Data generated from sql.
         """
         sql = self.get_sql()
-        sqldb = SQLDB(db=db, engine_str=self.engine, interface=self.interface, logger=self.logger)
-        con = sqldb.get_connection()
-        offset = 0
-        dfs = []
-        if chunksize:
-            if not "limit" in sql.lower():  # respect existing LIMIT
-                while True:
-                    chunk_sql = sql + f"\nOFFSET {offset} LIMIT {self.chunksize}"
-                    chunk_df = pd.read_sql(chunk_sql, con)
-                    dfs.append(chunk_df)
-                    offset += chunksize
-                    if len(dfs[-1]) < chunksize:
-                        break
-                df = pd.concat(dfs)
-            else:
-                self.logger.warning(f"LIMIT already exists in query. Chunksize will not be applied")
-        else:
+        if "denodo" in self.engine.lower():
+           sql += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
+        # sqldb = SQLDB(db=db, engine_str=self.engine, interface=self.interface, logger=self.logger)
+        # con = sqldb.get_connection()
+        # offset = 0
+        # dfs = []
+        # if chunksize:
+        #     if not "limit" in sql.lower():  # respect existing LIMIT
+        #         while True:
+        #             chunk_sql = sql + f"\nOFFSET {offset} LIMIT {self.chunksize}"
+        #             chunk_df = pd.read_sql(chunk_sql, con)
+        #             dfs.append(chunk_df)
+        #             offset += chunksize
+        #             if len(dfs[-1]) < chunksize:
+        #                 break
+        #         df = pd.concat(dfs)
+        #     else:
+        #         self.logger.warning(f"LIMIT already exists in query. Chunksize will not be applied")
+        engine = create_engine(self.engine)
+        con = engine.raw_connection()
+        try:
             df = pd.read_sql(sql, con)
-
+        except:
+            self.logger.warning("Query returned no results")
+            df = pd.DataFrame()
         # df = read_sql(sql=sql, con=con)
         # import io
         # from sqlalchemy import create_engine
@@ -1113,8 +1120,9 @@ class QFrame(Extract):
         # store.seek(0)
         # df = read_csv(store)
         # self.df = df
-        con.close()
-        del sqldb
+        finally:
+            con.close()
+            engine.dispose()
         return df
 
     def to_arrow(self, db="redshift", debug=False):
@@ -1272,15 +1280,26 @@ class QFrame(Extract):
         QFrame
         """
         data = deepcopy(self.data)
-        engine = deepcopy(self.engine)
-        sql = deepcopy(self.sql)
+        engine = self.engine
+        sql = self.sql
         getfields = deepcopy(self.getfields)
         logger = self.logger
-        return QFrame(data=data, engine=engine, sql=sql, getfields=getfields, logger=self.logger)
+        interface = self.interface
+        return QFrame(data=data, engine=engine, sql=sql, getfields=getfields, logger=logger, interface=interface)
 
     def __str__(self):
         sql = self.get_sql()
         return sql
+
+    def __len__(self):
+        db = "denodo" if "denodo" in self.engine else "redshift"
+        con = SQLDB(db=db, engine_str=self.engine, interface=self.interface).get_connection()
+        query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
+        try:
+            no_rows = con.execute(query).fetchval()
+        except:
+            no_rows = con.execute(query).fetchone()[0]
+        return no_rows
 
     def __getitem__(self, getfields):
         if isinstance(getfields, str):
