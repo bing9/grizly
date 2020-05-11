@@ -11,7 +11,7 @@ from json.decoder import JSONDecodeError
 from logging import Logger
 from time import sleep, time
 from typing import Any, Dict, Iterable, List
-from distributed import Client
+from distributed import Client, Future
 from ..tools.s3 import S3
 
 import dask
@@ -631,6 +631,9 @@ class Workflow:
 
         if not client:
             client = Client(client_address)
+
+        self.client_str = client.scheduler.address
+        
         computation = client.compute(self.graph, retries=3, priority=priority)
         fire_and_forget(computation)
         self.status = "submitted"
@@ -803,6 +806,12 @@ class Workflow:
             )
 
         return self.status
+
+    def cancel(self):
+        client = Client(self.client_str)
+        f = Future(self.name+"_graph", client=client)
+        f.cancel(force=True)
+        client.close()
 
 
 class Runner:
