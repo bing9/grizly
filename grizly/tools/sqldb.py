@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
-import pyodbc
 from pandas import read_sql_query
 import os
 import sqlparse
@@ -49,7 +48,7 @@ class SQLDB:
 
     def get_connection(self):
         """Returns sqlalchemy connection.
-        
+
         Examples
         --------
         >>> sqldb = SQLDB(db="redshift")
@@ -74,6 +73,8 @@ class SQLDB:
                 self.logger.exception(error_msg)
                 raise
         elif self.interface == "pyodbc":
+            import pyodbc
+
             try:
                 con = pyodbc.connect(DSN=self.dsn)
             except pyodbc.InterfaceError:
@@ -187,7 +188,7 @@ class SQLDB:
 
             columns_str = ", ".join(col_tuples)
             sql = "CREATE TABLE {} ({})".format(table_name, columns_str)
-            SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
+            SQLDB.last_commit = sql
             con = self.get_connection()
             con.execute(sql).commit()
             con.close()
@@ -278,7 +279,7 @@ class SQLDB:
 
     def write_to(self, table, columns, sql, schema=None, if_exists="fail"):
         """Performs DELETE FROM (if table exists) and INSERT INTO queries in Redshift directly.
-        
+
         Parameters
         ----------
         if_exists : {'fail', 'replace', 'append'}, optional
@@ -330,12 +331,12 @@ class SQLDB:
             List of column names to retrive.
         date_format: str
             Denodo date format differs from those from other databases. User can choose which format is desired.
-        
+
         Examples
         --------
         >>> sqldb = SQLDB(db="redshift")
         >>> sqldb.get_columns(table="table_tutorial", schema="administration", column_types=True)
-        (['col1', 'col2', 'col3', 'col4'], ['character varying', 'double precision', 'character varying', 'double precision'])
+        (['col1', 'col2', 'col3', 'col4'], ['character varying(500)', 'double precision', 'character varying(500)', 'double precision'])
         """
         if self.db == "denodo":
             return self._get_denodo_columns(
@@ -433,10 +434,12 @@ class SQLDB:
         cursor = con.cursor()
         where = f"table_name = '{table}' AND table_schema = '{schema}' " if schema else f"table_name = '{table}' "
         sql = f"""
-            SELECT ordinal_position AS position, column_name, data_type,
-            CASE WHEN character_maximum_length IS NOT NULL
-            THEN character_maximum_length
-            ELSE numeric_precision END AS max_length
+            SELECT ordinal_position,
+                   column_name,
+                   data_type,
+                   character_maximum_length,
+                   numeric_precision,
+                   numeric_scale
             FROM information_schema.columns
             WHERE {where}
             ORDER BY ordinal_position;
@@ -454,6 +457,10 @@ class SQLDB:
                     break
                 col_name = column[1]
                 col_type = column[2]
+                if column[3] is not None:
+                    col_type = f"{col_type}({column[3]})"
+                elif col_type.upper() in ["DECIMAL", "NUMERIC"]:
+                    col_type = f"{col_type}({column[4]}, {column[5]})"
                 col_names.append(col_name)
                 col_types.append(col_type)
             # leave only the cols provided in the columns argument
@@ -547,7 +554,7 @@ def pyarrow_to_rds_type(dtype):
         "float32": "FLOAT4",
         "float64": "FLOAT8",
         "double": "FLOAT8",
-        "null": "FLOAT8",
+        "null": "VARCHAR(500)",
         "date": "DATE",
         "string": "VARCHAR(500)",
         "timestamp.*\s*": "TIMESTAMP",

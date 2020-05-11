@@ -1,0 +1,47 @@
+# h1
+## h2
+### h3
+
+::row
+column:
+  card:
+   title:
+   subtitle:
+card:
+ title:
+ subtitle:
+::endrow
+
+::GridRow
+header:
+body:
+  section_title
+  card:
+    title:
+    link:
+  card:
+   tile:
+   link:
+  column:
+
+::block
+
+component: card
+title: a simple title
+subtitle: a simple subtitle
+::endblock
+
+
+# some header with h1
+## h2
+### h3
+
+::block
+title:
+subtitle:
+::endblock
+
+etc we do not know exactly what the meaning of life should be but we do know that etc. etc. etc. what ever else
+
+well what else
+etc

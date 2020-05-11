@@ -1,24 +1,25 @@
-# 0.3.1 to 0.3.2
+# 0.3.2 to 0.3.3
+### Overall changes
+- Requirements are not installed now automatically because this process was breaking in Linux environment. After pulling the latest version you have to install requirements and then install grizly.
+- Added option `pip install grizly` but it works only if you have pulled grizly - it WON'T do it for you.
+- For more info about these changes check `README.md`
 
-### SQLDB:
-- Added parameter `logger` 
-- Added parameter `interface` with options: "sqlalchemy", "turbodbc", "pyodbc"
-- check_if_exists() - added option `column`
+### QFrame
+- `cut()` - fixed bug with omitting first row [#408](https://github.com/kfk/grizly/issues/408)
+- `copy()` - interface is now copied as well
+- `to_csv()` - interface parameter is now used if specified
+- Added possibility to check what is row count of generated SQL by doing `len(qf)`
 
-### S3:
-- Added parameter `interface`
-- to_rds() - works now with `.parquet` files
-- Changed - when skipping upload, `s3.status` is now 'skipped' rather than 'failed'
-- Changed - when skipping upload in `s3.from_file()` due to `time_window`, subsequent `self.to_rds()` is also not executed by default
-- Added `execute_on_skip` parameter to `to_rds()` to allow overriding above behavior
+### SQLDB
+- `get_columns()` - added char and numeric precision while retriving types from redshift
 
-### QFrame:
-- Added parameter `interface`
-- to_parquet() - fixed bugs
-- copy() - logger is now copied as well
-#### new methods
-- to_arrow() - writes QFrame records to pyarrow table
-- offset() - adds OFFSET statement
-- cut() - divides a QFrame into multiple smaller QFrames, each containing chunksize rows
-- window() - sorts records and adds LIMIT and OFFSET parameters to QFrame, creating a chunk
 
+## New classes and functions
+- `Page`
+- `Layout`
+- `FinanceLayout`
+- `GridLayout`
+- `GridCardItem`
+- `Text`
+- `Row`
+- `Column`
