@@ -1,4 +1,4 @@
-import sqlparse
+import pytest
 import os
 from copy import deepcopy
 from sqlalchemy import create_engine
@@ -571,9 +571,14 @@ def test_cut():
     qf = QFrame(engine=engine_string).read_dict(deepcopy(playlists))
     assert len(qf) == 18
 
-    qframes = qf.cut(1)
+    qframes1 = qf.cut(18)
     test_len = 0
-    for q in qframes:
+    for q in qframes1:
         test_len += len(q)
-    len(qframes)
     assert len(qf) == test_len
+
+    with pytest.raises(ValueError):
+        qf.cut(2, order_by=["Name"])
+
+    qframes2 = qf.cut(18, order_by=["PlaylistId"])
+    assert len(qframes1) == len(qframes2)

@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Orchestrate
 - Added wf.cancel() for convenient workflow cleanup from the scheduler
 
+### QFrame
+- Added `order_by` parameter to `window()` and `cut()` methods
+
 
 ## [0.3.3] - 08-05-2020
 ### Overall changes

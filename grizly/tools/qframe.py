@@ -745,7 +745,7 @@ class QFrame(Extract):
 
         return self
 
-    def window(self, offset: int = None, limit: int = None, deterministic: bool = True):
+    def window(self, offset: int = None, limit: int = None, deterministic: bool = True, order_by: list = None):
         """Sorts records and adds LIMIT and OFFSET parameters to QFrame, creating a chunk.
 
         Parameters
@@ -756,6 +756,8 @@ class QFrame(Extract):
             Number of rows to select, by default None
         deterministic : bool, optional
             Whether the result should be deterministic, by default True
+        order_by : list or str, optional
+            List of fields that should be used to sort data. If None than data is sorted by all fields, by default None
 
         Examples
         --------
@@ -776,16 +778,47 @@ class QFrame(Extract):
         QFrame
         """
         qf = self.copy()
-        if deterministic is not None:
-            qf.orderby(qf.get_fields())
+
+        if deterministic:
+            if order_by is not None:
+
+                def check_if_values_are_distinct(qf, columns):
+                    qf1 = qf.copy()
+                    qf2 = qf.copy()
+                    qf2.select(columns)
+                    if len(qf1.distinct()) != len(qf2.distinct()):
+                        return False
+                    return True
+
+                if not check_if_values_are_distinct(qf=qf, columns=order_by):
+                    raise ValueError(
+                        "Selected columns don't give distinct records. Please change 'order_by' parameter or remove it."
+                    )
+
+                qf.orderby(order_by)
+
+            else:
+                qf.orderby(qf.get_fields())
+
         if offset is not None:
             qf.offset(offset)
+
         if limit is not None:
             qf.limit(limit)
+
         return qf
 
-    def cut(self, chunksize: int, deterministic: bool = True):
+    def cut(self, chunksize: int, deterministic: bool = True, order_by: list = None):
         """Divides a QFrame into multiple smaller QFrames, each containing chunksize rows.
+        
+        Parameters
+        ----------
+        chunksize : int
+            Size of a single chunk
+        deterministic : bool, optional
+            Whether the result should be deterministic, by default True
+        order_by : list or str, optional
+            List of fields that should be used to sort data. If None than data is sorted by all fields, by default None
 
         Examples
         --------
@@ -796,31 +829,17 @@ class QFrame(Extract):
         >>> len(qframes)
         4
 
-        Parameters
-        ----------
-        chunksize : int
-            Size of a single chunk
-        deterministic : bool, optional
-            Whether the result should be deterministic, by default True
-
         Returns
         -------
         list
             List of QFrames
         """
-        db = "denodo" if "denodo" in self.engine else "redshift"
-        con = SQLDB(db=db, engine_str=self.engine, interface=self.interface).get_connection()
-        query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
-        try:
-            no_rows = con.execute(query).fetchval()
-        except:
-            no_rows = con.execute(query).fetchone()[0]
-        con.close()
-        self.logger.debug(f"Retrieving {no_rows} rows...")
+        no_rows = self.__len__()
         qfs = []
-        for chunk in range(0, no_rows, chunksize):  # may need to use no_rows+1
-            qf = self.window(offset=chunk, limit=chunksize, deterministic=deterministic)
+        for chunk in range(0, no_rows, chunksize):
+            qf = self.window(offset=chunk, limit=chunksize, deterministic=deterministic, order_by=order_by)
             qfs.append(qf)
+
         return qfs
 
     def rearrange(self, fields):
@@ -1083,7 +1102,7 @@ class QFrame(Extract):
         """
         sql = self.get_sql()
         if "denodo" in self.engine.lower():
-           sql += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
+            sql += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
         # sqldb = SQLDB(db=db, engine_str=self.engine, interface=self.interface, logger=self.logger)
         # con = sqldb.get_connection()
         # offset = 0
