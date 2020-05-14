@@ -1,5 +1,4 @@
 from numpy import isnan
-import logging
 
 
 class Crosstab:
@@ -23,13 +22,9 @@ class Crosstab:
         content = {}
         if df[dimensions].isnull().values.any():
             df[dimensions] = df[dimensions].fillna("")
-            print(
-                "NaN values occured in dimensions and has been replaced with empty strings."
-            )
+            print("NaN values occured in dimensions and has been replaced with empty strings.")
         for group in df[dimensions].values:
-            filters = [
-                f""" `{column}`=="{item}" """ for column, item in zip(dimensions, group)
-            ]
+            filters = [f""" `{column}`=="{item}" """ for column, item in zip(dimensions, group)]
             query = " and ".join(filters)
             group = tuple(group)
             content[group] = {}
@@ -54,7 +49,7 @@ class Crosstab:
 
     def count(self, group, measures):
         ccount = []
-        for measure in measures:
+        for _ in measures:
             counter = 0
             for item in self.content:
                 if group == item[: len(group)]:
@@ -66,11 +61,7 @@ class Crosstab:
     def avg(self, group, measures):
         csum = self.sum(group, measures)
         ccount = self.count(group, measures)
-        cavg = (
-            csum / ccount
-            if len(measures) == 1
-            else [i / j for i, j in zip(csum, ccount)]
-        )
+        cavg = csum / ccount if len(measures) == 1 else [i / j for i, j in zip(csum, ccount)]
         return cavg
 
     def agg(self, group, measures, func):
@@ -188,9 +179,7 @@ class Crosstab:
             pass
         elif axis == 1:
             if set(groups) != set(self.columns):
-                raise ValueError(
-                    "List of groups does not match list of crosstab columns"
-                )
+                raise ValueError("List of groups does not match list of crosstab columns")
             self.columns = groups
             measures = []
             dimensions = []
@@ -259,10 +248,7 @@ class Crosstab:
             if len(columns) != 0:
                 items = []
                 for row in self.content:
-                    if (
-                        tuple(group) == row[: len(group)]
-                        and row[len(group)] not in items
-                    ):
+                    if tuple(group) == row[: len(group)] and row[len(group)] not in items:
                         items.append(row[len(group)])
                 for item in items:
                     group.append(item)
@@ -283,18 +269,13 @@ class Crosstab:
         self.subtotals = subtotals
         return self
 
-    def to_html(self):
-        def get_row(row_def):
-            html = ""
-            for t, rowspan, colspan, cssclass, style, value in row_def:
-                rowspan = f" rowspan={rowspan}" if rowspan != 1 else ""
-                colspan = f" colspan={colspan}" if colspan != 1 else ""
-                cssclass = f" class={cssclass}" if cssclass != "" else ""
-                style = style if style == "" else f" {style}"
-                html += (
-                    f"    <t{t}{rowspan}{colspan}{cssclass}{style}> {value} </t{t}>\n"
-                )
-            return html
+    def to_html(self, indented=False, indent=50):
+        def get_distinct_children(group):
+            items = []
+            for row in self.content:
+                if tuple(group) == row[: len(group)] and row[len(group)] not in items:
+                    items.append(row[len(group)])
+            return items
 
         def get_rowspan(group):
             counter = 0
@@ -309,7 +290,20 @@ class Crosstab:
                     counter += self.emptyrows[i]
             return counter
 
-        def get_cell_def(group, column, level):
+        def get_cell_def(group, column):
+            if group in self.subtotals:
+                level = "subtotals"
+                cssclass = "total" if len(group) == 1 else "subtotal"
+            elif group in self.content:
+                level = "content"
+                cssclass = ""
+            else:
+                if indented:
+                    return "subtotal", "", ""
+                else:
+                    level = "content"
+                    cssclass = ""
+
             if column in self.dimensions:
                 value = group[self.dimensions.index(column)]
             elif column in self.measures:
@@ -323,69 +317,122 @@ class Crosstab:
                 style = self.styling[level][column](value)
 
             if column in self.formatter:
-                # value = self.formatter[column].format(value)
                 value = self.formatter[column](value)
 
-            return style, value
+            return cssclass, style, value
 
-        def get_body(columns, group, row_def, html):
+        def get_row(row_def):
+            html = ""
+            for t, rowspan, colspan, cssclass, style, value in row_def:
+                rowspan = f" rowspan={rowspan}" if rowspan != 1 else ""
+                colspan = f" colspan={colspan}" if colspan != 1 else ""
+                cssclass = f" class={cssclass}" if cssclass != "" else ""
+                style = style if style == "" else f" {style}"
+                html += f"    <t{t}{rowspan}{colspan}{cssclass}{style}> {value} </t{t}>\n"
+            return html
+
+        def get_body_grouped(columns, group, row_def, html):
+
             if len(columns) != 0:
-                items = []
-                for row in self.content:
-                    if (
-                        tuple(group) == row[: len(group)]
-                        and row[len(group)] not in items
-                    ):
-                        items.append(row[len(group)])
-                for item in items:
-                    group.append(item)
-                    style, value = get_cell_def(group, columns[0], "content")
-                    row_def.append(
-                        ("h", get_rowspan(tuple(group)), 1, "", style, value)
-                    )
-                    html = get_body(columns[1:], group, row_def, html)
-                    if tuple(group) in self.subtotals:
-                        name = self.subtotals_names.get(tuple(group)) or "Total"
+
+                children = get_distinct_children(group)
+
+                for child in children:
+                    group.append(child)
+                    group_t = tuple(group)
+
+                    rowspan = get_rowspan(group_t)
+                    cssclass, style, value = get_cell_def(group_t, columns[0])
+                    row_def.append(("h", rowspan, 1, cssclass, style, value))
+
+                    html = get_body_grouped(columns[1:], group, row_def, html)
+
+                    if group_t in self.subtotals:
+                        name = self.subtotals_names.get(group_t) or "Total"
                         colspan = len(self.dimensions) - len(group)
                         cssclass = "total" if len(group) == 1 else "subtotal"
                         row_def = [("h", 1, colspan, cssclass, "", name)]
-                        values = self.subtotals[tuple(group)]
-                        for measure in values:
-                            style, value = get_cell_def(
-                                tuple(group), measure, "subtotals"
-                            )
+
+                        for measure in self.measures:
+                            cssclass, style, value = get_cell_def(group_t, measure)
                             row_def.append(("d", 1, 1, cssclass, style, value))
+
                         html += f"  <tr>\n" + get_row(row_def) + "  </tr>\n"
-                        if tuple(group) in self.emptyrows:
+
+                        if group_t in self.emptyrows:
                             colspan = len(self.columns)
-                            # rowspan = self.emptyrows[tuple(group)]
-                            for i in range(self.emptyrows[tuple(group)]):
-                                html += (
-                                    f"  <tr>\n"
-                                    + get_row([("h", 1, colspan, "emptyrows", "", "")])
-                                    + "  </tr>\n"
-                                )
+
+                            for i in range(self.emptyrows[group_t]):
+                                html += f"  <tr>\n" + get_row([("h", 1, colspan, "emptyrows", "", "")]) + "  </tr>\n"
+
                     row_def = []
                     group.pop(-1)
+
             else:
-                values = self.content[tuple(group)]
-                for measure in values:
-                    style, value = get_cell_def(tuple(group), measure, "content")
-                    row_def.append(("d", 1, 1, "", style, value))
+                group_t = tuple(group)
+
+                for measure in self.measures:
+                    cssclass, style, value = get_cell_def(group_t, measure)
+                    row_def.append(("d", 1, 1, cssclass, style, value))
+
                 html += "  <tr>\n" + get_row(row_def) + "  </tr>\n"
-                if tuple(group) in self.emptyrows:
+
+                if group_t in self.emptyrows:
                     colspan = len(self.columns)
-                    for i in range(self.emptyrows[tuple(group)]):
-                        html += (
-                            f"  <tr>\n"
-                            + get_row([("h", 1, colspan, "emptyrows", "", "")])
-                            + "  </tr>\n"
-                        )
+
+                    for i in range(self.emptyrows[group_t]):
+                        html += f"  <tr>\n" + get_row([("h", 1, colspan, "emptyrows", "", "")]) + "  </tr>\n"
+
             return html
 
-        def get_header():
+        def get_body_indented(columns, group, html):
+
+            if len(columns) != 0:
+
+                children = get_distinct_children(group)
+
+                for child in children:
+                    group.append(child)
+                    group_t = tuple(group)
+
+                    row_def = []
+                    if len(group) == 1:
+                        cssclass = "total"
+                        style = ""
+                    elif len(group) == len(self.dimensions):
+                        cssclass = ""
+                        style = f"style=text-indent:{ indent * ( len(group) - 1 ) }px"
+                    else:
+                        cssclass = "subtotal"
+                        style = f"style=text-indent:{ indent * ( len(group) - 1 ) }px"
+
+                    value = str(group[-1])
+
+                    row_def.append(("h", 1, 1, cssclass, style, value))
+
+                    for measure in self.measures:
+                        cssclass, style, value = get_cell_def(group_t, measure)
+                        row_def.append(("d", 1, 1, cssclass, style, value))
+
+                    html += "  <tr>\n" + get_row(row_def) + "  </tr>\n"
+
+                    html = get_body_indented(columns[1:], group, html=html)
+
+                    if tuple(group) in self.emptyrows:
+                        colspan = len(self.columns)
+
+                        for i in range(self.emptyrows[tuple(group)]):
+                            html += f"  <tr>\n" + get_row([("h", 1, colspan, "emptyrows", "", "")]) + "  </tr>\n"
+
+                    group.pop(-1)
+
+            return html
+
+        def get_header(indented):
+            columns_temp = self.measures if indented else self.columns
+
             columns = []
-            for column in self.columns:
+            for column in columns_temp:
                 columns.append(column if isinstance(column, tuple) else (column,))
 
             def get_colspan(row, col):
@@ -399,29 +446,31 @@ class Crosstab:
 
             html = ""
             for row in range(len(columns[0])):
-                row_def = []
+                #                 row_def = [] if not indented else [("h", 1, 1, "", "", ",".join(self.dimensions))]
+                row_def = [] if not indented else [("h", 1, 1, "", "", "")]
                 for col in range(len(columns)):
-                    if (row, col) == (0, 0) or columns[col][row] != columns[col - 1][
-                        row
-                    ]:
-                        row_def.append(
-                            ("h", 1, get_colspan(row, col), "", "", columns[col][row])
-                        )
+                    if (row, col) == (0, 0) or columns[col][row] != columns[col - 1][row]:
+                        row_def.append(("h", 1, get_colspan(row, col), "", "", columns[col][row]))
                 html += "  <tr>\n" + get_row(row_def) + "  </tr>\n"
 
             return html
 
-        thead = "<thead>\n" + get_header() + "</thead>\n"
-        tbody = "<tbody>\n" + get_body(self.dimensions, [], [], "") + "</tbody>\n"
+        thead = "<thead>\n" + get_header(indented=indented) + "</thead>\n"
+
+        body = get_body_indented(self.dimensions, [], "") if indented else get_body_grouped(self.dimensions, [], [], "")
+        tbody = "<tbody>\n" + body + "</tbody>\n"
 
         table = f"<table>\n" + thead + tbody + "</table>\n"
 
         return table
 
-    def save_html(self, html_path):
-        html = self.to_html()
+    def save_html(self, html_path, indented=False):
+        html = self.to_html(indented=indented)
         with open(html_path, "w") as file:
             file.write(html)
 
+    def __repr__(self):
+        return self.to_html(indented=False)
+
     def _repr_html_(self):
-        return self.to_html()
+        return self.to_html(indented=False)
