@@ -55,18 +55,25 @@ class QFrame(Extract):
         * MariaDB: "mssql+pyodbc://retool_dev_db"
     """
 
-    # KM: can we delete sql argument?
     def __init__(
-        self, data={}, engine: str = None, sql=None, getfields=[], chunksize=None, interface: str = None, logger=None
+        self,
+        data={},
+        engine: str = None,
+        db: str = None,
+        sql: str = None,
+        getfields=[],
+        chunksize=None,
+        interface: str = None,
+        logger=None,
     ):
         self.tool_name = "QFrame"
         self.engine = engine if engine else "mssql+pyodbc://DenodoODBC"
         if not isinstance(self.engine, str):
             raise ValueError("QFrame engine is not of type: str")
         self.data = data
+        self.db = db or ("denodo" if "denodo" in self.engine else "redshift")
         self.sql = sql or ""
         self.getfields = getfields
-        self.fieldtypes = ["dim", "num"]
         self.dtypes = {}
         self.chunksize = chunksize
         self.interface = interface or "sqlalchemy"
@@ -181,25 +188,11 @@ class QFrame(Extract):
         return self
 
     def read_json(self, json_path, subquery=""):
-        """Warning: this function is obsoleted, use from_json instead.
+        """Warning: this function is obsoleted, use from_json instead."""
 
-        Reads QFrame.data from json file.
+        return self.from_json(json_path, subquery)
 
-        Parameters
-        ----------
-        json_path : str
-            Path to json file.
-        subquery : str, optional
-            Key in json file, by default ''
-
-        Returns
-        -------
-        QFrame
-        """
-        self.from_json(json_path, subquery)
-        return self
-
-    def read_dict(self, data):
+    def from_dict(self, data):
         """Reads QFrame.data from dictionary.
 
         Parameters
@@ -221,6 +214,70 @@ class QFrame(Extract):
         QFrame
         """
         self.data = self.validate_data(deepcopy(data))
+
+        return self
+
+    def read_dict(self, data):
+        """Warning: this function is obsoleted, use from_json instead."""
+
+        return self.from_dict(data=data)
+
+    def from_table(
+        self, table: str, schema: str = None, columns: list = None, json_path: str = None, subquery: str = None
+    ):
+        """Generates QFrame by pulling columns and types from specified table.
+
+        Parameters
+        ----------
+        table : str
+            Name of table
+        schema : str, optional
+            Name of schema, by default None
+        columns : list, optional
+            List of column names to retrive, by default None
+        json_path : str, optional
+            Path to output json file, by default None
+        subquery : str, optional
+            Name of the query in json file. If this name already exists it will be overwritten, by default None
+        
+        Examples
+        --------
+        >>> engine_str = "mssql+pyodbc://redshift_acoe"
+        >>> qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
+        >>> qf = qf.from_table(table="table_tutorial", schema="administration")
+        >>> print(qf)
+        SELECT col1,
+               col2,
+               col3,
+               col4
+        FROM administration.table_tutorial
+        
+        """
+        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface)
+
+        if schema is None:
+            schema = ""
+        schema = schema if schema is not None else ""
+        col_names, col_types = sqldb.get_columns(schema=schema, table=table, columns=columns, column_types=True)
+
+        if col_names == []:
+            raise ValueError("No columns were loaded. Please check if specified table exists and is not empty.")
+
+        if json_path:
+            initiate(
+                schema=schema,
+                table=table,
+                columns=col_names,
+                col_types=col_types,
+                subquery=subquery,
+                json_path=json_path,
+            )
+            self.from_json(json_path)
+
+        else:
+            dict_ = initiate(schema=schema, table=table, columns=col_names, col_types=col_types)
+            self.from_dict(dict_)
+
         return self
 
     def select(self, fields):
@@ -967,7 +1024,7 @@ class QFrame(Extract):
         """
         engine_str = engine_str or self.engine
         self.create_sql_blocks()
-        sqldb = SQLDB(db="redshift", engine_str=engine_str, interface=self.interface)
+        sqldb = SQLDB(db=self.db, engine_str=engine_str, interface=self.interface)
         sqldb.create_table(
             columns=self.get_fields(aliased=True),
             types=self.get_dtypes(),
@@ -1073,7 +1130,7 @@ class QFrame(Extract):
         QFrame
         """
         self.create_sql_blocks()
-        sqldb = SQLDB(db="redshift", engine_str=self.engine, interface=self.interface)
+        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface)
         sqldb.create_table(
             columns=self.get_fields(aliased=True),
             types=self.get_dtypes(),
@@ -1208,7 +1265,7 @@ class QFrame(Extract):
             * callable with signature ``(pd_table, conn, keys, data_iter)``.
         """
         df = self.to_df()
-        sqldb = SQLDB(db="redshift", engine_str=self.engine, interface=self.interface)
+        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface)
         con = sqldb.get_connection()
 
         df.to_sql(
@@ -1300,19 +1357,19 @@ class QFrame(Extract):
         """
         data = deepcopy(self.data)
         engine = self.engine
+        db = self.db
         sql = self.sql
         getfields = deepcopy(self.getfields)
         logger = self.logger
         interface = self.interface
-        return QFrame(data=data, engine=engine, sql=sql, getfields=getfields, logger=logger, interface=interface)
+        return QFrame(data=data, engine=engine, db=db, sql=sql, getfields=getfields, logger=logger, interface=interface)
 
     def __str__(self):
         sql = self.get_sql()
         return sql
 
     def __len__(self):
-        db = "denodo" if "denodo" in self.engine else "redshift"
-        con = SQLDB(db=db, engine_str=self.engine, interface=self.interface).get_connection()
+        con = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface).get_connection()
         query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
         try:
             no_rows = con.execute(query).fetchval()
@@ -1598,10 +1655,11 @@ def _validate_data(data):
             if "custom_type" in fields[field]:
                 field_custom_type = fields[field]["custom_type"]
                 if field_custom_type != "":
-                    if not check_if_valid_type(field_custom_type):
-                        raise ValueError(
-                            f"""Field '{field}' has invalid value '{field_custom_type}' in custom_type. Check valid types for Redshift tables."""
-                        )
+                    # if not check_if_valid_type(field_custom_type):
+                    #     raise ValueError(
+                    #         f"""Field '{field}' has invalid value '{field_custom_type}' in custom_type. Check valid types for Redshift tables."""
+                    #     )
+                    pass
                 elif field_type not in ["dim", "num"] and field_custom_type == "":
                     raise ValueError(
                         f"""Field '{field}' doesn't have custom_type and has invalid value in type: '{field_type}'. Valid values: 'dim', 'num'."""
@@ -1672,7 +1730,7 @@ def _validate_data(data):
     return data
 
 
-def initiate(columns, schema, table, json_path, engine_str="", subquery="", col_types=None):
+def initiate(columns, schema, table, json_path=None, engine_str="", subquery="", col_types=None):
     """Creates a dictionary with fields information for a Qframe and saves the data in json file.
 
     Parameters
@@ -1690,7 +1748,10 @@ def initiate(columns, schema, table, json_path, engine_str="", subquery="", col_
     col_type : list
         List of data types of columns (in 'columns' list)
     """
-    if os.path.isfile(json_path):
+    if columns == [] or table == "":
+        return {}
+
+    if json_path is not None and os.path.isfile(json_path):
         with open(json_path, "r") as f:
             json_data = json.load(f)
             if json_data == "":
@@ -1700,7 +1761,7 @@ def initiate(columns, schema, table, json_path, engine_str="", subquery="", col_
 
     fields = {}
 
-    if col_types == None:
+    if col_types is None:
         for col in columns:
             type = "num" if "amount" in col else "dim"
             field = {
@@ -1747,10 +1808,14 @@ def initiate(columns, schema, table, json_path, engine_str="", subquery="", col_
     else:
         json_data = data
 
-    with open(json_path, "w") as f:
-        json.dump(json_data, f)
+    if json_path is not None:
+        with open(json_path, "w") as f:
+            json.dump(json_data, f)
 
-    print(f"Data saved in {json_path}")
+        print(f"Data saved in {json_path}")
+
+    else:
+        return json_data
 
 
 def _get_duplicated_columns(data):
