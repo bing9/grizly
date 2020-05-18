@@ -567,18 +567,51 @@ def test_pyodbc_interface():
     assert not df.empty
 
 
-def test_cut():
-    qf = QFrame(engine=engine_string).read_dict(deepcopy(playlists))
-    assert len(qf) == 18
+# def test_cut():
+#     qf = QFrame(engine=engine_string).read_dict(deepcopy(playlists))
+#     assert len(qf) == 18
 
-    qframes1 = qf.cut(18)
-    test_len = 0
-    for q in qframes1:
-        test_len += len(q)
-    assert len(qf) == test_len
+#     qframes1 = qf.cut(18)
+#     test_len = 0
+#     for q in qframes1:
+#         test_len += len(q)
+#     assert len(qf) == test_len
 
-    with pytest.raises(ValueError):
-        qf.cut(2, order_by=["Name"])
+#     with pytest.raises(ValueError):
+#         qf.cut(2, order_by=["Name"])
 
-    qframes2 = qf.cut(18, order_by=["PlaylistId"])
-    assert len(qframes1) == len(qframes2)
+#     qframes2 = qf.cut(18, order_by=["PlaylistId"])
+#     assert len(qframes1) == len(qframes2)
+
+
+def test_from_table():
+    qf = QFrame(engine=engine_string, db="sqlite").from_table(table="Track")
+
+    sql = """SELECT TrackId,
+                Name,
+                AlbumId,
+                MediaTypeId,
+                GenreId,
+                Composer,
+                Milliseconds,
+                Bytes,
+                UnitPrice
+            FROM Track"""
+
+    assert clean_testexpr(sql) == clean_testexpr(qf.get_sql())
+
+    engine_str = "mssql+pyodbc://redshift_acoe"
+    qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
+    qf = qf.from_table(table="table_tutorial", schema="administration")
+
+    sql = """SELECT col1,
+               col2,
+               col3,
+               col4
+        FROM administration.table_tutorial"""
+
+    assert clean_testexpr(sql) == clean_testexpr(qf.get_sql())
+
+    dtypes = ["CHARACTER VARYING(500)", "DOUBLE PRECISION", "CHARACTER VARYING(500)", "DOUBLE PRECISION"]
+
+    assert dtypes == qf.get_dtypes()

@@ -34,8 +34,8 @@ class SQLDB:
                 "redshift": "mssql+pyodbc://redshift_acoe",
                 "denodo": "mssql+pyodbc://DenodoPROD",
             }
-        if db not in {"redshift", "denodo"}:
-            raise NotImplementedError(f"DB {db} not supported yet. Supported DB's: 'redshift', 'denodo'")
+        if db not in {"redshift", "denodo", "sqlite"}:
+            raise NotImplementedError(f"DB {db} not supported yet. Supported DB's: 'redshift', 'denodo', 'sqlite'")
         self.db = db
         self.engine_str = engine_str or config.get(db)
         if interface not in ("sqlalchemy", "turbodbc", "pyodbc"):
@@ -344,6 +344,8 @@ class SQLDB:
             )
         elif self.db == "redshift":
             return self._get_redshift_columns(schema=schema, table=table, column_types=column_types, columns=columns)
+        elif self.db == "sqlite":
+            return self._get_sqlite_columns(schema=schema, table=table, column_types=column_types)
 
     def _get_denodo_columns(
         self, table, schema: str = None, column_types: bool = False, columns: list = None, date_format: str = "DATE",
@@ -487,6 +489,43 @@ class SQLDB:
         con.close()
 
         return to_return
+
+    def _get_sqlite_columns(self, table, schema: str = None, column_types: bool = False):
+        """Get column names (and optionally types) from a SQLite table.
+
+        Parameters
+        ----------
+        table: str
+            Name of table.
+        schema: str
+            Name of schema.
+        column_types: bool
+            Whether to retrieve field types.
+        """
+        con = self.get_connection()
+        cursor = con.cursor()
+        table_name = table if schema is None or schema == "" else f"{schema}.{table}"
+
+        sql = f"PRAGMA table_info({table_name})"
+        cursor.execute(sql)
+
+        col_names = []
+        col_types = []
+
+        while True:
+            column = cursor.fetchone()
+            if not column:
+                break
+            col_names.append(column[1])
+            col_types.append(column[2])
+
+        cursor.close()
+        con.close()
+
+        if column_types:
+            return col_names, col_types
+        else:
+            return col_names
 
 
 def check_if_valid_type(type: str):
