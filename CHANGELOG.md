@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### QFrame
 - Added `order_by` parameter to `window()` and `cut()` methods
 - Added `from_table()` method [#416](https://github.com/kfk/grizly/issues/416)
-- Added `from_dict` method
+- Deprecated `read_dict()` method
+- Added `from_dict()` method
 - Added `db` parameter
+- `create_table()` method is not deprecated now [#411](https://github.com/kfk/grizly/issues/411) 
 
 ### Crosstab
 - Added indented view [#422](https://github.com/kfk/grizly/issues/422)
