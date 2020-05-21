@@ -39,7 +39,7 @@ def prepend_table(data, expression):
 
 
 class QFrame(Extract):
-    """Class which genearates a SQL statement.
+    """Class which builds a SQL statement.
 
     Parameters
     ----------
@@ -71,7 +71,7 @@ class QFrame(Extract):
         if not isinstance(self.engine, str):
             raise ValueError("QFrame engine is not of type: str")
         self.data = data
-        self.db = db or ("denodo" if "denodo" in self.engine else "redshift")
+        self.db = db or ("denodo" if "denodo" in self.engine.lower() else "redshift")
         self.sql = sql or ""
         self.getfields = getfields
         self.dtypes = {}
@@ -1139,8 +1139,7 @@ class QFrame(Extract):
         #         df = pd.concat(dfs)
         #     else:
         #         self.logger.warning(f"LIMIT already exists in query. Chunksize will not be applied")
-        engine = create_engine(self.engine)
-        con = engine.raw_connection()
+        con = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface).get_connection()
         try:
             df = pd.read_sql(sql, con)
         except:
@@ -1161,7 +1160,7 @@ class QFrame(Extract):
         # self.df = df
         finally:
             con.close()
-            engine.dispose()
+            # engine.dispose()
         return df
 
     def to_arrow(self, db="redshift", debug=False):
