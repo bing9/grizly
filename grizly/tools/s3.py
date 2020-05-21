@@ -313,7 +313,7 @@ class S3:
 
     @_check_if_s3_exists
     def to_file(
-        self, if_exists: {"fail", "skip", "replace"} = "replace",
+        self, if_exists: str = None,
     ):
         r"""Writes S3 to local file.
 
@@ -331,8 +331,10 @@ class S3:
         >>> s3 = S3('test_grizly.csv', 'test/', file_dir='/home/analyst/').to_file()
         >>> os.remove('/home/analyst/test_grizly.csv')
         """
+        if_exists = if_exists or "replace"
         if if_exists not in ("fail", "skip", "replace"):
             raise ValueError(f"'{if_exists}' is not valid for if_exists")
+
         file_path = os.path.join(self.file_dir, self.file_name)
 
         if os.path.exists(file_path):
