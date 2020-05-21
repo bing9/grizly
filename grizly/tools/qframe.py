@@ -57,12 +57,12 @@ class QFrame(Extract):
 
     def __init__(
         self,
-        data={},
+        data: dict = {},
         engine: str = None,
         db: str = None,
         sql: str = None,
-        getfields=[],
-        chunksize=None,
+        getfields: list = [],
+        chunksize: int = None,
         interface: str = None,
         logger=None,
     ):
@@ -187,9 +187,8 @@ class QFrame(Extract):
             self.dtypes[field] = dtype
         return self
 
+    @deprecation.deprecated(details="Use QFrame.from_json instead",)
     def read_json(self, json_path, subquery=""):
-        """Warning: this function is obsoleted, use from_json instead."""
-
         return self.from_json(json_path, subquery)
 
     def from_dict(self, data):
@@ -203,7 +202,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> print(qf)
         SELECT CustomerId,
                Sales
@@ -217,9 +216,8 @@ class QFrame(Extract):
 
         return self
 
+    @deprecation.deprecated(details="Use QFrame.from_dict instead",)
     def read_dict(self, data):
-        """Warning: this function is obsoleted, use from_json instead."""
-
         return self.from_dict(data=data)
 
     def from_table(
@@ -289,7 +287,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim', 'as': 'Id'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> print(qf)
         SELECT CustomerId AS Id,
                Sales
@@ -359,7 +357,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf = qf.rename({'Sales': 'Billings'})
         >>> print(qf)
         SELECT CustomerId,
@@ -386,7 +384,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf = qf.remove(['Sales'])
         >>> print(qf)
         SELECT CustomerId
@@ -410,7 +408,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf = qf.distinct()
         >>> print(qf)
         SELECT DISTINCT CustomerId,
@@ -440,7 +438,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf = qf.query("Sales != 0")
         >>> print(qf)
         SELECT CustomerId,
@@ -481,7 +479,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> qf = qf.having("sum(sales)>100")
         >>> print(qf)
@@ -536,7 +534,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf = qf.assign(Sales_Div="Sales/100", type='num')
         >>> print(qf)
         SELECT CustomerId,
@@ -544,7 +542,7 @@ class QFrame(Extract):
                Sales/100 AS Sales_Div
         FROM schema.table
 
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf = qf.assign(Sales_Positive="CASE WHEN Sales>0 THEN 1 ELSE 0 END")
         >>> print(qf)
         SELECT CustomerId,
@@ -603,7 +601,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> print(qf)
         SELECT CustomerId,
@@ -635,7 +633,7 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.groupby(['CustomerId'])['Sales', 'Orders'].agg('sum')
         >>> print(qf)
         SELECT CustomerId,
@@ -677,7 +675,7 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.groupby(['CustomerId']).sum()
         >>> print(qf)
         SELECT CustomerId,
@@ -711,7 +709,7 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.orderby(["Sales"])
         >>> print(qf)
         SELECT CustomerId,
@@ -719,7 +717,7 @@ class QFrame(Extract):
         FROM schema.table
         ORDER BY Sales
 
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.orderby(["Sales"], ascending=False)
         >>> print(qf)
         SELECT CustomerId,
@@ -760,7 +758,7 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.limit(100)
         >>> print(qf)
         SELECT CustomerId,
@@ -786,7 +784,7 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.offset(100)
         >>> print(qf)
         SELECT CustomerId,
@@ -819,7 +817,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf = qf.window(5, 10)
         >>> print(qf)
         SELECT CustomerId,
@@ -881,7 +879,7 @@ class QFrame(Extract):
         --------
         >>> playlists = {"select": {"fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}}, "table": "Playlist",}}
         >>> engine = "sqlite:///" + get_path("grizly_dev", "tests", "Chinook.sqlite")
-        >>> qf = QFrame(engine=engine).read_dict(playlists)
+        >>> qf = QFrame(engine=engine).from_dict(playlists)
         >>> qframes = qf.cut(5)
         >>> len(qframes)
         4
@@ -910,7 +908,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf = qf.rearrange(['Sales', 'CustomerId'])
         >>> print(qf)
         SELECT Sales,
@@ -950,7 +948,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf.get_fields()
         ['CustomerId', 'Sales']
 
@@ -974,7 +972,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> qf.get_dtypes()
         ['VARCHAR(500)', 'FLOAT(53)']
 
@@ -993,7 +991,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().read_dict(data)
+        >>> qf = QFrame().from_dict(data)
         >>> print(qf.get_sql())
         SELECT CustomerId,
                Sales
@@ -1007,7 +1005,6 @@ class QFrame(Extract):
         self.sql = _get_sql(self.data)
         return self.sql
 
-    @deprecation.deprecated(details="Use SQLDB.create_table instead",)
     def create_table(self, table, schema="", char_size=500, engine_str=None):
         """Creates a new empty QFrame table in database if the table doesn't exist.
 
@@ -1017,6 +1014,10 @@ class QFrame(Extract):
             Name of SQL table.
         schema : str, optional
             Specify the schema.
+        char_size : int, optional
+            Default size of the VARCHAR field in the database column, by default 500
+        engine_str : str, optional
+            Engine string, by default "mssql+pyodbc://redshift_acoe"
 
         Returns
         -------
@@ -1049,47 +1050,6 @@ class QFrame(Extract):
         redshift_str=None,
         bucket=None,
     ):
-        """Writes QFrame table to Redshift database using S3.
-
-        Parameters
-        ----------
-        table : str
-            Name of SQL table
-        csv_path : str
-            Path to csv file
-        schema : str, optional
-            Specify the schema
-        if_exists : {'fail', 'replace', 'append'}, optional
-            How to behave if the table already exists, by default 'fail'
-
-            * fail: Raise a ValueError
-            * replace: Clean table before inserting new values.
-            * append: Insert new values to the existing table
-
-        sep : str, optional
-            Separator/delimiter in csv file, by default '\t'
-        use_col_names : bool, optional
-            If True the data will be loaded by the names of columns, by default True
-        chunksize : int, optional
-            If specified, return an iterator where chunksize is the number of rows to include in each chunk, by default None
-        keep_csv : bool, optional
-            Whether to keep the local csv copy after uploading it to Amazon S3, by default True
-        redshift_str : str, optional
-            Redshift engine string, if None then 'mssql+pyodbc://redshift_acoe'
-        bucket : str, optional
-            Bucket name in S3, if None then 'acoe-s3'
-
-        Examples
-        --------
-        >>> engine_string = "sqlite:///" + get_path("grizly_dev", "tests", "Chinook.sqlite")
-        >>> playlist_track = {"select": {"fields":{"PlaylistId": {"type" : "dim"}, "TrackId": {"type" : "dim"}}, "table" : "PlaylistTrack"}}
-        >>> qf = QFrame(engine=engine_string).read_dict(playlist_track).limit(5)
-        >>> qf = qf.to_rds(table='test', csv_path=get_path('test.csv'), schema='sandbox', if_exists='replace', redshift_str='mssql+pyodbc://redshift_acoe', bucket='acoe-s3', keep_csv=False)
-
-        Returns
-        -------
-        QFrame
-        """
         self.to_csv(
             csv_path=csv_path, sep=sep, chunksize=chunksize, cursor=cursor,
         )
@@ -1124,6 +1084,9 @@ class QFrame(Extract):
             * fail: Raise a ValueError.
             * replace: Clean table before inserting new values.
             * append: Insert new values to the existing table.
+            
+        char_size : int, optional
+            Default size of the VARCHAR field in the database column, by default 500
 
         Returns
         -------
@@ -1202,6 +1165,8 @@ class QFrame(Extract):
         return df
 
     def to_arrow(self, db="redshift", debug=False):
+        """Writes QFrame to pyarrow.Table"""
+
         sql = self.get_sql()
         sqldb = SQLDB(db=db, engine_str=self.engine, interface="turbodbc", logger=self.logger)
         con = sqldb.get_connection()
@@ -1216,6 +1181,7 @@ class QFrame(Extract):
             return arrow_table, rowcount
         return arrow_table
 
+    @deprecation.deprecated(details="Use QFrame.to_csv or QFrame.to_df and then use SQLDB or S3 class instead",)
     def to_sql(
         self,
         table,
@@ -1228,42 +1194,6 @@ class QFrame(Extract):
         dtype=None,
         method=None,
     ):
-        """Writes QFrame to DataFarme and then DataFarme to SQL database. Uses pandas.to_sql.
-
-        Parameters
-        ----------
-        table : str
-            Name of SQL table.
-        schema : string, optional
-            Specify the schema.
-        if_exists : {'fail', 'replace', 'append'}, default 'fail'
-            How to behave if the table already exists.
-
-            * fail: Raise a ValueError.
-            * replace: Drop the table before inserting new values.
-            * append: Insert new values to the existing table.
-
-        index : bool, default True
-            Write DataFrame index as a column. Uses `index_label` as the column
-            name in the table.
-        index_label : str or sequence, default None
-            Column label for index column(s). If None is given (default) and
-            `index` is True, then the index names are used.
-            A sequence should be given if the DataFrame uses MultiIndex.
-        chunksize : int, optional
-            Rows will be written in batches of this size at a time. By default,
-            all rows will be written at once.
-        dtype : dict, optional
-            Specifying the datatype for columns. The keys should be the column
-            names and the values should be the SQLAlchemy types or strings for
-            the sqlite3 legacy mode.
-        method : {None, 'multi', callable}, default None
-            Controls the SQL insertion clause used:
-
-            * None : Uses standard SQL ``INSERT`` clause (one per row).
-            * 'multi': Pass multiple values in a single ``INSERT`` clause.
-            * callable with signature ``(pd_table, conn, keys, data_iter)``.
-        """
         df = self.to_df()
         sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface)
         con = sqldb.get_connection()
@@ -1284,21 +1214,6 @@ class QFrame(Extract):
 
     @deprecation.deprecated(details="Use S3.from_file function instead",)
     def csv_to_s3(self, csv_path, s3_key=None, keep_csv=True, bucket=None):
-        """Writes csv file to s3.
-
-        Parameters
-        ----------
-        csv_path : str
-            Path to csv file.
-        keep_csv : bool, optional
-            Whether to keep the local csv copy after uploading it to Amazon S3, by default True
-        bucket : str, optional
-            Bucket name, if None then 'teis-data'
-
-        Returns
-        -------
-        QFrame
-        """
         s3 = S3(file_name=os.path.basename(csv_path), s3_key=s3_key, bucket=bucket, file_dir=os.path.dirname(csv_path),)
         return s3.from_file(keep_file=keep_csv)
 
@@ -1306,36 +1221,6 @@ class QFrame(Extract):
     def s3_to_rds(
         self, table, s3_name, schema="", if_exists="fail", sep="\t", use_col_names=True, redshift_str=None, bucket=None,
     ):
-        """Writes s3 to Redshift database.
-
-        Parameters
-        ----------
-        table : str
-            Name of SQL table.
-        s3_name : str
-            Name of s3 file from which we want to load data.
-        schema : str, optional
-            Specify the schema.
-        if_exists : {'fail', 'replace', 'append'}, default 'fail'
-            How to behave if the table already exists.
-
-            * fail: Raise a ValueError.
-            * replace: Clean table before inserting new values.
-            * append: Insert new values to the existing table.
-
-        sep : str, default '\t'
-            Separator/delimiter in csv file.
-        use_col_names : bool, optional
-            If True the data will be loaded by the names of columns, by default True
-        redshift_str : str, optional
-            Redshift engine string, by default None
-        bucket : str, optional
-            Bucket name, by default None
-
-        Returns
-        -------
-        QFrame
-        """
         file_name = s3_name.split("/")[-1]
         s3_key = "/".join(s3_name.split("/")[:-1])
         s3 = S3(file_name=file_name, s3_key=s3_key, bucket=bucket, redshift_str=redshift_str)
@@ -1419,13 +1304,13 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     Examples
     --------
     >>> playlist_track = {"select": {"fields":{"PlaylistId": {"type" : "dim"}, "TrackId": {"type" : "dim"}}, "table" : "PlaylistTrack"}}
-    >>> playlist_track_qf = QFrame().read_dict(playlist_track)
+    >>> playlist_track_qf = QFrame().from_dict(playlist_track)
     >>> print(playlist_track_qf)
     SELECT PlaylistId,
            TrackId
     FROM PlaylistTrack
     >>> playlists = {"select": {"fields": {"PlaylistId": {"type" : "dim"}, "Name": {"type" : "dim"}}, "table" : "Playlist"}}
-    >>> playlists_qf = QFrame().read_dict(playlists)
+    >>> playlists_qf = QFrame().from_dict(playlists)
     >>> print(playlists_qf)
     SELECT PlaylistId,
            Name
@@ -1517,7 +1402,7 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     Examples
     --------
-    >>> qf = QFrame().read_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+    >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
     >>> qf1 = qf.copy()
     >>> qf2 = qf.copy()
     >>> qf3 = qf.copy()
