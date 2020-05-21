@@ -36,8 +36,6 @@ class S3:
             Bucket name, if None then 'acoe-s3'
         file_dir : str, optional
             Path to local folder to store the file, if None then '%UserProfile%/s3_loads'
-        redshift_str : str, optional
-            Redshift engine string, if None then 'mssql+pyodbc://redshift_acoe'
         """
 
     _ids = count(0)
@@ -48,10 +46,10 @@ class S3:
         s3_key: str = None,
         bucket: str = None,
         file_dir: str = None,
-        redshift_str: str = None,
         min_time_window: int = 0,
         interface: str = None,
         logger=None,
+        **kwargs,
     ):
         self.id = next(self._ids)
         self.file_name = file_name or f"s3_tmp_{self.id}.csv"
@@ -61,7 +59,7 @@ class S3:
         self.full_s3_key = self.s3_key + self.file_name
         self.bucket = bucket if bucket else "acoe-s3"
         self.file_dir = file_dir if file_dir else get_path("s3_loads")
-        self.redshift_str = redshift_str if redshift_str else "mssql+pyodbc://redshift_acoe"
+        self.redshift_str = kwargs.get("redshift_str") or "mssql+pyodbc://redshift_acoe"
         self.min_time_window = min_time_window
         os.makedirs(self.file_dir, exist_ok=True)
         self.logger = logger or logging.getLogger(__name__)
@@ -315,7 +313,7 @@ class S3:
 
     @_check_if_s3_exists
     def to_file(
-        self, if_exists: {"fail", "skip", "replace"} = "replace",
+        self, if_exists: str = None,
     ):
         r"""Writes S3 to local file.
 
@@ -333,8 +331,10 @@ class S3:
         >>> s3 = S3('test_grizly.csv', 'test/', file_dir='/home/analyst/').to_file()
         >>> os.remove('/home/analyst/test_grizly.csv')
         """
+        if_exists = if_exists or "replace"
         if if_exists not in ("fail", "skip", "replace"):
             raise ValueError(f"'{if_exists}' is not valid for if_exists")
+
         file_path = os.path.join(self.file_dir, self.file_name)
 
         if os.path.exists(file_path):
@@ -439,6 +439,7 @@ class S3:
         if_exists: {"fail", "replace", "append"} = "fail",
         sep: str = "\t",
         types: dict = None,
+        redshift_str: str = None,
         column_order: list = None,
         remove_inside_quotes: bool = False,
         time_format: str = None,
@@ -458,13 +459,16 @@ class S3:
             * fail: Raise a ValueError.
             * replace: Clean table before inserting new values.
             * append: Insert new values to the existing table.
-
+        
+        redshift_str : str, optional
+            Redshift engine string, if None then 'mssql+pyodbc://redshift_acoe'
         sep : str, optional
             Separator, by default '\t'
         types : dict, optional
             Data types to force, by default None
         column_order : list, optional
-            List of column names in other order than default (more info https://docs.aws.amazon.com/redshift/latest/dg/copy-parameters-column-mapping.html)
+            List of column names in other order than default 
+            (more info https://docs.aws.amazon.com/redshift/latest/dg/copy-parameters-column-mapping.html)
         remove_inside_quotes : bool, optional
             Whether to add REMOVEQUOTES to copy statement, by default False
         """
@@ -477,7 +481,8 @@ class S3:
 
         self.status = "initiated"
 
-        sqldb = SQLDB(db="redshift", engine_str=self.redshift_str, interface=self.interface)
+        redshift_str = redshift_str or self.redshift_str or "mssql+pyodbc://redshift_acoe"
+        sqldb = SQLDB(db="redshift", engine_str=redshift_str, interface=self.interface)
         table_name = f"{schema}.{table}" if schema else table
 
         if sqldb.check_if_exists(table, schema):
@@ -489,7 +494,7 @@ class S3:
             else:
                 pass
         else:
-            self._create_table_like_s3(table_name, sep, types)
+            self._create_table_like_s3(table_name, sep, engine_str=redshift_str, types=types)
 
         config = ConfigParser()
         config.read(get_path(".aws", "credentials"))
@@ -498,10 +503,11 @@ class S3:
         if file_extension(self.file_name) == "parquet":
             S3_iam_role = config["default"]["iam_role"]
 
-        if column_order != None:
-            column_order = "(" + ", ".join(column_order) + ")"
-        else:
-            column_order = ""
+        if column_order is None:
+            column_order = self._load_column_names()
+
+        column_order = "(" + ", ".join(column_order) + ")"
+
         remove_inside_quotes = "REMOVEQUOTES" if remove_inside_quotes else ""
         if file_extension(self.file_name) == "csv":
             if remove_inside_quotes:
@@ -576,7 +582,7 @@ class S3:
             else:
                 version += 1
 
-    def _create_table_like_s3(self, table_name, sep, types):
+    def _create_table_like_s3(self, table_name, sep, engine_str, types):
         if file_extension(self.file_name) == "csv":
             s3_client = resource("s3").meta.client
 
@@ -652,12 +658,19 @@ class S3:
         column_str = ", ".join(columns)
         sql = "CREATE TABLE {} ({})".format(table_name, column_str)
 
-        sqldb = SQLDB(db="redshift", engine_str=self.redshift_str, interface=self.interface)
+        sqldb = SQLDB(db="redshift", engine_str=engine_str, interface=self.interface)
         con = sqldb.get_connection()
         con.execute(sql).commit()
         con.close()
 
         self.logger.info(f"Table {table_name} has been created successfully.")
+
+    def _load_column_names(self):
+        obj = resource("s3").Object(self.bucket, self.s3_key + self.file_name)
+        header = obj.get()["Body"].read().splitlines()[0].decode("utf-8")
+        column_names = header.split("\t")
+
+        return column_names
 
 
 @deprecation.deprecated(details="Use S3.to_file function instead",)

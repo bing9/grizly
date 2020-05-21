@@ -9,9 +9,9 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="grizly",
-    version="0.3.3",
+    version="0.3.4",
     author="Alessio Civitillo",
-    description="Small package to build SQL with a Pandas api",
+    description="Small package to build SQL with a Pandas api, generate workflows and more.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     # url="https://github.com/pypa/sampleproject",

@@ -1,0 +1,238 @@
+{
+  "planned_indp": {
+    "destination": {
+      "download_path": "/home/analyst/data_loads",
+      "s3_root": "ac_testing/loads/",
+      "table": "table",
+      "schema": "schema"
+    },
+    "origin": {
+      "engine": "mssql+pyodbc://denodo_dev",
+      "type": "odbc"
+    },
+    "workflow": {
+      "ip": "acoe.connect.te.com:8786",
+      "partition_column": "plant",
+      "owner_email": "acivitillo@te.com",
+      "backup_email": "marcin.socha@te.com"
+    },
+    "select": {
+      "table": "PLANNED_INDP_REQR_FORECASTS_V",
+      "fields": {
+        "material_number": {
+          "type": "dim",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": ""
+        },
+        "plant": {
+          "type": "dim",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": ""
+        },
+        "requirements_type": {
+          "type": "dim",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": ""
+        },
+        "requirements_version": {
+          "type": "dim",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": ""
+        },
+        "indicator_active_version": {
+          "type": "dim",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": ""
+        },
+        "unconsumed_qty_period_bucket_1": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket_2": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket_3": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket_4": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket_5": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket_6": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket_7": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket_8": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket_9": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket10": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket11": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket12": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket13": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket14": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket15": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket16": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket17": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        },
+        "unconsumed_qty_period_bucket18": {
+          "type": "num",
+          "as": "",
+          "group_by": "",
+          "order_by": "",
+          "expression": "",
+          "select": "",
+          "custom_type": "BIGINT"
+        }
+      },
+      "engine": "",
+      "where": "",
+      "distinct": "",
+      "having": "",
+      "offset": "",
+      "limit": ""
+    }
+  }
+}

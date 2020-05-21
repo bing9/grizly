@@ -9,3 +9,4 @@ Tutorials
 
    api/tutorial_qframe_new
    api/config
+   api/crosstab

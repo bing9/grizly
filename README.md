@@ -35,7 +35,7 @@ Any contribution is welcome. You can work on some existing issues or if you noti
 - name of your branch should correspond to what you will be working on
 
 ### After finishing your work
-- update `changelogs.md`
+- update `CHANGELOG.md`
 - merge your branch with currently developed branch
 - remove your branch
 - close the issue
