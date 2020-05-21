@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) 
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
-## [0.3.4]
+## [0.3.4] - 21-05-2020
 ### S3
 - Fixed automatic column order in `to_rds()` method. [#377](https://github.com/kfk/grizly/issues/377)
 - Added `redshift_str` parameter to `to_rds()` method - it shouldn't be specified on initiating `S3` class.
@@ -160,7 +160,7 @@ For the S3 we use AWS configuration so if you don't have it in `.aws` folder ple
 You can get some connection errors if you don't have at least one of `HTTPS_PROXY` or `HTTP_PROXY` specified in env variables. Some libraries may not be installed if you don't have `HTTPS_PROXY` specified.
 
 
-[0.3.4]: https://github.com/kfk/grizly/compare/v0.3.3...0.3.4
+[0.3.4]: https://github.com/kfk/grizly/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/kfk/grizly/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/kfk/grizly/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/kfk/grizly/compare/v0.3...v0.3.1
