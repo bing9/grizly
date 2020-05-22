@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [0.3.5]
+### QFrame
+- Added `to_records()` method [#417](https://github.com/kfk/grizly/issues/417)
+- Added `pivot()` method [#420](https://github.com/kfk/grizly/issues/420)
 
 ## [0.3.4] - 21-05-2020
 ### S3
