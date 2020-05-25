@@ -117,6 +117,13 @@ def test_remove():
     assert "Part" and "Order" not in q.data["select"]["fields"]
 
 
+def test_remove_aliased():
+    q = QFrame().from_dict(deepcopy(orders))
+    q.remove(["Part", "Bookings"], aliased=True)
+    assert "Part" and "Order" not in q.data["select"]["fields"]
+    assert "Value" in q.data["select"]["fields"]
+
+
 def test_distinct():
     q = QFrame().from_dict(deepcopy(orders))
     q.distinct()

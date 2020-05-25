@@ -373,13 +373,15 @@ class QFrame(Extract):
                 self.data["select"]["fields"][field]["as"] = fields[field].replace(" ", "_")
         return self
 
-    def remove(self, fields):
+    def remove(self, fields, aliased=False):
         """Removes fields.
 
         Parameters
         ----------
         fields : list
             List of fields to remove.
+        aliased : boolean
+            Whether provided fields are aliased or not.
 
         Examples
         --------
@@ -396,6 +398,16 @@ class QFrame(Extract):
         """
         if isinstance(fields, str):
             fields = [fields]
+
+        if aliased:
+            aliased_fields = self.get_fields(aliased=True)
+            fields_diff = set(fields) - set(aliased_fields)
+
+            if fields_diff != set():
+                raise ValueError(f"Fields {fields_diff} not found.")
+
+            not_aliased_fields = self.get_fields(aliased=False)
+            fields = [not_aliased_fields[aliased_fields.index(field)] for field in fields]
 
         for field in fields:
             self.data["select"]["fields"].pop(field, f"Field {field} not found.")
@@ -596,7 +608,7 @@ class QFrame(Extract):
         Parameters
         ----------
         fields : list or string
-            List of fields or a field.
+            List of fields or a field, if None then all fields are grouped
 
         Examples
         --------
