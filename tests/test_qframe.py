@@ -177,6 +177,14 @@ def test_groupby():
     assert q.data["select"]["fields"]["Customer"] == customer
 
 
+def test_groupby_all():
+    q = QFrame().from_dict(deepcopy(orders))
+    q.groupby().create_sql_blocks()
+    fields_1 = q.data["select"]["sql_blocks"]["group_dimensions"]
+    fields_2 = q.get_fields()
+    assert fields_1 == fields_2
+
+
 def test_agg():
     q = QFrame().from_dict(deepcopy(orders))
     q.groupby(["Order", "Customer"])["Value"].agg("sum")

@@ -590,7 +590,7 @@ class QFrame(Extract):
                     }
         return self
 
-    def groupby(self, fields):
+    def groupby(self, fields=None):
         """Adds GROUP BY statement.
 
         Parameters
@@ -617,6 +617,9 @@ class QFrame(Extract):
 
         if isinstance(fields, str):
             fields = [fields]
+
+        if fields is None:
+            fields = self.get_fields()
 
         for field in fields:
             self.data["select"]["fields"][field]["group_by"] = "group"
