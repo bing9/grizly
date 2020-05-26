@@ -623,16 +623,16 @@ class Workflow:
         self.is_triggered = True
 
     def submit(
-        self, client: Client = None, client_address: str = None, priority: int = None
+        self, client: Client = None, scheduler_address: str = None, priority: int = None
     ) -> None:
 
         if not priority:
             priority = self.priority
 
         if not client:
-            client = Client(client_address)
+            client = Client(scheduler_address)
 
-        self.client_str = client.scheduler.address
+        self.scheduler_address = client.scheduler.address
         
         computation = client.compute(self.graph, retries=3, priority=priority)
         fire_and_forget(computation)
@@ -807,8 +807,10 @@ class Workflow:
 
         return self.status
 
-    def cancel(self):
-        client = Client(self.client_str)
+    def cancel(self, scheduler_address=None):
+        if not scheduler_address:
+            scheduler_address = self.scheduler_address
+        client = Client(scheduler_address)
         f = Future(self.name+"_graph", client=client)
         f.cancel(force=True)
         client.close()
@@ -818,9 +820,9 @@ class Runner:
     """Workflow runner"""
 
     def __init__(
-        self, client_address: str = None, logger: Logger = None, env: str = "prod"
+        self, scheduler_address: str = None, logger: Logger = None, env: str = "prod"
     ) -> None:
-        self.client_address = client_address
+        self.scheduler_address = scheduler_address
         self.env = env
         self.logger = logging.getLogger(__name__)
         self.run_params = None
@@ -937,7 +939,7 @@ class Runner:
             for workflow in workflows:
                 self.overwrite_params(workflow, params=overwrite_params)
 
-        client = Client(self.client_address)
+        client = Client(self.scheduler_address)
 
         for workflow in workflows:
             if self.should_run(workflow):
