@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import click
 
 import grizly
@@ -12,6 +14,7 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 @click.group(context_settings=CONTEXT_SETTINGS)
 def cli():
     """
+    \b
     Commands:
         config      Manage configuration
         workflow    Run, schedule, and monitor workflows
