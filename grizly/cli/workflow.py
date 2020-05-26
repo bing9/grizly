@@ -1,17 +1,23 @@
+#!/usr/bin/env python3
+
 import click
 import sys
 import os
+import importlib
+import importlib.util
+import subprocess
 
-WORKFLOWS_HOME = os.path.expanduser(os.getenv("GRIZLY_WORKFLOWS_HOME"))
 DEV_SCHEDULER_ADDRESS = os.getenv("GRIZLY_DEV_DASK_SCHEDULER_ADDRESS")
 PROD_SCHEDULER_ADDRESS = os.getenv("GRIZLY_DASK_SCHEDULER_ADDRESS")
-sys.path.insert(0, WORKFLOWS_HOME)
 
 
 def get_workflow(workflow_name):
+    subprocess.run(["""export 'PYTHONPATH="${PYTHONPATH}:${GRIZLY_WORKFLOWS_HOME}'"""], shell=True)
+    subprocess.run(["source ~/.bashrc"], shell=True)
+    sys.path.insert(0, "/home/acoe_workflows/workflows")
     script_name = workflow_name.lower().replace(" ", "_")
     module_path = f"workflows.{script_name}.{script_name}"
-    module = __import__(module_path, fromlist=[None])
+    module = importlib.import_module(module_path)
     wf = module.generate_workflow(logger_name=script_name)
     return wf
 
