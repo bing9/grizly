@@ -1,4 +1,6 @@
 import setuptools
+from sys import platform
+import subprocess
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
@@ -22,4 +24,8 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     # install_requires=requires,
-)
+    entry_points={"console_scripts": ["grizly=grizly.cli:cli"]}
+    )
+
+# if platform.startswith("linux"):
+    # subprocess.run(["cp", "grizly/cli/cli.py", "/usr/local/bin/grizly"])
