@@ -321,12 +321,14 @@ class QFrame(Extract):
             else:
                 fields = [fields]
 
+        fields = self._get_fields_names(fields)
+
         for field in fields:
             if field not in sq_fields:
-                self.logger.debug(f"Field {field} not found")
+                self.logger.warning(f"Field {field} not found")
 
             elif "select" in sq_fields[field] and sq_fields[field]["select"] == 0:
-                self.logger.debug(f"Field {field} is not selected in subquery.")
+                self.logger.warning(f"Field {field} is not selected in subquery.")
 
             else:
                 if "as" in sq_fields[field] and sq_fields[field]["as"] != "":
@@ -952,7 +954,9 @@ class QFrame(Extract):
 
         return self
 
-    def pivot(self, rows: list, columns: list, values: str, aggtype: str = "sum", prefix: str = None):
+    def pivot(
+        self, rows: list, columns: list, values: str, aggtype: str = "sum", prefix: str = None, sort: bool = True
+    ):
         """Reshapes QFrame to generate pivot table
 
         Parameters
@@ -967,6 +971,8 @@ class QFrame(Extract):
             Aggregation type to perform on values, by default "sum"
         prefix : str, optional
             Prefix to add to new columns, by default None
+        sort : bool, optional
+            Whether to sort columns, by default True
 
         Returns
         -------
@@ -985,9 +991,12 @@ class QFrame(Extract):
             raise ValueError(f"Aggregation '{aggtype}' not supperted yet.")
 
         qf = self.copy()
-        col_values = qf.select(columns).groupby(qf.get_fields()).to_records()
+        col_values = qf.select(columns).groupby().orderby(qf.get_fields()).to_records()
 
-        self.select(rows).groupby(self.get_fields())
+        values = self._get_fields_names([values], aliased=True)[0]
+        columns = self._get_fields_names(columns, aliased=True)
+
+        self.select(rows).groupby()
 
         for col_value in col_values:
             col_name = "_".join([str(val) for val in col_value])
@@ -996,12 +1005,14 @@ class QFrame(Extract):
             col_filter = []
             for col, val in zip(columns, col_value):
                 if val is not None:
-                    col_filter.append(f"{col}='{val}'")
+                    col_filter.append(f""""{col}"='{val}'""")
                 else:
-                    col_filter.append(f"{col} IS NULL")
+                    col_filter.append(f""""{col}" IS NULL""")
             col_filter = " AND ".join(col_filter)
 
-            self.assign(**{col_name: f"case WHEN {col_filter} then {values} else 0 end"}, type="num", group_by=aggtype)
+            self.assign(
+                **{col_name: f'CASE WHEN {col_filter} THEN "{values}" ELSE 0 END'}, type="num", group_by=aggtype
+            )
 
         return self
 
@@ -1373,6 +1384,36 @@ class QFrame(Extract):
         else:
             self.getfields = getfields
         return self
+
+    def _get_fields_names(self, fields, aliased=False):
+        """Returns a list of fields keys or fields aliases. Input parameters 'fields' can contain both aliased and not aliased fields"""
+        not_aliased_fields = self.get_fields(aliased=False)
+        aliased_fields = self.get_fields(aliased=True)
+
+        not_found_fields = []
+        output_fields = []
+
+        if aliased:
+            for field in fields:
+                if field in aliased_fields:
+                    output_fields.append(field)
+                elif field in not_aliased_fields:
+                    output_fields.append(aliased_fields[not_aliased_fields.index(field)])
+                else:
+                    not_found_fields.append(field)
+        else:
+            for field in fields:
+                if field in not_aliased_fields:
+                    output_fields.append(field)
+                elif field in aliased_fields:
+                    output_fields.append(not_aliased_fields[aliased_fields.index(field)])
+                else:
+                    not_found_fields.append(field)
+
+        if not_found_fields != []:
+            self.logger.warning(f"Fields {not_found_fields} not found.")
+
+        return output_fields
 
 
 def join(qframes=[], join_type=None, on=None, unique_col=True):
