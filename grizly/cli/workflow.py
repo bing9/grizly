@@ -55,14 +55,14 @@ def run(workflow_name, local, dev):
 
     wf = get_workflow(workflow_name)
     if local:
-        scheduler_address = "localhost:8786"
+        scheduler_address = None
     elif dev:
         scheduler_address = DEV_SCHEDULER_ADDRESS
     else:
         scheduler_address = PROD_SCHEDULER_ADDRESS
     wf.submit(scheduler_address=scheduler_address)
 
-    print(f"Workflow has been successfully submitted to {scheduler_address}")
+    print(f"Workflow has been successfully submitted to {scheduler_address or 'localhost:8786'}")
 
 
 @workflow.command(hidden=True)
@@ -76,7 +76,7 @@ def cancel(workflow_name, local, dev):
 
     wf = get_workflow(workflow_name)
     if local:
-        scheduler_address = "localhost:8786"
+        scheduler_address = None
     elif dev:
         scheduler_address = DEV_SCHEDULER_ADDRESS
     else:
