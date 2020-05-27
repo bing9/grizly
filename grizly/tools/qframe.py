@@ -991,7 +991,10 @@ class QFrame(Extract):
             raise ValueError(f"Aggregation '{aggtype}' not supperted yet.")
 
         qf = self.copy()
-        col_values = qf.select(columns).groupby().orderby(qf.get_fields()).to_records()
+        qf.select(columns).groupby()
+        if sort:
+            qf.orderby(qf.get_fields())
+        col_values = qf.to_records()
 
         values = self._get_fields_names([values], aliased=True)[0]
         columns = self._get_fields_names(columns, aliased=True)
