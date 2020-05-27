@@ -4,17 +4,15 @@ import click
 import sys
 import os
 import importlib
-import importlib.util
-import subprocess
 
 DEV_SCHEDULER_ADDRESS = os.getenv("GRIZLY_DEV_DASK_SCHEDULER_ADDRESS")
 PROD_SCHEDULER_ADDRESS = os.getenv("GRIZLY_DASK_SCHEDULER_ADDRESS")
+WORKFLOWS_HOME = os.getenv("GRIZLY_WORKFLOWS_HOME")
+
+sys.path.insert(0, WORKFLOWS_HOME)
 
 
 def get_workflow(workflow_name):
-    subprocess.run(["""export 'PYTHONPATH="${PYTHONPATH}:${GRIZLY_WORKFLOWS_HOME}'"""], shell=True)
-    subprocess.run(["source ~/.bashrc"], shell=True)
-    sys.path.insert(0, "/home/acoe_workflows/workflows")
     script_name = workflow_name.lower().replace(" ", "_")
     module_path = f"workflows.{script_name}.{script_name}"
     module = importlib.import_module(module_path)
@@ -51,6 +49,7 @@ def workflow():
 @click.option("--dev", "-d", is_flag=True, default=False)
 def run(workflow_name, dev):
     """Manually initiate a workflow run"""
+    
     print(f"Running workflow {workflow_name}...")
 
     wf = get_workflow(workflow_name)
@@ -68,6 +67,7 @@ def run(workflow_name, dev):
 @click.option("--dev", "-d", is_flag=True, default=False)
 def cancel(workflow_name, dev):
     """Remove a running or finished workflow from the scheduler"""
+    
     print(f"Cancelling workflow {workflow_name}...")
     
     wf = get_workflow(workflow_name)

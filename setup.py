@@ -1,12 +1,7 @@
 import setuptools
-from sys import platform
-import subprocess
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
-
-import sys
-sys.path.insert(0, "/home/acoe_workflows/workflows")
 
 # with open("requirements.txt", "r") as f:
 #     requires = [line.strip() for line in f]
@@ -29,5 +24,3 @@ setuptools.setup(
     entry_points={"console_scripts": ["grizly=grizly.cli:cli"]}
     )
 
-# if platform.startswith("linux"):
-    # subprocess.run(["cp", "grizly/cli/cli.py", "/usr/local/bin/grizly"])
