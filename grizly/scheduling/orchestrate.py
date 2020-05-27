@@ -535,7 +535,8 @@ class Workflow:
         trigger=None,
         trigger_type="manual",
         execution_options: dict = None,
-        resources: Dict[str, Any] = None
+        resources: Dict[str, Any] = None,
+        scheduler_address: str = None,
     ):
         self.name = name
         self.owner_email = owner_email
@@ -557,6 +558,7 @@ class Workflow:
         self.trigger_type = trigger_type
         self.num_workers = 8
         self.resources = resources
+        self.scheduler_address = scheduler_address
 
         self.logger.info(f"Workflow {self.name} initiated successfully")
 
