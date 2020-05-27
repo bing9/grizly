@@ -46,14 +46,17 @@ def workflow():
 
 @workflow.command(hidden=True)
 @click.argument("workflow_name", type=str)
+@click.option("--local", "-l", is_flag=True, default=False)
 @click.option("--dev", "-d", is_flag=True, default=False)
-def run(workflow_name, dev):
+def run(workflow_name, local, dev):
     """Manually initiate a workflow run"""
-    
+
     print(f"Running workflow {workflow_name}...")
 
     wf = get_workflow(workflow_name)
-    if dev:
+    if local:
+        scheduler_address = "localhost:8786"
+    elif dev:
         scheduler_address = DEV_SCHEDULER_ADDRESS
     else:
         scheduler_address = PROD_SCHEDULER_ADDRESS
@@ -64,18 +67,20 @@ def run(workflow_name, dev):
 
 @workflow.command(hidden=True)
 @click.argument("workflow_name", type=str)
+@click.option("--local", "-l", is_flag=True, default=False)
 @click.option("--dev", "-d", is_flag=True, default=False)
-def cancel(workflow_name, dev):
+def cancel(workflow_name, local, dev):
     """Remove a running or finished workflow from the scheduler"""
-    
+
     print(f"Cancelling workflow {workflow_name}...")
-    
+
     wf = get_workflow(workflow_name)
-    if dev:
+    if local:
+        scheduler_address = "localhost:8786"
+    elif dev:
         scheduler_address = DEV_SCHEDULER_ADDRESS
     else:
         scheduler_address = PROD_SCHEDULER_ADDRESS
     wf.cancel(scheduler_address=scheduler_address)
 
     print("Workflow has been successfully cancelled")
-
