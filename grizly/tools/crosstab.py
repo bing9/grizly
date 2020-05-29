@@ -25,7 +25,8 @@ class Crosstab:
         content = {}
         if df[dimensions].isnull().values.any():
             df[dimensions] = df[dimensions].fillna("")
-            print("NaN values occured in dimensions and has been replaced with empty strings.")
+            self.logger.warning("NaN values occured in dimensions and has been replaced with empty strings.")
+        df[dimensions] = df[dimensions].astype(str)
         for group in df[dimensions].values:
             filters = [f""" `{column}`=="{item}" """ for column, item in zip(dimensions, group)]
             query = " and ".join(filters)

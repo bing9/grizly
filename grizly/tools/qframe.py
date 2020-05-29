@@ -270,7 +270,7 @@ class QFrame(Extract):
                 subquery=subquery,
                 json_path=json_path,
             )
-            self.from_json(json_path)
+            self.from_json(json_path=json_path, subquery=subquery)
 
         else:
             dict_ = initiate(schema=schema, table=table, columns=col_names, col_types=col_types)
