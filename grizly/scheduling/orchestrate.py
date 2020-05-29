@@ -535,6 +535,8 @@ class Workflow:
         trigger=None,
         trigger_type="manual",
         execution_options: dict = None,
+        resources: Dict[str, Any] = None,
+        scheduler_address: str = None,
     ):
         self.name = name
         self.owner_email = owner_email
@@ -555,6 +557,8 @@ class Workflow:
         self.trigger = trigger
         self.trigger_type = trigger_type
         self.num_workers = 8
+        self.resources = resources
+        self.scheduler_address = scheduler_address
 
         self.logger.info(f"Workflow {self.name} initiated successfully")
 
@@ -623,18 +627,20 @@ class Workflow:
         self.is_triggered = True
 
     def submit(
-        self, client: Client = None, scheduler_address: str = None, priority: int = None
-    ) -> None:
+        self, client: Client = None, scheduler_address: str = None, priority: int = None, resources: Dict[str, Any] = None) -> None:
 
         if not priority:
             priority = self.priority
+
+        if not resources:
+            resources = self.resources
 
         if not client:
             client = Client(scheduler_address)
 
         self.scheduler_address = client.scheduler.address
         
-        computation = client.compute(self.graph, retries=3, priority=priority)
+        computation = client.compute(self.graph, retries=3, priority=priority, resources=resources)
         fire_and_forget(computation)
         self.status = "submitted"
         if (

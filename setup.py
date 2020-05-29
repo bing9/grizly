@@ -3,7 +3,6 @@ import setuptools
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
-
 # with open("requirements.txt", "r") as f:
 #     requires = [line.strip() for line in f]
 
@@ -22,4 +21,6 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     # install_requires=requires,
-)
+    entry_points={"console_scripts": ["grizly=grizly.cli:cli"]}
+    )
+
