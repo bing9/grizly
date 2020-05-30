@@ -11,7 +11,7 @@ from json.decoder import JSONDecodeError
 from logging import Logger
 from time import sleep, time
 from typing import Any, Dict, Iterable, List
-from distributed import Client
+from distributed import Client, Future
 from ..tools.s3 import S3
 
 import dask
@@ -631,6 +631,9 @@ class Workflow:
 
         if not client:
             client = Client(client_address)
+
+        self.client_str = client.scheduler.address
+        
         computation = client.compute(self.graph, retries=3, priority=priority)
         fire_and_forget(computation)
         self.status = "submitted"
@@ -804,6 +807,12 @@ class Workflow:
 
         return self.status
 
+    def cancel(self):
+        client = Client(self.client_str)
+        f = Future(self.name+"_graph", client=client)
+        f.cancel(force=True)
+        client.close()
+
 
 class Runner:
     """Workflow runner"""
@@ -834,34 +843,18 @@ class Runner:
         """
 
         if isinstance(workflow.trigger, Schedule):
-            # if workflow.is_scheduled:
             next_run_short = workflow.next_run.strftime("%Y-%m-%d %H:%M")
             now = datetime.now(timezone.utc)
 
             self.logger.info(
                 f"Determining whether scheduled workflow {workflow.name} should run... (next scheduled run: {next_run_short})"
             )
-            # self.logger.info(f"Day: {type(workflow.next_run.day)}:{workflow.next_run.day} vs now: {type(now.day)}:{now.day}")
-            # self.logger.info(f"Hour: {type(workflow.next_run.hour)}:{workflow.next_run.hour} vs now: {type(now.hour)}:{now.hour}")
-            # self.logger.info(f"Minute: {type(workflow.next_run.minute)}:{workflow.next_run.minute} vs now: {type(now.minute)}:{now.minute}")
-
             next_run = workflow.next_run
-            if (
-                (next_run.day == now.day)
-                and (next_run.hour == now.hour)
-                and (
-                    next_run.minute == now.minute + 1
-                )  # if we don't add 1 here, cron will just skip to next date once it hits now
-            ):  # minutes for precise scheduling - this assumes runner runs for less than 1 min
-                # ideally, each listener should run in a separate thread so that this is guaranteed
-                # (now, if e.g. Denodo is not responding, a scheduled workflow that comes below the triggered one will not run)
+            if (next_run.day == now.day) and (next_run.hour == now.hour) and (next_run.minute == now.minute + 1):
                 workflow.next_run = workflow.trigger.next(1)[0]
                 return True
 
         elif isinstance(workflow.trigger, Listener):
-            # elif workflow.is_triggered:
-
-            # listener = workflow.listener
             listener = workflow.trigger
 
             if isinstance(listener, EmailListener):

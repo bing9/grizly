@@ -1,6 +1,6 @@
-=============
+==============
 Class Crosstab
-=============
+==============
 
 .. autoautosummary :: grizly.Crosstab
     :methods:
