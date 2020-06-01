@@ -1,0 +1,1 @@
+['PlaylistId', 'TrackId', 'PlaylistId', 'Name', 'TrackId', 'Name', 'AlbumId', 'MediaTypeId', 'GenreId', 'Composer', 'Milliseconds', 'Bytes', 'UnitPrice']['sq1.PlaylistId', 'sq1.TrackId', 'sq2.PlaylistId', 'sq2.Name', 'sq3.TrackId', 'sq3.Name', 'sq3.AlbumId', 'sq3.MediaTypeId', 'sq3.GenreId', 'sq3.Composer', 'sq3.Milliseconds', 'sq3.Bytes', 'sq3.UnitPrice']

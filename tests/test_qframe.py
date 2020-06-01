@@ -119,7 +119,7 @@ def test_remove():
 
 def test_remove_aliased():
     q = QFrame().from_dict(deepcopy(orders))
-    q.remove(["Part", "Bookings"], aliased=True)
+    q.remove(["Part", "Bookings"])
     assert "Part" and "Order" not in q.data["select"]["fields"]
     assert "Value" in q.data["select"]["fields"]
 
@@ -237,7 +237,8 @@ def test_select():
     q.groupby("sq.Customer")["sq.Value"].agg("sum")
 
     sql = q.get_sql()
-    # write_out(str(sql))
+    q.select("Value")
+    write_out(str(sql))
     testsql = """
             SELECT sq.Customer AS "Customer",
                     sum(sq.Value) AS "Value"
@@ -414,6 +415,37 @@ def test_join_1():
         on=["sq1.PlaylistId=sq2.PlaylistId", "sq1.TrackId=sq3.TrackId"],
         unique_col=False,
     )
+
+    assert joined_qf.get_fields(aliased=True) == [
+        "PlaylistId",
+        "TrackId",
+        "PlaylistId",
+        "Name",
+        "TrackId",
+        "Name",
+        "AlbumId",
+        "MediaTypeId",
+        "GenreId",
+        "Composer",
+        "Milliseconds",
+        "Bytes",
+        "UnitPrice",
+    ]
+    assert joined_qf.get_fields(aliased=False) == [
+        "sq1.PlaylistId",
+        "sq1.TrackId",
+        "sq2.PlaylistId",
+        "sq2.Name",
+        "sq3.TrackId",
+        "sq3.Name",
+        "sq3.AlbumId",
+        "sq3.MediaTypeId",
+        "sq3.GenreId",
+        "sq3.Composer",
+        "sq3.Milliseconds",
+        "sq3.Bytes",
+        "sq3.UnitPrice",
+    ]
 
     joined_qf.remove(["sq2.PlaylistId", "sq3.TrackId"])
     joined_qf.rename({"sq2.Name": "Name_x", "sq3.Name": "Name_y"})
@@ -616,6 +648,23 @@ def test_from_table_sqlite():
     assert clean_testexpr(sql) == clean_testexpr(qf.get_sql())
 
 
+def test_from_table_sqlite_json():
+    QFrame(engine=engine_string, db="sqlite").from_table(table="Playlist", json_path="test.json", subquery="q1")
+    QFrame(engine=engine_string, db="sqlite").from_table(table="PlaylistTrack", json_path="test.json", subquery="q2")
+
+    qf1 = QFrame(engine=engine_string, db="sqlite").from_json(json_path="test.json", subquery="q1")
+    sql = """SELECT PlaylistId,
+                Name
+            FROM Playlist"""
+    assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
+
+    qf2 = QFrame(engine=engine_string, db="sqlite").from_json(json_path="test.json", subquery="q2")
+    sql = """SELECT PlaylistId,
+                TrackId
+            FROM PlaylistTrack"""
+    assert clean_testexpr(sql) == clean_testexpr(qf2.get_sql())
+
+
 def test_from_table_rds():
     engine_str = "mssql+pyodbc://redshift_acoe"
     qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
@@ -691,3 +740,20 @@ def test_pivot_rds():
             GROUP BY col1"""
 
     assert clean_testexpr(sql) == clean_testexpr(qf2.get_sql())
+
+
+def test_join_pivot_sqlite():
+    playlist_track_qf = QFrame(engine=engine_string).from_dict(deepcopy(playlist_track))
+    playlists_qf = QFrame(engine=engine_string).from_dict(deepcopy(playlists))
+    tracks_qf = QFrame(engine=engine_string).from_dict(deepcopy(tracks))
+
+    joined_qf = join(
+        qframes=[playlist_track_qf, playlists_qf, tracks_qf],
+        join_type=["left join", "left join"],
+        on=["sq1.PlaylistId=sq2.PlaylistId", "sq1.TrackId=sq3.TrackId"],
+        unique_col=True,
+    )
+
+    joined_qf = joined_qf.window(offset=3500, limit=100, order_by=["PlaylistId", "TrackId"])
+
+    # write_out(joined_qf.get_sql())
