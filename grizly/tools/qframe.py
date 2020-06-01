@@ -289,15 +289,15 @@ class QFrame(Extract):
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim', 'as': 'Id'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
         >>> qf = QFrame().from_dict(data)
         >>> print(qf)
-        SELECT CustomerId AS Id,
+        SELECT CustomerId AS "Id",
                Sales
         FROM schema.table
         >>> qf = qf.select(["CustomerId", "Sales"])
         >>> print(qf)
-        SELECT sq.Id AS Id,
-               sq.Sales AS Sales
+        SELECT sq.Id AS "Id",
+               sq.Sales AS "Sales"
         FROM
-          (SELECT CustomerId AS Id,
+          (SELECT CustomerId AS "Id",
                   Sales
            FROM schema.table) sq
 
@@ -361,7 +361,7 @@ class QFrame(Extract):
         >>> qf = qf.rename({'Sales': 'Billings'})
         >>> print(qf)
         SELECT CustomerId,
-               Sales AS Billings
+               Sales AS "Billings"
         FROM schema.table
 
         Returns
@@ -373,13 +373,15 @@ class QFrame(Extract):
                 self.data["select"]["fields"][field]["as"] = fields[field].replace(" ", "_")
         return self
 
-    def remove(self, fields):
+    def remove(self, fields, aliased=False):
         """Removes fields.
 
         Parameters
         ----------
         fields : list
             List of fields to remove.
+        aliased : boolean
+            Whether provided fields are aliased or not.
 
         Examples
         --------
@@ -396,6 +398,16 @@ class QFrame(Extract):
         """
         if isinstance(fields, str):
             fields = [fields]
+
+        if aliased:
+            aliased_fields = self.get_fields(aliased=True)
+            fields_diff = set(fields) - set(aliased_fields)
+
+            if fields_diff != set():
+                raise ValueError(f"Fields {fields_diff} not found.")
+
+            not_aliased_fields = self.get_fields(aliased=False)
+            fields = [not_aliased_fields[aliased_fields.index(field)] for field in fields]
 
         for field in fields:
             self.data["select"]["fields"].pop(field, f"Field {field} not found.")
@@ -484,7 +496,7 @@ class QFrame(Extract):
         >>> qf = qf.having("sum(sales)>100")
         >>> print(qf)
         SELECT CustomerId,
-               sum(Sales) AS Sales
+               sum(Sales) AS "Sales"
         FROM schema.table
         GROUP BY CustomerId
         HAVING sum(sales)>100
@@ -539,7 +551,7 @@ class QFrame(Extract):
         >>> print(qf)
         SELECT CustomerId,
                Sales,
-               Sales/100 AS Sales_Div
+               Sales/100 AS "Sales_Div"
         FROM schema.table
 
         >>> qf = QFrame().from_dict(data)
@@ -550,7 +562,7 @@ class QFrame(Extract):
                CASE
                    WHEN Sales>0 THEN 1
                    ELSE 0
-               END AS Sales_Positive
+               END AS "Sales_Positive"
         FROM schema.table
 
         Returns
@@ -590,13 +602,13 @@ class QFrame(Extract):
                     }
         return self
 
-    def groupby(self, fields):
+    def groupby(self, fields=None):
         """Adds GROUP BY statement.
 
         Parameters
         ----------
         fields : list or string
-            List of fields or a field.
+            List of fields or a field, if None then all fields are grouped
 
         Examples
         --------
@@ -605,7 +617,7 @@ class QFrame(Extract):
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> print(qf)
         SELECT CustomerId,
-               sum(Sales) AS Sales
+               sum(Sales) AS "Sales"
         FROM schema.table
         GROUP BY CustomerId
 
@@ -617,6 +629,9 @@ class QFrame(Extract):
 
         if isinstance(fields, str):
             fields = [fields]
+
+        if fields is None:
+            fields = self.get_fields()
 
         for field in fields:
             self.data["select"]["fields"][field]["group_by"] = "group"
@@ -637,8 +652,8 @@ class QFrame(Extract):
         >>> qf = qf.groupby(['CustomerId'])['Sales', 'Orders'].agg('sum')
         >>> print(qf)
         SELECT CustomerId,
-               sum(Sales) AS Sales,
-               sum(Orders) AS Orders
+               sum(Sales) AS "Sales",
+               sum(Orders) AS "Orders"
         FROM schema.table
         GROUP BY CustomerId
 
@@ -679,8 +694,8 @@ class QFrame(Extract):
         >>> qf = qf.groupby(['CustomerId']).sum()
         >>> print(qf)
         SELECT CustomerId,
-               sum(Sales) AS Sales,
-               sum(Orders) AS Orders
+               sum(Sales) AS "Sales",
+               sum(Orders) AS "Orders"
         FROM schema.table
         GROUP BY CustomerId
 
@@ -832,7 +847,6 @@ class QFrame(Extract):
         -------
         QFrame
         """
-        qf = self.copy()
 
         if deterministic:
             if order_by is not None:
@@ -845,23 +859,23 @@ class QFrame(Extract):
                         return False
                     return True
 
-                if not check_if_values_are_distinct(qf=qf, columns=order_by):
+                if not check_if_values_are_distinct(qf=self, columns=order_by):
                     raise ValueError(
                         "Selected columns don't give distinct records. Please change 'order_by' parameter or remove it."
                     )
 
-                qf.orderby(order_by)
+                self.orderby(order_by)
 
             else:
-                qf.orderby(qf.get_fields())
+                self.orderby(self.get_fields())
 
         if offset is not None:
-            qf.offset(offset)
+            self.offset(offset)
 
         if limit is not None:
-            qf.limit(limit)
+            self.limit(limit)
 
-        return qf
+        return self
 
     def cut(self, chunksize: int, deterministic: bool = True, order_by: list = None):
         """Divides a QFrame into multiple smaller QFrames, each containing chunksize rows.
@@ -892,7 +906,8 @@ class QFrame(Extract):
         no_rows = self.__len__()
         qfs = []
         for chunk in range(0, no_rows, chunksize):
-            qf = self.window(offset=chunk, limit=chunksize, deterministic=deterministic, order_by=order_by)
+            qf = self.copy()
+            qf = qf.window(offset=chunk, limit=chunksize, deterministic=deterministic, order_by=order_by)
             qfs.append(qf)
 
         return qfs
@@ -934,6 +949,59 @@ class QFrame(Extract):
         self.data["select"]["fields"] = new_fields
 
         self.create_sql_blocks()
+
+        return self
+
+    def pivot(self, rows: list, columns: list, values: str, aggtype: str = "sum", prefix: str = None):
+        """Reshapes QFrame to generate pivot table
+
+        Parameters
+        ----------
+        rows : list
+            Columns which will be grouped
+        columns : list
+            Columns to use to make new QFrame columns
+        values : str
+            Column(s) to use for populating new QFrame values
+        aggtype : str, optional
+            Aggregation type to perform on values, by default "sum"
+        prefix : str, optional
+            Prefix to add to new columns, by default None
+
+        Returns
+        -------
+        QFrame
+        """
+
+        if isinstance(rows, str):
+            rows = [rows]
+        if isinstance(columns, str):
+            columns = [columns]
+        if not isinstance(values, str):
+            raise ValueError("Parameter 'value' has to be of type str.")
+        if values not in set(self.get_fields()) | set(self.get_fields(aliased=True)):
+            raise ValueError(f"'{values}' not found in fields.")
+        if aggtype not in ["sum"]:
+            raise ValueError(f"Aggregation '{aggtype}' not supperted yet.")
+
+        qf = self.copy()
+        col_values = qf.select(columns).groupby(qf.get_fields()).to_records()
+
+        self.select(rows).groupby(self.get_fields())
+
+        for col_value in col_values:
+            col_name = "_".join([str(val) for val in col_value])
+            if prefix is not None:
+                col_name = f"{prefix}{col_name}"
+            col_filter = []
+            for col, val in zip(columns, col_value):
+                if val is not None:
+                    col_filter.append(f"{col}='{val}'")
+                else:
+                    col_filter.append(f"{col} IS NULL")
+            col_filter = " AND ".join(col_filter)
+
+            self.assign(**{col_name: f"case WHEN {col_filter} then {values} else 0 end"}, type="num", group_by=aggtype)
 
         return self
 
@@ -1002,7 +1070,7 @@ class QFrame(Extract):
         QFrame
         """
         self.create_sql_blocks()
-        self.sql = _get_sql(self.data)
+        self.sql = _get_sql(data=self.data, db=self.db)
         return self.sql
 
     def create_table(self, table, schema="", char_size=500, engine_str=None):
@@ -1105,6 +1173,42 @@ class QFrame(Extract):
             table=table, columns=self.get_fields(aliased=True), sql=self.get_sql(), schema=schema, if_exists=if_exists,
         )
         return self
+
+    def to_records(self):
+        """Writes QFrame to records.
+
+        Examples
+        --------
+        >>> engine_str = "mssql+pyodbc://redshift_acoe"
+        >>> qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
+        >>> qf = qf.from_table(table="table_tutorial", schema="administration")
+        >>> qf.to_records()
+        [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
+
+        Returns
+        -------
+        list
+            List of rows generated by SQL.
+        """
+
+        sql = self.get_sql()
+        if self.db == "denodo":
+            sql += (
+                " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est',"
+                " 'queryTimeout' = '9000000000', 'simplify' = 'on')"
+            )
+
+        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface, logger=self.logger)
+        con = sqldb.get_connection()
+        cursor = con.cursor()
+
+        cursor.execute(sql)
+        records = cursor.fetchall()
+        cursor.close()
+
+        con.close()
+
+        return records
 
     def to_df(self, db="redshift", chunksize: int = None):
         """Writes QFrame to DataFrame. Uses pandas.read_sql.
@@ -1317,9 +1421,9 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     >>> joined_qf = join(qframes=[playlist_track_qf, playlists_qf], join_type='left join', on='sq1.PlaylistId=sq2.PlaylistId')
     Data joined successfully.
     >>> print(joined_qf)
-    SELECT sq1.PlaylistId AS PlaylistId,
-           sq1.TrackId AS TrackId,
-           sq2.Name AS Name
+    SELECT sq1.PlaylistId AS "PlaylistId",
+           sq1.TrackId AS "TrackId",
+           sq2.Name AS "Name"
     FROM
       (SELECT PlaylistId,
               TrackId
@@ -1745,6 +1849,7 @@ def _build_column_strings(data):
             else fields[field]["expression"]
         )
         alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
+        alias = alias.replace('"', "")
 
         if "group_by" in fields[field]:
             if fields[field]["group_by"].upper() == "GROUP":
@@ -1769,7 +1874,7 @@ def _build_column_strings(data):
                 group_values.append(alias)
 
         if "select" not in fields[field] or "select" in fields[field] and fields[field]["select"] == "":
-            select_name = field if expr == alias else f"{expr} as {alias}"
+            select_name = field if expr == alias else f'{expr} as "{alias}"'
 
             if "custom_type" in fields[field] and fields[field]["custom_type"] != "":
                 type = fields[field]["custom_type"].upper()
@@ -1803,7 +1908,7 @@ def _build_column_strings(data):
     return sql_blocks
 
 
-def _get_sql(data):
+def _get_sql(data, db):
     if data == {}:
         return ""
 
@@ -1813,12 +1918,12 @@ def _get_sql(data):
     if "union" in data["select"]:
         iterator = 1
         sq_data = deepcopy(data[f"sq{iterator}"])
-        sql += _get_sql(sq_data)
+        sql += _get_sql(sq_data, db)
 
         for union in data["select"]["union"]["union_type"]:
             union_type = data["select"]["union"]["union_type"][iterator - 1]
             sq_data = deepcopy(data[f"sq{iterator+1}"])
-            right_table = _get_sql(sq_data)
+            right_table = _get_sql(sq_data, db)
 
             sql += f" {union_type} {right_table}"
             iterator += 1
@@ -1841,13 +1946,13 @@ def _get_sql(data):
         elif "join" in data["select"]:
             iterator = 1
             sq_data = deepcopy(data[f"sq{iterator}"])
-            left_table = _get_sql(sq_data)
+            left_table = _get_sql(sq_data, db)
             sql += f" FROM ({left_table}) sq{iterator}"
 
             for join in data["select"]["join"]["join_type"]:
                 join_type = data["select"]["join"]["join_type"][iterator - 1]
                 sq_data = deepcopy(data[f"sq{iterator+1}"])
-                right_table = _get_sql(sq_data)
+                right_table = _get_sql(sq_data, db)
                 on = data["select"]["join"]["on"][iterator - 1]
 
                 sql += f" {join_type} ({right_table}) sq{iterator+1}"
@@ -1857,7 +1962,7 @@ def _get_sql(data):
 
         elif "table" not in data["select"] and "join" not in data["select"] and "sq" in data:
             sq_data = deepcopy(data["sq"])
-            sq = _get_sql(sq_data)
+            sq = _get_sql(sq_data, db)
             sql += f" FROM ({sq}) sq"
 
         if "where" in data["select"] and data["select"]["where"] != "":
@@ -1874,11 +1979,18 @@ def _get_sql(data):
         order_by = ", ".join(data["select"]["sql_blocks"]["order_by"])
         sql += f" ORDER BY {order_by}"
 
-    if "offset" in data["select"] and data["select"]["offset"] != "":
-        sql += " OFFSET {}".format(data["select"]["offset"])
+    if db in ["sqlite", "mariadb"]:
+        if "limit" in data["select"] and data["select"]["limit"] != "":
+            sql += " LIMIT {}".format(data["select"]["limit"])
 
-    if "limit" in data["select"] and data["select"]["limit"] != "":
-        sql += " LIMIT {}".format(data["select"]["limit"])
+        if "offset" in data["select"] and data["select"]["offset"] != "":
+            sql += " OFFSET {}".format(data["select"]["offset"])
+    else:
+        if "offset" in data["select"] and data["select"]["offset"] != "":
+            sql += " OFFSET {}".format(data["select"]["offset"])
+
+        if "limit" in data["select"] and data["select"]["limit"] != "":
+            sql += " LIMIT {}".format(data["select"]["limit"])
 
     sql = sqlparse.format(sql, reindent=True, keyword_case="upper")
     return sql

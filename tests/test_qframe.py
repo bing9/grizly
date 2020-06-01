@@ -53,18 +53,18 @@ def clean_testexpr(testsql):
     return testsql
 
 
-def test_save_json_and_read_json1():
+def test_save_json_and_from_json1():
     q = QFrame().from_dict(deepcopy(customers))
     q.save_json("qframe_data.json")
-    q.read_json("qframe_data.json")
+    q.from_json("qframe_data.json")
     os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.data == customers
 
 
-def test_save_json_and_read_json2():
+def test_save_json_and_from_json2():
     q = QFrame().from_dict(deepcopy(customers))
     q.save_json("qframe_data.json", "alias")
-    q.read_json("qframe_data.json", "alias")
+    q.from_json("qframe_data.json", "alias")
     os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.data == customers
 
@@ -90,7 +90,7 @@ def test_from_dict():
 def test_create_sql_blocks():
     q = QFrame().from_dict(deepcopy(orders))
     assert _build_column_strings(q.data)["select_names"] == [
-        "Order as Bookings",
+        'Order as "Bookings"',
         "Part",
         "Customer",
         "Value",
@@ -115,6 +115,13 @@ def test_remove():
     q = QFrame().from_dict(deepcopy(orders))
     q.remove(["Part", "Order"])
     assert "Part" and "Order" not in q.data["select"]["fields"]
+
+
+def test_remove_aliased():
+    q = QFrame().from_dict(deepcopy(orders))
+    q.remove(["Part", "Bookings"], aliased=True)
+    assert "Part" and "Order" not in q.data["select"]["fields"]
+    assert "Value" in q.data["select"]["fields"]
 
 
 def test_distinct():
@@ -177,6 +184,14 @@ def test_groupby():
     assert q.data["select"]["fields"]["Customer"] == customer
 
 
+def test_groupby_all():
+    q = QFrame().from_dict(deepcopy(orders))
+    q.groupby().create_sql_blocks()
+    fields_1 = q.data["select"]["sql_blocks"]["group_dimensions"]
+    fields_2 = q.get_fields()
+    assert fields_1 == fields_2
+
+
 def test_agg():
     q = QFrame().from_dict(deepcopy(orders))
     q.groupby(["Order", "Customer"])["Value"].agg("sum")
@@ -197,7 +212,7 @@ def test_orderby():
 
     testsql = """
             SELECT
-                Order AS Bookings,
+                Order AS "Bookings",
                 Part,
                 Customer,
                 Value
@@ -224,11 +239,11 @@ def test_select():
     sql = q.get_sql()
     # write_out(str(sql))
     testsql = """
-            SELECT sq.Customer AS Customer,
-                    sum(sq.Value) AS Value
+            SELECT sq.Customer AS "Customer",
+                    sum(sq.Value) AS "Value"
                 FROM
                 (SELECT
-                ORDER AS Bookings,
+                ORDER AS "Bookings",
                         Part,
                         Customer,
                         Value
@@ -255,14 +270,14 @@ def test_get_sql():
     q.assign(New_case="CASE WHEN Bookings = 100 THEN 1 ELSE 0 END", type="num")
     q.limit(5)
     q.groupby(q.data["select"]["fields"])["Value"].agg("sum")
-    testsql = """SELECT Order AS Bookings,
+    testsql = """SELECT Order AS "Bookings",
                     Part,
                     Customer,
-                    sum(Value) AS Value,
+                    sum(Value) AS "Value",
                     CASE
                         WHEN Bookings = 100 THEN 1
                         ELSE 0
-                    END AS New_case
+                    END AS "New_case"
                 FROM Orders
                 GROUP BY Order,
                         Part,
@@ -273,7 +288,7 @@ def test_get_sql():
     sql = q.get_sql()
     # write_out(str(sql))
     assert clean_testexpr(sql) == clean_testexpr(testsql)
-    assert sql == _get_sql(q.data)
+    assert sql == _get_sql(q.data, db="sqlite")
 
 
 def test_to_csv():
@@ -423,9 +438,9 @@ def test_join_2():
     sql = joined_qf.get_sql()
 
     testsql = """
-            SELECT sq1.PlaylistId AS PlaylistId,
-                sq1.TrackId AS TrackId,
-                sq2.Name AS Name
+            SELECT sq1.PlaylistId AS "PlaylistId",
+                sq1.TrackId AS "TrackId",
+                sq2.Name AS "Name"
             FROM
             (SELECT PlaylistId,
                     TrackId
@@ -447,13 +462,13 @@ def test_join_2():
     sql = joined_qf.get_sql()
 
     testsql = """
-                SELECT sq1.PlaylistId AS PlaylistId,
-                    sq1.TrackId AS TrackId,
-                    sq1.Name AS Name
+                SELECT sq1.PlaylistId AS "PlaylistId",
+                    sq1.TrackId AS "TrackId",
+                    sq1.Name AS "Name"
                 FROM
-                (SELECT sq1.PlaylistId AS PlaylistId,
-                        sq1.TrackId AS TrackId,
-                        sq2.Name AS Name
+                (SELECT sq1.PlaylistId AS "PlaylistId",
+                        sq1.TrackId AS "TrackId",
+                        sq2.Name AS "Name"
                 FROM
                     (SELECT PlaylistId,
                             TrackId
@@ -522,13 +537,13 @@ def test_union():
 
     testsql = """
             SELECT PlaylistId,
-                Name AS Old_name,
-                Name || '_new' AS New_name
+                Name AS "Old_name",
+                Name || '_new' AS "New_name"
             FROM Playlist
             UNION
             SELECT PlaylistId,
-                Name || '_old' AS Old_name,
-                Name AS New_name
+                Name || '_old' AS "Old_name",
+                Name AS "New_name"
             FROM Playlist
             """
     sql = unioned_qf.get_sql()
@@ -544,7 +559,7 @@ def test_initiate():
     initiate(
         columns=columns, schema="test_schema", table="test_table", engine_str="engine", json_path=json, subquery=sq,
     )
-    q = QFrame().read_json(json_path=json, subquery=sq)
+    q = QFrame().from_json(json_path=json, subquery=sq)
     os.remove("test.json")
 
     testsql = """
@@ -567,21 +582,21 @@ def test_pyodbc_interface():
     assert not df.empty
 
 
-# def test_cut():
-#     qf = QFrame(engine=engine_string).from_dict(deepcopy(playlists))
-#     assert len(qf) == 18
+def test_cut():
+    qf = QFrame(engine=engine_string, db="sqlite").from_dict(deepcopy(playlists))
+    assert len(qf) == 18
 
-#     qframes1 = qf.cut(18)
-#     test_len = 0
-#     for q in qframes1:
-#         test_len += len(q)
-#     assert len(qf) == test_len
+    qframes1 = qf.cut(18)
+    test_len = 0
+    for q in qframes1:
+        test_len += len(q)
+    assert len(qf) == test_len
 
-#     with pytest.raises(ValueError):
-#         qf.cut(2, order_by=["Name"])
+    with pytest.raises(ValueError):
+        qf.cut(2, order_by=["Name"])
 
-#     qframes2 = qf.cut(18, order_by=["PlaylistId"])
-#     assert len(qframes1) == len(qframes2)
+    qframes2 = qf.cut(18, order_by=["PlaylistId"])
+    assert len(qframes1) == len(qframes2)
 
 
 def test_from_table_sqlite():
@@ -617,3 +632,35 @@ def test_from_table_rds():
     dtypes = ["CHARACTER VARYING(500)", "DOUBLE PRECISION", "CHARACTER VARYING(500)", "DOUBLE PRECISION"]
 
     assert dtypes == qf.get_dtypes()
+
+
+def test_pivot_rds():
+    engine_str = "mssql+pyodbc://redshift_acoe"
+    qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
+    qf = qf.from_table(table="table_tutorial", schema="administration")
+
+    with pytest.raises(ValueError, match=f"'my_value' not found in fields."):
+        qf.pivot(rows=["col1"], columns=["col2", "col3"], values="my_value")
+
+    qf.pivot(rows=["col1"], columns=["col2", "col3"], values="col4", prefix="p_")
+
+    sql = """SELECT sq.col1 AS "col1",
+                sum(CASE
+                        WHEN col2='1.3'
+                                AND col3 IS NULL THEN col4
+                        ELSE 0
+                    END) AS "p_1.3_None",
+                sum(CASE
+                        WHEN col2='0.0'
+                                AND col3 IS NULL THEN col4
+                        ELSE 0
+                    END) AS "p_0.0_None"
+            FROM
+            (SELECT col1,
+                    col2,
+                    col3,
+                    col4
+            FROM administration.table_tutorial) sq
+            GROUP BY col1"""
+
+    assert clean_testexpr(sql) == clean_testexpr(qf.get_sql())

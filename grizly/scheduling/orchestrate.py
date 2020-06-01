@@ -535,6 +535,8 @@ class Workflow:
         trigger=None,
         trigger_type="manual",
         execution_options: dict = None,
+        resources: Dict[str, Any] = None,
+        scheduler_address: str = None,
     ):
         self.name = name
         self.owner_email = owner_email
@@ -555,6 +557,8 @@ class Workflow:
         self.trigger = trigger
         self.trigger_type = trigger_type
         self.num_workers = 8
+        self.resources = resources
+        self.scheduler_address = scheduler_address
 
         self.logger.info(f"Workflow {self.name} initiated successfully")
 
@@ -623,18 +627,20 @@ class Workflow:
         self.is_triggered = True
 
     def submit(
-        self, client: Client = None, client_address: str = None, priority: int = None
-    ) -> None:
+        self, client: Client = None, scheduler_address: str = None, priority: int = None, resources: Dict[str, Any] = None) -> None:
 
         if not priority:
             priority = self.priority
 
-        if not client:
-            client = Client(client_address)
+        if not resources:
+            resources = self.resources
 
-        self.client_str = client.scheduler.address
+        if not client:
+            client = Client(scheduler_address)
+
+        self.scheduler_address = client.scheduler.address
         
-        computation = client.compute(self.graph, retries=3, priority=priority)
+        computation = client.compute(self.graph, retries=3, priority=priority, resources=resources)
         fire_and_forget(computation)
         self.status = "submitted"
         if (
@@ -807,8 +813,10 @@ class Workflow:
 
         return self.status
 
-    def cancel(self):
-        client = Client(self.client_str)
+    def cancel(self, scheduler_address=None):
+        if not scheduler_address:
+            scheduler_address = self.scheduler_address
+        client = Client(scheduler_address)
         f = Future(self.name+"_graph", client=client)
         f.cancel(force=True)
         client.close()
@@ -818,9 +826,9 @@ class Runner:
     """Workflow runner"""
 
     def __init__(
-        self, client_address: str = None, logger: Logger = None, env: str = "prod"
+        self, scheduler_address: str = None, logger: Logger = None, env: str = "prod"
     ) -> None:
-        self.client_address = client_address
+        self.scheduler_address = scheduler_address
         self.env = env
         self.logger = logging.getLogger(__name__)
         self.run_params = None
@@ -937,7 +945,7 @@ class Runner:
             for workflow in workflows:
                 self.overwrite_params(workflow, params=overwrite_params)
 
-        client = Client(self.client_address)
+        client = Client(self.scheduler_address)
 
         for workflow in workflows:
             if self.should_run(workflow):

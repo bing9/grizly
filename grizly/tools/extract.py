@@ -29,7 +29,7 @@ class Extract:
                 sep=sep,
                 chunksize=chunksize,
                 cursor=cursor,
-                interface=self.interface
+                interface=self.interface,
             )
             self.logger.info(f"Successfully wrote to '{basename(csv_path)}'")
             if debug:
@@ -122,9 +122,7 @@ def copy_df_to_excel(
     writer.close()
 
 
-def to_csv(
-    columns, csv_path, sql, engine=None, sep="\t", chunksize=None, debug=False, cursor=None, interface=None
-):
+def to_csv(columns, csv_path, sql, engine=None, sep="\t", chunksize=None, debug=False, cursor=None, interface=None):
     """
     Writes table to csv file.
     Parameters
@@ -149,7 +147,7 @@ def to_csv(
 
     else:
         db = "denodo" if "denodo" in engine else "redshift"
-        
+
         if interface == "sqlalchemy":
             engine = create_engine(engine)
             try:
