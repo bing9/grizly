@@ -1,4 +1,5 @@
 import pytest
+import warnings
 import os
 from copy import deepcopy
 from sqlalchemy import create_engine
@@ -22,7 +23,7 @@ orders = {
     "select": {
         "fields": {
             "Order": {"type": "dim", "as": "Bookings"},
-            "Part": {"type": "dim", "as": "Part"},
+            "Part": {"type": "dim", "as": "Part1"},
             "Customer": {"type": "dim", "as": "Customer"},
             "Value": {"type": "num"},
         },
@@ -53,24 +54,24 @@ def clean_testexpr(testsql):
     return testsql
 
 
-def test_save_json_and_read_json1():
-    q = QFrame().from_dict(deepcopy(customers))
+def test_save_json_and_from_json1():
+    q = QFrame().from_dict(customers)
     q.save_json("qframe_data.json")
-    q.read_json("qframe_data.json")
+    q.from_json("qframe_data.json")
     os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.data == customers
 
 
-def test_save_json_and_read_json2():
-    q = QFrame().from_dict(deepcopy(customers))
+def test_save_json_and_from_json2():
+    q = QFrame().from_dict(customers)
     q.save_json("qframe_data.json", "alias")
-    q.read_json("qframe_data.json", "alias")
+    q.from_json("qframe_data.json", "alias")
     os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.data == customers
 
 
 def test_validation_data():
-    QFrame().validate_data(deepcopy(orders))
+    QFrame().validate_data(orders)
 
     orders_c = deepcopy(orders)
     orders_c["select"]["fields"]["Customer"]["as"] = "ABC DEF"
@@ -80,24 +81,24 @@ def test_validation_data():
 
 
 def test_from_dict():
-    q = QFrame().from_dict(deepcopy(customers))
+    q = QFrame().from_dict(customers)
     assert q.data["select"]["fields"]["Country"] == {"type": "dim", "as": "Country"}
 
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     assert q.data["select"]["fields"]["Value"] == {"type": "num"}
 
 
 def test_create_sql_blocks():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     assert _build_column_strings(q.data)["select_names"] == [
-        "Order as Bookings",
-        "Part",
+        'Order as "Bookings"',
+        'Part as "Part1"',
         "Customer",
         "Value",
     ]
     assert _build_column_strings(q.data)["select_aliases"] == [
         "Bookings",
-        "Part",
+        "Part1",
         "Customer",
         "Value",
     ]
@@ -105,27 +106,34 @@ def test_create_sql_blocks():
 
 
 def test_rename():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.rename({"Customer": "Customer Name", "Value": "Sales"})
-    assert q.data["select"]["fields"]["Customer"]["as"] == "Customer_Name"
+    assert q.data["select"]["fields"]["Customer"]["as"] == "Customer Name"
     assert q.data["select"]["fields"]["Value"]["as"] == "Sales"
 
 
 def test_remove():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.remove(["Part", "Order"])
     assert "Part" and "Order" not in q.data["select"]["fields"]
 
 
+def test_remove_aliased():
+    q = QFrame().from_dict(orders)
+    q.remove(["Part1", "Bookings"])
+    assert "Part" and "Order" not in q.data["select"]["fields"]
+    assert "Value" in q.data["select"]["fields"]
+
+
 def test_distinct():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.distinct()
     sql = q.get_sql()
     assert sql[7:15].upper() == "DISTINCT"
 
 
 def test_query():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.query("country!='France'")
     q.query("country!='Italy'", if_exists="replace")
     q.query("(Customer='Enel' or Customer='Agip')")
@@ -135,7 +143,7 @@ def test_query():
 
 
 def test_having():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.query("sum(Value)==1000")
     q.query("sum(Value)>1000", if_exists="replace")
     q.query("count(Customer)<=65")
@@ -144,7 +152,7 @@ def test_having():
 
 
 def test_assign():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     value_x_two = "Value * 2"
     q.assign(value_x_two=value_x_two, type="num")
     q.assign(extract_date="format('yyyy-MM-dd', '2019-04-05 13:00:09')", custom_type="date")
@@ -169,7 +177,7 @@ def test_assign():
 
 
 def test_groupby():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.groupby(["Order", "Customer"])
     order = {"type": "dim", "as": "Bookings", "group_by": "group"}
     customer = {"type": "dim", "as": "Customer", "group_by": "group"}
@@ -177,15 +185,32 @@ def test_groupby():
     assert q.data["select"]["fields"]["Customer"] == customer
 
 
+def test_groupby_aliased():
+    q = QFrame().from_dict(orders)
+    q.groupby(["Bookings", "Customer"])
+    order = {"type": "dim", "as": "Bookings", "group_by": "group"}
+    customer = {"type": "dim", "as": "Customer", "group_by": "group"}
+    assert q.data["select"]["fields"]["Order"] == order
+    assert q.data["select"]["fields"]["Customer"] == customer
+
+
+def test_groupby_all():
+    q = QFrame().from_dict(orders)
+    q.groupby().create_sql_blocks()
+    fields_1 = q.data["select"]["sql_blocks"]["group_dimensions"]
+    fields_2 = q.get_fields()
+    assert fields_1 == fields_2
+
+
 def test_agg():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.groupby(["Order", "Customer"])["Value"].agg("sum")
     value = {"type": "num", "group_by": "sum"}
     assert q.data["select"]["fields"]["Value"] == value
 
 
 def test_orderby():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.orderby("Value")
     assert q.data["select"]["fields"]["Value"]["order_by"] == "ASC"
 
@@ -197,72 +222,116 @@ def test_orderby():
 
     testsql = """
             SELECT
-                Order AS Bookings,
-                Part,
+                Order AS "Bookings",
+                Part AS "Part1",
                 Customer,
                 Value
             FROM Orders
             ORDER BY Bookings DESC,
-                    Part,
+                    Part1,
+                    Value
+            """
+    assert clean_testexpr(sql) == clean_testexpr(testsql)
+
+
+def test_orderby_aliased():
+    q = QFrame().from_dict(orders)
+    q.orderby("Value")
+    assert q.data["select"]["fields"]["Value"]["order_by"] == "ASC"
+
+    q.orderby(["Bookings", "Part1"], ascending=[False, True])
+    assert q.data["select"]["fields"]["Order"]["order_by"] == "DESC"
+    assert q.data["select"]["fields"]["Part"]["order_by"] == "ASC"
+
+    sql = q.get_sql()
+
+    testsql = """
+            SELECT
+                Order AS "Bookings",
+                Part AS "Part1",
+                Customer,
+                Value
+            FROM Orders
+            ORDER BY Bookings DESC,
+                    Part1,
                     Value
             """
     assert clean_testexpr(sql) == clean_testexpr(testsql)
 
 
 def test_limit():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.limit(10)
     sql = q.get_sql()
     assert sql[-8:].upper() == "LIMIT 10"
 
 
 def test_select():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.select(["Customer", "Value"])
     q.groupby("sq.Customer")["sq.Value"].agg("sum")
 
+    q.select("sq.Value")
+    q.select("Value")
     sql = q.get_sql()
-    # write_out(str(sql))
+
     testsql = """
-            SELECT sq.Customer AS Customer,
-                    sum(sq.Value) AS Value
+            SELECT sq.Value AS "Value"
+            FROM
+            (SELECT sq.Value AS "Value"
+            FROM
+                (SELECT sq.Customer AS "Customer",
+                        sum(sq.Value) AS "Value"
                 FROM
-                (SELECT
-                ORDER AS Bookings,
-                        Part,
-                        Customer,
-                        Value
-                FROM Orders) sq
-                GROUP BY Customer
+                    (SELECT
+                    ORDER AS "Bookings",
+                            Part AS "Part1",
+                            Customer,
+                            Value
+                    FROM Orders) sq
+                GROUP BY Customer) sq) sq
             """
     assert clean_testexpr(sql) == clean_testexpr(testsql)
 
 
 def test_rearrange():
-    q = QFrame().from_dict(deepcopy(customers))
+    q = QFrame().from_dict(customers)
     q.rearrange(["Customer", "Country"])
     assert q.get_fields() == ["Customer", "Country"]
 
 
+def test_rearrange_aliased():
+    q = QFrame().from_dict(orders)
+
+    with pytest.raises(ValueError):
+        q.rearrange(["Part1", "Order", "Value", "random_field"])
+
+    with pytest.raises(ValueError):
+        q.rearrange(["Part1", "Order", "Value"])
+
+    q.rearrange(["Part1", "Order", "Value", "Customer"])
+    assert q.get_fields() == ["Part", "Order", "Value", "Customer"]
+
+
 def test_get_fields():
-    q = QFrame().from_dict(deepcopy(customers))
+    q = QFrame().from_dict(customers)
     fields = ["Country", "Customer"]
     assert fields == q.get_fields()
 
 
 def test_get_sql():
-    q = QFrame().from_dict(deepcopy(orders))
+    q = QFrame().from_dict(orders)
     q.assign(New_case="CASE WHEN Bookings = 100 THEN 1 ELSE 0 END", type="num")
     q.limit(5)
     q.groupby(q.data["select"]["fields"])["Value"].agg("sum")
-    testsql = """SELECT Order AS Bookings,
-                    Part,
+    testsql = """SELECT Order AS "Bookings",
+                    Part AS "Part1",
                     Customer,
-                    sum(Value) AS Value,
+                    sum(Value) AS "Value",
                     CASE
                         WHEN Bookings = 100 THEN 1
                         ELSE 0
-                    END AS New_case
+                    END AS "New_case"
                 FROM Orders
                 GROUP BY Order,
                         Part,
@@ -273,7 +342,7 @@ def test_get_sql():
     sql = q.get_sql()
     # write_out(str(sql))
     assert clean_testexpr(sql) == clean_testexpr(testsql)
-    assert sql == _get_sql(q.data)
+    assert sql == _get_sql(q.data, db="sqlite")
 
 
 def test_to_csv():
@@ -400,6 +469,37 @@ def test_join_1():
         unique_col=False,
     )
 
+    assert joined_qf.get_fields(aliased=True) == [
+        "PlaylistId",
+        "TrackId",
+        "PlaylistId",
+        "Name",
+        "TrackId",
+        "Name",
+        "AlbumId",
+        "MediaTypeId",
+        "GenreId",
+        "Composer",
+        "Milliseconds",
+        "Bytes",
+        "UnitPrice",
+    ]
+    assert joined_qf.get_fields(aliased=False) == [
+        "sq1.PlaylistId",
+        "sq1.TrackId",
+        "sq2.PlaylistId",
+        "sq2.Name",
+        "sq3.TrackId",
+        "sq3.Name",
+        "sq3.AlbumId",
+        "sq3.MediaTypeId",
+        "sq3.GenreId",
+        "sq3.Composer",
+        "sq3.Milliseconds",
+        "sq3.Bytes",
+        "sq3.UnitPrice",
+    ]
+
     joined_qf.remove(["sq2.PlaylistId", "sq3.TrackId"])
     joined_qf.rename({"sq2.Name": "Name_x", "sq3.Name": "Name_y"})
     joined_df = joined_qf.to_df()
@@ -423,9 +523,9 @@ def test_join_2():
     sql = joined_qf.get_sql()
 
     testsql = """
-            SELECT sq1.PlaylistId AS PlaylistId,
-                sq1.TrackId AS TrackId,
-                sq2.Name AS Name
+            SELECT sq1.PlaylistId AS "PlaylistId",
+                sq1.TrackId AS "TrackId",
+                sq2.Name AS "Name"
             FROM
             (SELECT PlaylistId,
                     TrackId
@@ -447,13 +547,13 @@ def test_join_2():
     sql = joined_qf.get_sql()
 
     testsql = """
-                SELECT sq1.PlaylistId AS PlaylistId,
-                    sq1.TrackId AS TrackId,
-                    sq1.Name AS Name
+                SELECT sq1.PlaylistId AS "PlaylistId",
+                    sq1.TrackId AS "TrackId",
+                    sq1.Name AS "Name"
                 FROM
-                (SELECT sq1.PlaylistId AS PlaylistId,
-                        sq1.TrackId AS TrackId,
-                        sq2.Name AS Name
+                (SELECT sq1.PlaylistId AS "PlaylistId",
+                        sq1.TrackId AS "TrackId",
+                        sq2.Name AS "Name"
                 FROM
                     (SELECT PlaylistId,
                             TrackId
@@ -522,13 +622,13 @@ def test_union():
 
     testsql = """
             SELECT PlaylistId,
-                Name AS Old_name,
-                Name || '_new' AS New_name
+                Name AS "Old_name",
+                Name || '_new' AS "New_name"
             FROM Playlist
             UNION
             SELECT PlaylistId,
-                Name || '_old' AS Old_name,
-                Name AS New_name
+                Name || '_old' AS "Old_name",
+                Name AS "New_name"
             FROM Playlist
             """
     sql = unioned_qf.get_sql()
@@ -544,7 +644,7 @@ def test_initiate():
     initiate(
         columns=columns, schema="test_schema", table="test_table", engine_str="engine", json_path=json, subquery=sq,
     )
-    q = QFrame().read_json(json_path=json, subquery=sq)
+    q = QFrame().from_json(json_path=json, subquery=sq)
     os.remove("test.json")
 
     testsql = """
@@ -567,21 +667,21 @@ def test_pyodbc_interface():
     assert not df.empty
 
 
-# def test_cut():
-#     qf = QFrame(engine=engine_string).from_dict(deepcopy(playlists))
-#     assert len(qf) == 18
+def test_cut():
+    qf = QFrame(engine=engine_string, db="sqlite").from_dict(deepcopy(playlists))
+    assert len(qf) == 18
 
-#     qframes1 = qf.cut(18)
-#     test_len = 0
-#     for q in qframes1:
-#         test_len += len(q)
-#     assert len(qf) == test_len
+    qframes1 = qf.cut(18)
+    test_len = 0
+    for q in qframes1:
+        test_len += len(q)
+    assert len(qf) == test_len
 
-#     with pytest.raises(ValueError):
-#         qf.cut(2, order_by=["Name"])
+    with pytest.raises(ValueError):
+        qf.cut(2, order_by=["Name"])
 
-#     qframes2 = qf.cut(18, order_by=["PlaylistId"])
-#     assert len(qframes1) == len(qframes2)
+    qframes2 = qf.cut(18, order_by=["PlaylistId"])
+    assert len(qframes1) == len(qframes2)
 
 
 def test_from_table_sqlite():
@@ -601,6 +701,23 @@ def test_from_table_sqlite():
     assert clean_testexpr(sql) == clean_testexpr(qf.get_sql())
 
 
+def test_from_table_sqlite_json():
+    QFrame(engine=engine_string, db="sqlite").from_table(table="Playlist", json_path="test.json", subquery="q1")
+    QFrame(engine=engine_string, db="sqlite").from_table(table="PlaylistTrack", json_path="test.json", subquery="q2")
+
+    qf1 = QFrame(engine=engine_string, db="sqlite").from_json(json_path="test.json", subquery="q1")
+    sql = """SELECT PlaylistId,
+                Name
+            FROM Playlist"""
+    assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
+
+    qf2 = QFrame(engine=engine_string, db="sqlite").from_json(json_path="test.json", subquery="q2")
+    sql = """SELECT PlaylistId,
+                TrackId
+            FROM PlaylistTrack"""
+    assert clean_testexpr(sql) == clean_testexpr(qf2.get_sql())
+
+
 def test_from_table_rds():
     engine_str = "mssql+pyodbc://redshift_acoe"
     qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
@@ -617,3 +734,154 @@ def test_from_table_rds():
     dtypes = ["CHARACTER VARYING(500)", "DOUBLE PRECISION", "CHARACTER VARYING(500)", "DOUBLE PRECISION"]
 
     assert dtypes == qf.get_dtypes()
+
+
+def test_pivot_rds():
+    engine_str = "mssql+pyodbc://redshift_acoe"
+    qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
+    qf = qf.from_table(table="table_tutorial", schema="administration")
+
+    with pytest.raises(ValueError, match=f"'my_value' not found in fields."):
+        qf.pivot(rows=["col1"], columns=["col2", "col3"], values="my_value")
+
+    # sorted
+    qf1 = qf.copy()
+    qf1.pivot(rows=["col1"], columns=["col2", "col3"], values="col4", prefix="p_", sort=True)
+
+    sql = """SELECT sq.col1 AS "col1",
+                sum(CASE
+                    WHEN "col2"='0.0'
+                            AND "col3" IS NULL THEN "col4"
+                    ELSE 0
+                END) AS "p_0.0_None",
+                sum(CASE
+                        WHEN "col2"='1.3'
+                                AND "col3" IS NULL THEN "col4"
+                        ELSE 0
+                    END) AS "p_1.3_None"
+            FROM
+            (SELECT col1,
+                    col2,
+                    col3,
+                    col4
+            FROM administration.table_tutorial) sq
+            GROUP BY col1"""
+
+    assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
+
+    # not sorted
+    qf2 = qf.copy()
+    qf2.pivot(rows=["col1"], columns=["col2", "col3"], values="col4", prefix="p_", sort=False)
+
+    sql = """SELECT sq.col1 AS "col1",
+                sum(CASE
+                    WHEN "col2"='1.3'
+                            AND "col3" IS NULL THEN "col4"
+                    ELSE 0
+                END) AS "p_1.3_None",
+                sum(CASE
+                    WHEN "col2"='0.0'
+                            AND "col3" IS NULL THEN "col4"
+                    ELSE 0
+                END) AS "p_0.0_None"
+            FROM
+            (SELECT col1,
+                    col2,
+                    col3,
+                    col4
+            FROM administration.table_tutorial) sq
+            GROUP BY col1"""
+
+    assert clean_testexpr(sql) == clean_testexpr(qf2.get_sql())
+
+
+def test_join_pivot_sqlite():
+    playlist_track_qf = QFrame(engine=engine_string, db="sqlite").from_dict(deepcopy(playlist_track))
+    playlists_qf = QFrame(engine=engine_string, db="sqlite").from_dict(deepcopy(playlists))
+    tracks_qf = QFrame(engine=engine_string, db="sqlite").from_dict(deepcopy(tracks))
+
+    joined_qf = join(
+        qframes=[playlist_track_qf, playlists_qf, tracks_qf],
+        join_type=["left join", "left join"],
+        on=["sq1.PlaylistId=sq2.PlaylistId", "sq1.TrackId=sq3.TrackId"],
+        unique_col=True,
+    )
+
+    joined_qf = joined_qf.window(offset=3500, limit=100, order_by=["PlaylistId", "TrackId"])
+
+    qf1 = joined_qf.copy()
+    qf1.pivot(rows=["GenreId", "Composer"], columns=["Name", "PlaylistId"], values="UnitPrice", aggtype="sum")
+
+    qf2 = joined_qf.copy()
+    qf2.pivot(
+        rows=["sq3.GenreId", "sq3.Composer"],
+        columns=["sq2.Name", "sq1.PlaylistId"],
+        values="sq3.UnitPrice",
+        aggtype="sum",
+    )
+
+    qf3 = joined_qf.copy()
+    qf3.pivot(rows=["sq3.GenreId", "Composer"], columns=["Name", "sq1.PlaylistId"], values="UnitPrice", aggtype="sum")
+
+    assert clean_testexpr(qf1.get_sql()) == clean_testexpr(qf2.get_sql())
+    assert clean_testexpr(qf2.get_sql()) == clean_testexpr(qf3.get_sql())
+
+    # qf1.rename(
+    #     {"sq.GenreId": "Group 2.0*", "Composer": "Group 2.0*", "90’s Music_5": "Measure1", "TV Shows_3": "Measure2"}
+    # )
+    qf11 = qf1.copy()
+
+    qf11.select(["90’s Music_5"])
+
+    sql = """SELECT sq."90’s Music_5" AS "90’s Music_5"
+            FROM
+            (SELECT sq.GenreId AS "GenreId",
+                    sq.Composer AS "Composer",
+                    sum(CASE
+                            WHEN "Name"='90’s Music'
+                                AND "PlaylistId"='5' THEN "UnitPrice"
+                            ELSE 0
+                        END) AS "90’s Music_5",
+                    sum(CASE
+                            WHEN "Name"='TV Shows'
+                                AND "PlaylistId"='3' THEN "UnitPrice"
+                            ELSE 0
+                        END) AS "TV Shows_3"
+            FROM
+                (SELECT sq1.PlaylistId AS "PlaylistId",
+                        sq1.TrackId AS "TrackId",
+                        sq2.Name AS "Name",
+                        sq3.AlbumId AS "AlbumId",
+                        sq3.MediaTypeId AS "MediaTypeId",
+                        sq3.GenreId AS "GenreId",
+                        sq3.Composer AS "Composer",
+                        sq3.Milliseconds AS "Milliseconds",
+                        sq3.Bytes AS "Bytes",
+                        sq3.UnitPrice AS "UnitPrice"
+                FROM
+                    (SELECT PlaylistId,
+                            TrackId
+                    FROM PlaylistTrack) sq1
+                LEFT JOIN
+                    (SELECT PlaylistId,
+                            Name
+                    FROM Playlist) sq2 ON sq1.PlaylistId=sq2.PlaylistId
+                LEFT JOIN
+                    (SELECT TrackId,
+                            Name,
+                            AlbumId,
+                            MediaTypeId,
+                            GenreId,
+                            Composer,
+                            Milliseconds,
+                            Bytes,
+                            UnitPrice
+                    FROM Track) sq3 ON sq1.TrackId=sq3.TrackId
+                ORDER BY PlaylistId,
+                        TrackId
+                LIMIT 100
+                OFFSET 3500) sq
+            GROUP BY GenreId,
+                    Composer) sq
+    """
+    assert clean_testexpr(qf11.get_sql()) == clean_testexpr(sql)

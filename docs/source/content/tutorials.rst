@@ -7,6 +7,6 @@ Tutorials
    :maxdepth: 3
    :caption: Tutorials:
 
-   api/tutorial_qframe_new
+   api/qframe
    api/config
    api/crosstab
