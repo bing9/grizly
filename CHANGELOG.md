@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added option to use fields aliases in methods: `rearrange()`, `select()`, `orderby()`, `groupby()`, `remove()` [#205](https://github.com/kfk/grizly/issues/205)
 - Added a basic CLI from submitting and cancelling workflows: `grizly workflow run wf_name` and `grizly workflow cancel wf_name`
 
+### Crosstab
+- Added method `hide_columns()` (works for now only for dimensions)
+
 ## [0.3.4] - 21-05-2020
 ### S3
 - Fixed automatic column order in `to_rds()` method. [#377](https://github.com/kfk/grizly/issues/377)
