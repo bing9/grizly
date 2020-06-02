@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [0.3.5] - 02-06-2020
+### Overall changes
+- Added a basic CLI from submitting and cancelling workflows: `grizly workflow run wf_name` and `grizly workflow cancel wf_name`
+
 ### QFrame
 - Added `to_records()` method [#417](https://github.com/kfk/grizly/issues/417)
 - Added `pivot()` method [#420](https://github.com/kfk/grizly/issues/420)
 - Added option to use fields aliases in methods: `rearrange()`, `select()`, `orderby()`, `groupby()`, `remove()` [#205](https://github.com/kfk/grizly/issues/205)
-- Added a basic CLI from submitting and cancelling workflows: `grizly workflow run wf_name` and `grizly workflow cancel wf_name`
 
 ### Crosstab
 - Added method `hide_columns()` (works for now only for dimensions)
