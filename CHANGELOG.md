@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) 
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [Unreleased]
+
 
 ## [0.3.5] - 02-06-2020
 ### Overall changes
@@ -173,6 +175,7 @@ For the S3 we use AWS configuration so if you don't have it in `.aws` folder ple
 You can get some connection errors if you don't have at least one of `HTTPS_PROXY` or `HTTP_PROXY` specified in env variables. Some libraries may not be installed if you don't have `HTTPS_PROXY` specified.
 
 
+[Unreleased]: https://github.com/kfk/grizly/compare/v0.3.5...0.3.6
 [0.3.5]: https://github.com/kfk/grizly/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/kfk/grizly/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/kfk/grizly/compare/v0.3.2...v0.3.3
