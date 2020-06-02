@@ -99,7 +99,7 @@ class QFrame(Extract):
         dict
             Dictionary with validated data.
         """
-        return _validate_data(data)
+        return _validate_data(deepcopy(data))
 
     def show_duplicated_columns(self):
         """Shows duplicated columns.
@@ -209,7 +209,7 @@ class QFrame(Extract):
         -------
         QFrame
         """
-        self.data = self.validate_data(deepcopy(data))
+        self.data = self.validate_data(data)
 
         return self
 
@@ -374,7 +374,7 @@ class QFrame(Extract):
 
         for field in fields:
             if field in self.data["select"]["fields"]:
-                self.data["select"]["fields"][field]["as"] = fields[field].replace(" ", "_")
+                self.data["select"]["fields"][field]["as"] = fields[field]
         return self
 
     def remove(self, fields: list):
@@ -402,16 +402,6 @@ class QFrame(Extract):
             fields = [fields]
 
         fields = self._get_fields_names(fields)
-
-        # if aliased:
-        #     aliased_fields = self.get_fields(aliased=True)
-        #     fields_diff = set(fields) - set(aliased_fields)
-
-        #     if fields_diff != set():
-        #         raise ValueError(f"Fields {fields_diff} not found.")
-
-        #     not_aliased_fields = self.get_fields(aliased=False)
-        #     fields = [not_aliased_fields[aliased_fields.index(field)] for field in fields]
 
         for field in fields:
             self.data["select"]["fields"].pop(field, f"Field {field} not found.")
@@ -945,13 +935,17 @@ class QFrame(Extract):
         if isinstance(fields, str):
             fields = [fields]
 
-        old_fields = deepcopy(self.data["select"]["fields"])
-        assert set(old_fields) == set(fields) and len(old_fields) == len(
+        aliased_fields = self._get_fields(aliased=True)
+        not_aliased_fields = self._get_fields(aliased=False)
+
+        if not set(set(aliased_fields) | set(not_aliased_fields)) >= set(fields) or len(not_aliased_fields) != len(
             fields
-        ), "Fields are not matching, make sure that fields are the same as in your QFrame."
+        ):
+            raise ValueError("Fields are not matching, make sure that fields are the same as in your QFrame.")
 
         fields = self._get_fields_names(fields)
 
+        old_fields = deepcopy(self.data["select"]["fields"])
         new_fields = {}
         for field in fields:
             new_fields[field] = old_fields[field]
@@ -1010,7 +1004,16 @@ class QFrame(Extract):
         self.select(rows).groupby()
 
         for col_value in col_values:
-            col_name = "_".join([str(val) for val in col_value])
+            col_name = []
+            for val in col_value:
+                val = str(val)
+                if not re.match("^[a-zA-Z0-9_]*$", val):
+                    self.logger.warning(
+                        f"Value '{val}' contains special characters. You may consider"
+                        " cleaning your columns first with QFrame.assign method before pivoting."
+                    )
+                col_name.append(val)
+            col_name = "_".join(col_name)
             if prefix is not None:
                 col_name = f"{prefix}{col_name}"
             col_filter = []
@@ -1394,7 +1397,9 @@ class QFrame(Extract):
         return self
 
     def _get_fields_names(self, fields, aliased=False):
-        """Returns a list of fields keys or fields aliases. Input parameters 'fields' can contain both aliased and not aliased fields"""
+        """Returns a list of fields keys or fields aliases.
+        Input parameters 'fields' can contain both aliased and not aliased fields"""
+
         not_aliased_fields = self._get_fields(aliased=False)
         aliased_fields = self._get_fields(aliased=True)
 
@@ -1913,11 +1918,23 @@ def _build_column_strings(data):
     fields = data["select"]["fields"]
 
     for field in fields:
-        expr = (
-            field
-            if "expression" not in fields[field] or fields[field]["expression"] == ""
-            else fields[field]["expression"]
-        )
+        if "expression" in fields[field] and fields[field]["expression"] != "":
+            expr = fields[field]["expression"]
+        else:
+            prefix = re.search(r"^sq\d*[.]", field)
+            if prefix is not None:
+                suffix = field[len(prefix.group(0)) :]
+                if not re.match("^[a-zA-Z0-9_]*$", suffix):
+                    expr = f'{prefix.group(0)}"{field[len(prefix.group(0)):]}"'
+                else:
+                    expr = field
+            else:
+                expr = field
+        # expr = (
+        #     field
+        #     if "expression" not in fields[field] or fields[field]["expression"] == ""
+        #     else fields[field]["expression"]
+        # )
         alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
         alias = alias.replace('"', "")
 
