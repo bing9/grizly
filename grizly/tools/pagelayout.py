@@ -1,5 +1,4 @@
 from yattag import Doc
-from html5print import HTMLBeautifier
 
 
 class Page:
