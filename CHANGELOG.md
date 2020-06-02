@@ -6,11 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 
-## [Unreleased]
+## [0.3.5] - 02-06-2020
 ### QFrame
 - Added `to_records()` method [#417](https://github.com/kfk/grizly/issues/417)
 - Added `pivot()` method [#420](https://github.com/kfk/grizly/issues/420)
-- Added option to remove fields by alias in `remove()` [#205](https://github.com/kfk/grizly/issues/205)
+- Added option to use fields aliases in methods: `rearrange()`, `select()`, `orderby()`, `groupby()`, `remove()` [#205](https://github.com/kfk/grizly/issues/205)
 - Added a basic CLI from submitting and cancelling workflows: `grizly workflow run wf_name` and `grizly workflow cancel wf_name`
 
 ## [0.3.4] - 21-05-2020
@@ -168,7 +168,7 @@ For the S3 we use AWS configuration so if you don't have it in `.aws` folder ple
 You can get some connection errors if you don't have at least one of `HTTPS_PROXY` or `HTTP_PROXY` specified in env variables. Some libraries may not be installed if you don't have `HTTPS_PROXY` specified.
 
 
-[0.3.5]: https://github.com/kfk/grizly/compare/v0.3.4...0.3.5
+[0.3.5]: https://github.com/kfk/grizly/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/kfk/grizly/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/kfk/grizly/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/kfk/grizly/compare/v0.3.1...v0.3.2
