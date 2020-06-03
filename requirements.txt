@@ -13,7 +13,6 @@ deprecation
 exchangelib>=2.0.1
 fpdf
 graphviz>=0.12
-html5print==0.1.2
 ipython>=7.6.1
 ipywidgets>=7.5.0
 jupyter_sphinx==0.2.4
