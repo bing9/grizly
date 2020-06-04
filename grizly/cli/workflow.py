@@ -15,7 +15,7 @@ sys.path.insert(0, WORKFLOWS_HOME)
 def get_workflow(workflow_name):
     script_name = workflow_name.lower().replace(" ", "_")
     folder_name = script_name
-    if "check" in workflow_name:
+    if "check" in script_name:
         folder_name = script_name.replace("_control_check", "")
     module_path = f"workflows.{folder_name}.{script_name}"
     module = importlib.import_module(module_path)
