@@ -7,18 +7,15 @@ from copy import deepcopy
 import json
 import logging
 import pyarrow as pa
-import math
 
 from .s3 import S3
 from .sqldb import SQLDB, check_if_valid_type
-from ..ui.qframe import SubqueryUI, FieldUI
+from ..ui.qframe import SubqueryUI
 from ..utils import get_path
 from .extract import Extract
 
 import deprecation
 from functools import partial
-
-from sqlalchemy import create_engine
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
@@ -102,7 +99,7 @@ class QFrame(Extract):
         dict
             Dictionary with validated data.
         """
-        return _validate_data(data)
+        return _validate_data(deepcopy(data))
 
     def show_duplicated_columns(self):
         """Shows duplicated columns.
@@ -212,7 +209,7 @@ class QFrame(Extract):
         -------
         QFrame
         """
-        self.data = self.validate_data(deepcopy(data))
+        self.data = self.validate_data(data)
 
         return self
 
@@ -270,7 +267,7 @@ class QFrame(Extract):
                 subquery=subquery,
                 json_path=json_path,
             )
-            self.from_json(json_path)
+            self.from_json(json_path=json_path, subquery=subquery)
 
         else:
             dict_ = initiate(schema=schema, table=table, columns=col_names, col_types=col_types)
@@ -321,12 +318,14 @@ class QFrame(Extract):
             else:
                 fields = [fields]
 
+        fields = self._get_fields_names(fields)
+
         for field in fields:
             if field not in sq_fields:
-                self.logger.debug(f"Field {field} not found")
+                self.logger.warning(f"Field {field} not found")
 
             elif "select" in sq_fields[field] and sq_fields[field]["select"] == 0:
-                self.logger.debug(f"Field {field} is not selected in subquery.")
+                self.logger.warning(f"Field {field} is not selected in subquery.")
 
             else:
                 if "as" in sq_fields[field] and sq_fields[field]["as"] != "":
@@ -346,7 +345,7 @@ class QFrame(Extract):
 
         return self
 
-    def rename(self, fields):
+    def rename(self, fields: dict):
         """Renames columns (changes the field alias).
 
         Parameters
@@ -368,20 +367,23 @@ class QFrame(Extract):
         -------
         QFrame
         """
+        if not isinstance(fields, dict):
+            raise ValueError("Fields parameter should be of type dict.")
+
+        # fields = self._get_fields_names(fields)
+
         for field in fields:
             if field in self.data["select"]["fields"]:
-                self.data["select"]["fields"][field]["as"] = fields[field].replace(" ", "_")
+                self.data["select"]["fields"][field]["as"] = fields[field]
         return self
 
-    def remove(self, fields, aliased=False):
+    def remove(self, fields: list):
         """Removes fields.
 
         Parameters
         ----------
         fields : list
             List of fields to remove.
-        aliased : boolean
-            Whether provided fields are aliased or not.
 
         Examples
         --------
@@ -399,15 +401,7 @@ class QFrame(Extract):
         if isinstance(fields, str):
             fields = [fields]
 
-        if aliased:
-            aliased_fields = self.get_fields(aliased=True)
-            fields_diff = set(fields) - set(aliased_fields)
-
-            if fields_diff != set():
-                raise ValueError(f"Fields {fields_diff} not found.")
-
-            not_aliased_fields = self.get_fields(aliased=False)
-            fields = [not_aliased_fields[aliased_fields.index(field)] for field in fields]
+        fields = self._get_fields_names(fields)
 
         for field in fields:
             self.data["select"]["fields"].pop(field, f"Field {field} not found.")
@@ -632,6 +626,8 @@ class QFrame(Extract):
 
         if fields is None:
             fields = self.get_fields()
+        else:
+            fields = self._get_fields_names(fields)
 
         for field in fields:
             self.data["select"]["fields"][field]["group_by"] = "group"
@@ -751,13 +747,15 @@ class QFrame(Extract):
 
         assert len(fields) == len(ascending), "Incorrect list size."
 
+        fields = self._get_fields_names(fields)
+
         iterator = 0
         for field in fields:
             if field in self.data["select"]["fields"]:
                 order = "ASC" if ascending[iterator] else "DESC"
                 self.data["select"]["fields"][field]["order_by"] = order
             else:
-                self.logger.debug(f"Field {field} not found.")
+                self.logger.warning(f"Field {field} not found.")
 
             iterator += 1
 
@@ -937,11 +935,17 @@ class QFrame(Extract):
         if isinstance(fields, str):
             fields = [fields]
 
-        old_fields = deepcopy(self.data["select"]["fields"])
-        assert set(old_fields) == set(fields) and len(old_fields) == len(
-            fields
-        ), "Fields are not matching, make sure that fields are the same as in your QFrame."
+        aliased_fields = self._get_fields(aliased=True)
+        not_aliased_fields = self._get_fields(aliased=False)
 
+        if not set(set(aliased_fields) | set(not_aliased_fields)) >= set(fields) or len(not_aliased_fields) != len(
+            fields
+        ):
+            raise ValueError("Fields are not matching, make sure that fields are the same as in your QFrame.")
+
+        fields = self._get_fields_names(fields)
+
+        old_fields = deepcopy(self.data["select"]["fields"])
         new_fields = {}
         for field in fields:
             new_fields[field] = old_fields[field]
@@ -952,7 +956,9 @@ class QFrame(Extract):
 
         return self
 
-    def pivot(self, rows: list, columns: list, values: str, aggtype: str = "sum", prefix: str = None):
+    def pivot(
+        self, rows: list, columns: list, values: str, aggtype: str = "sum", prefix: str = None, sort: bool = True
+    ):
         """Reshapes QFrame to generate pivot table
 
         Parameters
@@ -967,6 +973,8 @@ class QFrame(Extract):
             Aggregation type to perform on values, by default "sum"
         prefix : str, optional
             Prefix to add to new columns, by default None
+        sort : bool, optional
+            Whether to sort columns, by default True
 
         Returns
         -------
@@ -985,23 +993,40 @@ class QFrame(Extract):
             raise ValueError(f"Aggregation '{aggtype}' not supperted yet.")
 
         qf = self.copy()
-        col_values = qf.select(columns).groupby(qf.get_fields()).to_records()
+        qf.select(columns).groupby()
+        if sort:
+            qf.orderby(qf.get_fields())
+        col_values = qf.to_records()
 
-        self.select(rows).groupby(self.get_fields())
+        values = self._get_fields_names([values], aliased=True)[0]
+        columns = self._get_fields_names(columns, aliased=True)
+
+        self.select(rows).groupby()
 
         for col_value in col_values:
-            col_name = "_".join([str(val) for val in col_value])
+            col_name = []
+            for val in col_value:
+                val = str(val)
+                if not re.match("^[a-zA-Z0-9_]*$", val):
+                    self.logger.warning(
+                        f"Value '{val}' contains special characters. You may consider"
+                        " cleaning your columns first with QFrame.assign method before pivoting."
+                    )
+                col_name.append(val)
+            col_name = "_".join(col_name)
             if prefix is not None:
                 col_name = f"{prefix}{col_name}"
             col_filter = []
             for col, val in zip(columns, col_value):
                 if val is not None:
-                    col_filter.append(f"{col}='{val}'")
+                    col_filter.append(f""""{col}"='{val}'""")
                 else:
-                    col_filter.append(f"{col} IS NULL")
+                    col_filter.append(f""""{col}" IS NULL""")
             col_filter = " AND ".join(col_filter)
 
-            self.assign(**{col_name: f"case WHEN {col_filter} then {values} else 0 end"}, type="num", group_by=aggtype)
+            self.assign(
+                **{col_name: f'CASE WHEN {col_filter} THEN "{values}" ELSE 0 END'}, type="num", group_by=aggtype
+            )
 
         return self
 
@@ -1025,13 +1050,10 @@ class QFrame(Extract):
         list
             List of field names
         """
-        if aliased:
-            self.create_sql_blocks()
-            fields = self.data["select"]["sql_blocks"]["select_aliases"]
+        if self.data:
+            return self._get_fields(aliased=aliased)
         else:
-            fields = list(self.data["select"]["fields"].keys()) if self.data else []
-
-        return fields
+            return []
 
     def get_dtypes(self):
         """Returns list of QFrame field data types.
@@ -1374,6 +1396,56 @@ class QFrame(Extract):
             self.getfields = getfields
         return self
 
+    def _get_fields_names(self, fields, aliased=False):
+        """Returns a list of fields keys or fields aliases.
+        Input parameters 'fields' can contain both aliased and not aliased fields"""
+
+        not_aliased_fields = self._get_fields(aliased=False)
+        aliased_fields = self._get_fields(aliased=True)
+
+        not_found_fields = []
+        output_fields = []
+
+        if aliased:
+            for field in fields:
+                if field in aliased_fields:
+                    output_fields.append(field)
+                elif field in not_aliased_fields:
+                    output_fields.append(aliased_fields[not_aliased_fields.index(field)])
+                else:
+                    not_found_fields.append(field)
+        else:
+            for field in fields:
+                if field in not_aliased_fields:
+                    output_fields.append(field)
+                elif field in aliased_fields:
+                    output_fields.append(not_aliased_fields[aliased_fields.index(field)])
+                else:
+                    not_found_fields.append(field)
+
+        if not_found_fields != []:
+            self.logger.warning(f"Fields {not_found_fields} not found.")
+
+        return output_fields
+
+    def _get_fields(self, aliased=False):
+        fields_data = self.data["select"]["fields"]
+        fields_out = []
+
+        if aliased:
+            for field in fields_data:
+                alias = (
+                    field
+                    if "as" not in fields_data[field] or fields_data[field]["as"] == ""
+                    else fields_data[field]["as"]
+                )
+                fields_out.append(alias)
+        else:
+            for field in fields_data:
+                fields_out.append(field)
+
+        return fields_out
+
 
 def join(qframes=[], join_type=None, on=None, unique_col=True):
     """Joins QFrame objects. Returns QFrame.
@@ -1449,8 +1521,10 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     for q in qframes:
         if iterator == 0:
             first_engine = q.engine
+            first_db = q.db
         else:
             assert first_engine == q.engine, "QFrames have different engine strings."
+            assert first_db == q.db, "QFrames have different db parameters."
         q.create_sql_blocks()
         iterator += 1
         data[f"sq{iterator}"] = deepcopy(q.data)
@@ -1485,7 +1559,7 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
         print(
             "Please remove or rename duplicated columns. Use your_qframe.show_duplicated_columns() to check duplicates."
         )
-    return QFrame(data=data, engine=qframes[0].engine)
+    return QFrame(data=data, engine=qframes[0].engine, db=qframes[0].db)
 
 
 def union(qframes=[], union_type=None, union_by="position"):
@@ -1553,6 +1627,7 @@ def union(qframes=[], union_type=None, union_by="position"):
     iterator = 2
     for qf in qframes:
         assert main_qf.engine == qf.engine, "QFrames have different engine strings."
+        assert main_qf.db == qf.db, "QFrames have different db parameters."
         qf.create_sql_blocks()
         qf_aliases = qf.data["select"]["sql_blocks"]["select_aliases"]
         assert len(new_fields) == len(
@@ -1603,7 +1678,7 @@ def union(qframes=[], union_type=None, union_by="position"):
     data["select"]["union"] = {"union_type": union_type}
 
     print("Data unioned successfully.")
-    return QFrame(data=data, engine=qframes[0].engine)
+    return QFrame(data=data, engine=qframes[0].engine, db=qframes[0].db)
 
 
 def _validate_data(data):
@@ -1843,11 +1918,23 @@ def _build_column_strings(data):
     fields = data["select"]["fields"]
 
     for field in fields:
-        expr = (
-            field
-            if "expression" not in fields[field] or fields[field]["expression"] == ""
-            else fields[field]["expression"]
-        )
+        if "expression" in fields[field] and fields[field]["expression"] != "":
+            expr = fields[field]["expression"]
+        else:
+            prefix = re.search(r"^sq\d*[.]", field)
+            if prefix is not None:
+                suffix = field[len(prefix.group(0)) :]
+                if not re.match("^[a-zA-Z0-9_]*$", suffix):
+                    expr = f'{prefix.group(0)}"{field[len(prefix.group(0)):]}"'
+                else:
+                    expr = field
+            else:
+                expr = field
+        # expr = (
+        #     field
+        #     if "expression" not in fields[field] or fields[field]["expression"] == ""
+        #     else fields[field]["expression"]
+        # )
         alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
         alias = alias.replace('"', "")
 
