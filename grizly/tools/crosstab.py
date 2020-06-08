@@ -1,8 +1,9 @@
 from numpy import isnan
+import logging
 
 
 class Crosstab:
-    def __init__(self, formatter=None, styling=None, na_rep=0):
+    def __init__(self, formatter=None, styling=None, na_rep=0, logger=None):
         self.formatter = formatter or {}
         self.styling = styling or {}
         self.na_rep = na_rep
@@ -13,6 +14,8 @@ class Crosstab:
         self.subtotals = {}
         self.subtotals_names = {}
         self.emptyrows = {}
+        self.hidden_columns = []
+        self.logger = logger or logging.getLogger(__name__)
 
     def from_df(self, df, dimensions, measures):
         self.dimensions = dimensions
@@ -22,7 +25,8 @@ class Crosstab:
         content = {}
         if df[dimensions].isnull().values.any():
             df[dimensions] = df[dimensions].fillna("")
-            print("NaN values occured in dimensions and has been replaced with empty strings.")
+            self.logger.warning("NaN values occured in dimensions and has been replaced with empty strings.")
+        df[dimensions] = df[dimensions].astype(str)
         for group in df[dimensions].values:
             filters = [f""" `{column}`=="{item}" """ for column, item in zip(dimensions, group)]
             query = " and ".join(filters)
@@ -176,7 +180,7 @@ class Crosstab:
 
     def rearrange(self, groups: list, axis=0):
         if axis == 0:
-            pass
+            self.logger.warning("Rearranging rows not supported yet. Set axis=1 to rearrange columns.")
         elif axis == 1:
             if set(groups) != set(self.columns):
                 raise ValueError("List of groups does not match list of crosstab columns")
@@ -203,7 +207,7 @@ class Crosstab:
 
     def rename(self, groups, axis=0):
         if axis == 0:
-            pass
+            self.logger.warning("Renaming rows not supported yet. Set axis=1 to rename columns.")
         elif axis == 1:
             unknown_keys = set(groups.keys()) - set(self.columns)
             if unknown_keys != set():
@@ -267,6 +271,14 @@ class Crosstab:
         get_subtotals(columns, [])
 
         self.subtotals = subtotals
+        return self
+
+    def hide_columns(self, columns):
+        """Hides dimension columns. This is a prototype method created mainly for hiding first column."""
+        if isinstance(columns, list):
+            self.hidden_columns = list(set(columns) | set(self.hidden_columns))
+        else:
+            self.hidden_columns.append(columns)
         return self
 
     def to_html(self, indented=False, indent=50):
@@ -341,15 +353,17 @@ class Crosstab:
                     group.append(child)
                     group_t = tuple(group)
 
-                    rowspan = get_rowspan(group_t)
-                    cssclass, style, value = get_cell_def(group_t, columns[0])
-                    row_def.append(("h", rowspan, 1, cssclass, style, value))
+                    if columns[0] not in self.hidden_columns:
+                        rowspan = get_rowspan(group_t)
+                        cssclass, style, value = get_cell_def(group_t, columns[0])
+                        cssclass = ""
+                        row_def.append(("h", rowspan, 1, cssclass, style, value))
 
                     html = get_body_grouped(columns[1:], group, row_def, html)
 
                     if group_t in self.subtotals:
                         name = self.subtotals_names.get(group_t) or "Total"
-                        colspan = len(self.dimensions) - len(group)
+                        colspan = len(set(columns[1:]) - set(self.hidden_columns))
                         cssclass = "total" if len(group) == 1 else "subtotal"
                         row_def = [("h", 1, colspan, cssclass, "", name)]
 
@@ -360,7 +374,7 @@ class Crosstab:
                         html += f"  <tr>\n" + get_row(row_def) + "  </tr>\n"
 
                         if group_t in self.emptyrows:
-                            colspan = len(self.columns)
+                            colspan = len(set(self.columns) - set(self.hidden_columns))
 
                             for i in range(self.emptyrows[group_t]):
                                 html += f"  <tr>\n" + get_row([("h", 1, colspan, "emptyrows", "", "")]) + "  </tr>\n"
@@ -378,7 +392,7 @@ class Crosstab:
                 html += "  <tr>\n" + get_row(row_def) + "  </tr>\n"
 
                 if group_t in self.emptyrows:
-                    colspan = len(self.columns)
+                    colspan = len(set(self.columns) - set(self.hidden_columns))
 
                     for i in range(self.emptyrows[group_t]):
                         html += f"  <tr>\n" + get_row([("h", 1, colspan, "emptyrows", "", "")]) + "  </tr>\n"
@@ -431,9 +445,8 @@ class Crosstab:
         def get_header(indented):
             columns_temp = self.measures if indented else self.columns
 
-            columns = []
-            for column in columns_temp:
-                columns.append(column if isinstance(column, tuple) else (column,))
+            columns = [column if isinstance(column, tuple) else (column,) for column in columns_temp]
+            hidden_columns = [column if isinstance(column, tuple) else (column,) for column in self.hidden_columns]
 
             def get_colspan(row, col):
                 counter = 1
@@ -449,8 +462,13 @@ class Crosstab:
                 #                 row_def = [] if not indented else [("h", 1, 1, "", "", ",".join(self.dimensions))]
                 row_def = [] if not indented else [("h", 1, 1, "", "", "")]
                 for col in range(len(columns)):
-                    if (row, col) == (0, 0) or columns[col][row] != columns[col - 1][row]:
-                        row_def.append(("h", 1, get_colspan(row, col), "", "", columns[col][row]))
+                    if columns[col] not in hidden_columns:
+                        if (
+                            (row, col) == (0, 0)
+                            or columns[col][row] != columns[col - 1][row]
+                            or columns[col - 1] in hidden_columns
+                        ):
+                            row_def.append(("h", 1, get_colspan(row, col), "", "", columns[col][row]))
                 html += "  <tr>\n" + get_row(row_def) + "  </tr>\n"
 
             return html
