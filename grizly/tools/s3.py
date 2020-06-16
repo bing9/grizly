@@ -503,19 +503,31 @@ class S3:
         if file_extension(self.file_name) == "parquet":
             S3_iam_role = config["default"]["iam_role"]
 
-        if column_order is None:
-            column_order = self._load_column_names()
+        columns_output_table = sqldb.get_columns(table=table, schema=schema)
 
-        column_order = "(" + ", ".join(column_order) + ")"
+        if column_order is None:
+            column_order, is_null = self._load_column_names(sep=sep)
+        else:
+            not_found_columns = set(column_order) - set(columns_output_table)
+            if not_found_columns != set():
+                self.logger.exception(f"Columns {not_found_columns} not found in output table."
+                                      f"Please change 'column_order' parameter or rename output table columns.")
 
         remove_inside_quotes = "REMOVEQUOTES" if remove_inside_quotes else ""
         if file_extension(self.file_name) == "csv":
+            not_found_columns = set(column_order) - set(columns_output_table)
+            if not_found_columns != set():
+                self.logger.exception(f"S3 file {self.full_s3_key} input columns {not_found_columns} not found in output table {table_name}."
+                                      f"Please rename columns in the file or in the table before the insert.")
+            column_order = "(" + ", ".join(column_order) + ")" if column_order != [] else ""
+
             if remove_inside_quotes:
                 _format = ""
             else:
                 _format = "FORMAT AS csv"
             sql = f"""
-                COPY {table_name} {column_order} FROM 's3://{self.bucket}/{self.full_s3_key}'
+                COPY {table_name} {column_order} 
+                FROM 's3://{self.bucket}/{self.full_s3_key}'
                 access_key_id '{S3_access_key_id}'
                 secret_access_key '{S3_secret_access_key}'
                 delimiter '{sep}'
@@ -526,6 +538,14 @@ class S3:
                 ;commit;
                 """
         else:
+            if is_null:
+                self.logger.warning("Your file contains null columns. You may consider filling these columns with some values "
+                                    "before the insert as columns names validation cannot be performed.")
+            elif column_order != columns_output_table:
+                self.logger.warning(f"S3 file {self.full_s3_key} input columns\n{column_order}\ndoesn't "
+                                    f"match table {table_name} output columns\n{columns_output_table}.\n"
+                                    "You may consider renaming columns in the file or in the table before the insert.")
+
             _format = "FORMAT AS PARQUET"
             sql = f"""
                 COPY {table_name}
@@ -534,7 +554,6 @@ class S3:
                 {_format};
                 ;commit;
                 """
-            print(sql)
         if time_format:
             indent = 9
             last_line_pos = len(sql) - len(";commit;") - indent
@@ -548,6 +567,7 @@ class S3:
             con.execute(sql)
         except:
             self.logger.exception(f"Failed to insert '{self.file_name}' into Redshift [{table_name}]")
+            self.logger.exception(sql)
             self.status = "failed"
         finally:
             con.close()
@@ -665,12 +685,47 @@ class S3:
 
         self.logger.info(f"Table {table_name} has been created successfully.")
 
-    def _load_column_names(self):
-        obj = resource("s3").Object(self.bucket, self.s3_key + self.file_name)
-        header = obj.get()["Body"].read().splitlines()[0].decode("utf-8")
-        column_names = header.split("\t")
+    def _load_column_names(self, sep):
+        if file_extension(self.file_name) == "csv":
+            file_ext = "CSV"
+        elif file_extension(self.file_name) == "parquet":
+            file_ext = "Parquet"
+        else:
+            self.logger.warning("Column names cannot be imported. File extension not supported.")
+            return []
 
-        return column_names
+        is_null = False
+        s3_client = resource("s3").meta.client
+
+        if file_ext == "CSV":
+            InputSerialization = {"CSV": {"FieldDelimiter": sep}}
+        elif file_ext == "Parquet":
+            InputSerialization = {"Parquet": {}}
+        
+        obj_content = s3_client.select_object_content(
+            Bucket=self.bucket,
+            Key=self.s3_key + self.file_name,
+            ExpressionType="SQL",
+            Expression="SELECT s.* FROM s3object s LIMIT 1",
+            InputSerialization=InputSerialization,
+            OutputSerialization={"JSON": {}},
+        )
+        records = []
+        for event in obj_content["Payload"]:
+            if "Records" in event:
+                records.append(event["Records"]["Payload"])
+        records = records[0].splitlines()[0].decode('utf-8')
+
+        if file_ext == "CSV":
+            records = eval(records).values()
+        elif file_ext == "Parquet":
+            if ":null" in records:
+                is_null = True
+            records = eval(records.replace(":null", ":'null'")).keys()
+        
+        column_names = [r.rstrip() for r in records]
+
+        return column_names, is_null
 
 
 @deprecation.deprecated(details="Use S3.to_file function instead",)

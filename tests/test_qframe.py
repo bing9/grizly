@@ -645,7 +645,7 @@ def test_initiate():
         columns=columns, schema="test_schema", table="test_table", engine_str="engine", json_path=json, subquery=sq,
     )
     q = QFrame().from_json(json_path=json, subquery=sq)
-    os.remove("test.json")
+    os.remove(json)
 
     testsql = """
         SELECT customer,
@@ -716,6 +716,7 @@ def test_from_table_sqlite_json():
                 TrackId
             FROM PlaylistTrack"""
     assert clean_testexpr(sql) == clean_testexpr(qf2.get_sql())
+    os.remove("test.json")
 
 
 def test_from_table_rds():
