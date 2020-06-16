@@ -33,10 +33,10 @@ from ..utils import get_path
 from ..tools.sqldb import SQLDB
 
 
-workflows_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows"
+workflows_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows/workflows"
 if sys.platform.startswith("win"):
-    workflows_dir = get_path("acoe_projects")
-LISTENER_STORE = os.path.join(workflows_dir, "workflows", "etc", "listener_store.json")
+    workflows_dir = get_path("acoe_projects", "workflows")
+LISTENER_STORE = os.path.join(workflows_dir, "etc", "listener_store.json")
 
 
 def cast_to_date(maybe_date: Any) -> dt.date:
