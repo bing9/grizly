@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Overall changes
 - Removed package PageLayout
 - Added the possibility to run and cancel control checks (eg. `grizly workflow run "sales daily news control check" --local`). To cancel checks running on prod, run eg. `grizly workflow cancel "sales daily news control check"`
+ 
+### Orchestrate
+- Changed `worklows_dir` to use the current `GRIZLY_WORKFLOWS_HOME`
 
 ## [0.3.5] - 02-06-2020
 ### Overall changes
