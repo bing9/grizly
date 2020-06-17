@@ -22,7 +22,7 @@ class Extract:
             if "denodo" in self.engine.lower():
                 self.sql += " CONTEXT('swap' = 'ON', 'swapsize' = '400', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'off')"
             row_count = to_csv(
-                columns=self.get_fields(aliased=True),
+                columns=self.get_fields(aliased=True, not_selected=False),
                 csv_path=csv_path,
                 sql=self.sql,
                 engine=self.engine,

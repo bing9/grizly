@@ -208,6 +208,13 @@ def test_agg():
     value = {"type": "num", "group_by": "sum"}
     assert q.data["select"]["fields"]["Value"] == value
 
+def test_agg_aliased():
+    q = QFrame().from_dict(orders)
+    q.rename({"Value": "NewValue"})
+    q.groupby(["Order", "Customer"])["NewValue"].agg("sum")
+    value = {"as": "NewValue", "type": "num", "group_by": "sum"}
+    assert q.data["select"]["fields"]["Value"] == value
+
 
 def test_orderby():
     q = QFrame().from_dict(orders)
@@ -318,6 +325,44 @@ def test_get_fields():
     fields = ["Country", "Customer"]
     assert fields == q.get_fields()
 
+def test_not_selected_fields():
+    q = QFrame(
+        engine=engine_string,
+        data={
+            "select": {
+                "fields": {
+                    "InvoiceLineId": {"type": "dim"},
+                    "InvoiceId": {"type": "dim", "select": 0},
+                    "TrackId": {"type": "dim", "select": 0},
+                    "UnitPrice": {"type": "num"},
+                },
+                "table": "InvoiceLine",
+            }
+        },
+    )
+    q.groupby()["UnitPrice"].sum()
+    q.orderby(["InvoiceLineId", "InvoiceId"])
+    q.rename({"InvoiceId": "NewName"})
+    assert q.data["select"]["fields"]["InvoiceId"] == {"type": "dim", "select": 0, "group_by": "group", "order_by": "ASC", "as": "NewName"}
+
+    fields = ["TrackId", "InvoiceLineId", "UnitPrice", "NewName"]
+    q.rearrange(fields)
+    assert fields == q.get_fields(aliased=True, not_selected=True)
+
+    fields = ["InvoiceLineId", "UnitPrice"]
+    assert fields == q.get_fields()
+
+    sql = """SELECT InvoiceLineId,
+                UnitPrice
+            FROM InvoiceLine
+            GROUP BY TrackId,
+                    InvoiceLineId,
+                    UnitPrice,
+                    InvoiceId
+            ORDER BY InvoiceLineId
+            """
+    assert clean_testexpr(q.get_sql()) == clean_testexpr(sql)
+
 
 def test_get_sql():
     q = QFrame().from_dict(orders)
@@ -355,7 +400,7 @@ def test_to_csv():
                     "InvoiceId": {"type": "dim"},
                     "TrackId": {"type": "dim"},
                     "UnitPrice": {"type": "num"},
-                    "Quantity": {"type": "num"},
+                    "Quantity": {"type": "num", "select": 0},
                 },
                 "table": "InvoiceLine",
             }
