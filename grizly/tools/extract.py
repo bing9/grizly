@@ -188,7 +188,9 @@ def to_csv(columns, csv_path, sql, engine=None, sep="\t", chunksize=None, debug=
                         break
                     writer.writerows(rows)
         else:
-            writer.writerows(cursor.fetchall())
+            rows = cursor.fetchall()
+            cursor_row_count += len(rows)
+            writer.writerows(rows)
 
     if close_cursor:
         cursor.close()
