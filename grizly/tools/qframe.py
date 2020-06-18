@@ -317,7 +317,7 @@ class QFrame(Extract):
 
         if isinstance(fields, str):
             if fields == "*":
-                fields = sq_fields
+                fields = self._get_fields(aliased=False, not_selected=False)
             else:
                 fields = [fields]
 
@@ -628,7 +628,7 @@ class QFrame(Extract):
             fields = [fields]
 
         if fields is None:
-            fields = self.get_fields()
+            fields = self.get_fields(not_selected=True)
         else:
             fields = self._get_fields_names(fields)
 
@@ -676,11 +676,9 @@ class QFrame(Extract):
         if "union" in self.data["select"]:
             print("You can't aggregate inside union. Use select() method first.")
         else:
+            self.getfields = self._get_fields_names(self.getfields, aliased=False)
             for field in self.getfields:
-                if field in self.data["select"]["fields"]:
-                    self.data["select"]["fields"][field]["group_by"] = aggtype
-                else:
-                    self.logger.debug("Field not found.")
+                self.data["select"]["fields"][field]["group_by"] = aggtype
 
         return self
 
@@ -938,8 +936,8 @@ class QFrame(Extract):
         if isinstance(fields, str):
             fields = [fields]
 
-        aliased_fields = self._get_fields(aliased=True)
-        not_aliased_fields = self._get_fields(aliased=False)
+        aliased_fields = self._get_fields(aliased=True, not_selected=True)
+        not_aliased_fields = self._get_fields(aliased=False, not_selected=True)
 
         if not set(set(aliased_fields) | set(not_aliased_fields)) >= set(fields) or len(not_aliased_fields) != len(
             fields
@@ -1033,13 +1031,15 @@ class QFrame(Extract):
 
         return self
 
-    def get_fields(self, aliased=False):
+    def get_fields(self, aliased=False, not_selected=False):
         """Returns list of QFrame fields.
 
         Parameters
         ----------
         aliased : boolean
             Whether to return original names or aliases.
+        not_selected : boolean
+            Whether to return fields that have parameter `select=0`
 
         Examples
         --------
@@ -1054,7 +1054,7 @@ class QFrame(Extract):
             List of field names
         """
         if self.data:
-            return self._get_fields(aliased=aliased)
+            return self._get_fields(aliased=aliased, not_selected=not_selected)
         else:
             return []
 
@@ -1394,8 +1394,8 @@ class QFrame(Extract):
         """Returns a list of fields keys or fields aliases.
         Input parameters 'fields' can contain both aliased and not aliased fields"""
 
-        not_aliased_fields = self._get_fields(aliased=False)
-        aliased_fields = self._get_fields(aliased=True)
+        not_aliased_fields = self._get_fields(aliased=False, not_selected=True)
+        aliased_fields = self._get_fields(aliased=True, not_selected=True)
 
         not_found_fields = []
         output_fields = []
@@ -1422,21 +1422,27 @@ class QFrame(Extract):
 
         return output_fields
 
-    def _get_fields(self, aliased=False):
+    def _get_fields(self, aliased=False, not_selected=False):
         fields_data = self.data["select"]["fields"]
         fields_out = []
 
         if aliased:
             for field in fields_data:
-                alias = (
-                    field
-                    if "as" not in fields_data[field] or fields_data[field]["as"] == ""
-                    else fields_data[field]["as"]
-                )
-                fields_out.append(alias)
+                if not not_selected and "select" in fields_data[field] and fields_data[field]["select"] == 0:
+                    continue
+                else:
+                    alias = (
+                        field
+                        if "as" not in fields_data[field] or fields_data[field]["as"] == ""
+                        else fields_data[field]["as"]
+                    )
+                    fields_out.append(alias)
         else:
             for field in fields_data:
-                fields_out.append(field)
+                if not not_selected and "select" in fields_data[field] and fields_data[field]["select"] == 0:
+                    continue
+                else:
+                    fields_out.append(field)
 
         return fields_out
 
@@ -1934,6 +1940,7 @@ def _build_column_strings(data):
 
         if "group_by" in fields[field]:
             if fields[field]["group_by"].upper() == "GROUP":
+                # TODO: group by should use position of column and expr in case of not selected columns
                 prefix = re.search(r"^sq\d*[.]", field)
                 if prefix is not None:
                     group_dimensions.append(field[len(prefix.group(0)) :])
@@ -1964,18 +1971,17 @@ def _build_column_strings(data):
             elif fields[field]["type"] == "num":
                 type = "FLOAT(53)"
 
+            select_names.append(select_name)
+            select_aliases.append(alias)
+            types.append(type)
+
+            # TODO: order by should use position of column and expr in case of not selected columns
             if "order_by" in fields[field] and fields[field]["order_by"] != "":
                 if fields[field]["order_by"].upper() == "DESC":
                     order = fields[field]["order_by"]
                 elif fields[field]["order_by"].upper() == "ASC":
                     order = ""
                 order_by.append(f"{alias} {order}")
-
-            select_names.append(select_name)
-            select_aliases.append(alias)
-            types.append(type)
-        else:
-            pass
 
     sql_blocks = {
         "select_names": select_names,

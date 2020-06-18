@@ -22,7 +22,7 @@ class Extract:
             if "denodo" in self.engine.lower():
                 self.sql += " CONTEXT('swap' = 'ON', 'swapsize' = '400', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'off')"
             row_count = to_csv(
-                columns=self.get_fields(aliased=True),
+                columns=self.get_fields(aliased=True, not_selected=False),
                 csv_path=csv_path,
                 sql=self.sql,
                 engine=self.engine,
@@ -92,16 +92,19 @@ class Extract:
         -------
         Class
         """
-        copy_df_to_excel(
-            df=self.df,
-            input_excel_path=input_excel_path,
-            output_excel_path=output_excel_path,
-            sheet_name=sheet_name,
-            startrow=startrow,
-            startcol=startcol,
-            index=index,
-            header=header,
-        )
+        if self.tool_name == "QFrame":
+            copy_df_to_excel(
+                df=self.to_df(),
+                input_excel_path=input_excel_path,
+                output_excel_path=output_excel_path,
+                sheet_name=sheet_name,
+                startrow=startrow,
+                startcol=startcol,
+                index=index,
+                header=header,
+            )
+        else:
+            pass
 
 
 def copy_df_to_excel(
@@ -188,7 +191,9 @@ def to_csv(columns, csv_path, sql, engine=None, sep="\t", chunksize=None, debug=
                         break
                     writer.writerows(rows)
         else:
-            writer.writerows(cursor.fetchall())
+            rows = cursor.fetchall()
+            cursor_row_count += len(rows)
+            writer.writerows(rows)
 
     if close_cursor:
         cursor.close()
