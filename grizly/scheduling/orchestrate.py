@@ -606,8 +606,8 @@ class Workflow:
     def __str__(self):
         return f"{self.tasks}"
 
-    def visualize(self):
-        return self.graph.visualize()
+    def visualize(self, **kwargs):
+        return self.graph.visualize(**kwargs)
 
     def add_trigger(self, trigger):
         self.trigger = trigger
