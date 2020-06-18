@@ -15,6 +15,7 @@ from ..utils import get_path
 from .extract import Extract
 
 import deprecation
+import psutil
 from functools import partial
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
@@ -62,6 +63,7 @@ class QFrame(Extract):
         chunksize: int = None,
         interface: str = None,
         logger=None,
+        debug=False,
     ):
         self.tool_name = "QFrame"
         self.engine = engine if engine else "mssql+pyodbc://DenodoODBC"
@@ -75,6 +77,7 @@ class QFrame(Extract):
         self.chunksize = chunksize
         self.interface = interface or "sqlalchemy"
         self.logger = logger or logging.getLogger(__name__)
+        self.debug = debug
         super().__init__()
 
     def create_sql_blocks(self):
@@ -1249,23 +1252,11 @@ class QFrame(Extract):
         sql = self.get_sql()
         if "denodo" in self.engine.lower():
             sql += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
-        # sqldb = SQLDB(db=db, engine_str=self.engine, interface=self.interface, logger=self.logger)
-        # con = sqldb.get_connection()
-        # offset = 0
-        # dfs = []
-        # if chunksize:
-        #     if not "limit" in sql.lower():  # respect existing LIMIT
-        #         while True:
-        #             chunk_sql = sql + f"\nOFFSET {offset} LIMIT {self.chunksize}"
-        #             chunk_df = pd.read_sql(chunk_sql, con)
-        #             dfs.append(chunk_df)
-        #             offset += chunksize
-        #             if len(dfs[-1]) < chunksize:
-        #                 break
-        #         df = pd.concat(dfs)
-        #     else:
-        #         self.logger.warning(f"LIMIT already exists in query. Chunksize will not be applied")
         con = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface).get_connection()
+        if self.debug:
+            process = psutil.Process(os.getpid())
+            self.logger.info("Executing pd.read_sql()...")
+            self.logger.info(f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB")
         try:
             df = pd.read_sql(sql, con)
         except:
@@ -1287,6 +1278,9 @@ class QFrame(Extract):
         finally:
             con.close()
             # engine.dispose()
+        if self.debug:
+            self.logger.info("Successfully executed pd.read_sql()")
+            self.logger.info(f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB")
         return df
 
     def to_arrow(self, db="redshift", debug=False):
