@@ -92,16 +92,19 @@ class Extract:
         -------
         Class
         """
-        copy_df_to_excel(
-            df=self.df,
-            input_excel_path=input_excel_path,
-            output_excel_path=output_excel_path,
-            sheet_name=sheet_name,
-            startrow=startrow,
-            startcol=startcol,
-            index=index,
-            header=header,
-        )
+        if self.tool_name == "QFrame":
+            copy_df_to_excel(
+                df=self.to_df(),
+                input_excel_path=input_excel_path,
+                output_excel_path=output_excel_path,
+                sheet_name=sheet_name,
+                startrow=startrow,
+                startcol=startcol,
+                index=index,
+                header=header,
+            )
+        else:
+            pass
 
 
 def copy_df_to_excel(
