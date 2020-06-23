@@ -287,8 +287,7 @@ class S3:
             elif if_exists == "archive":
                 self.archive()
 
-        s3_key = self.s3_key + self.file_name
-        s3_file = resource("s3").Object(self.bucket, s3_key)
+        s3_file = resource("s3").Object(self.bucket, self.full_s3_key)
 
         if not self._can_upload():
             msg = (
