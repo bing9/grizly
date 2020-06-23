@@ -11,7 +11,7 @@ import pyarrow as pa
 from .s3 import S3
 from .sqldb import SQLDB, check_if_valid_type
 from ..ui.qframe import SubqueryUI
-from ..utils import get_path
+from ..utils import get_path, rds_to_pyarrow_type
 from .extract import Extract
 
 import deprecation
@@ -1259,22 +1259,11 @@ class QFrame(Extract):
             self.logger.info(f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB")
         try:
             df = pd.read_sql(sql, con)
+            if self.debug:
+                self.logger.info(df.memory_usage(deep=True))
         except:
-            self.logger.warning("Query returned no results")
+            self.logger.exception("There was an error when running the query")
             df = pd.DataFrame()
-        # df = read_sql(sql=sql, con=con)
-        # import io
-        # from sqlalchemy import create_engine
-        # copy_sql = f"COPY ({sql}) TO STDOUT WITH CSV HEADER"
-        # engine_str = "mssql+pyodbc://DenodoPROD"
-        # engine = create_engine(engine_str)
-        # conn = engine.raw_connection()
-        # cur = conn.cursor()
-        # store = io.StringIO()
-        # cur.copy_expert(copy_sql, store)
-        # store.seek(0)
-        # df = read_csv(store)
-        # self.df = df
         finally:
             con.close()
             # engine.dispose()
@@ -1285,20 +1274,15 @@ class QFrame(Extract):
 
     def to_arrow(self, db="redshift", debug=False):
         """Writes QFrame to pyarrow.Table"""
-
-        sql = self.get_sql()
-        sqldb = SQLDB(db=db, engine_str=self.engine, interface="turbodbc", logger=self.logger)
-        con = sqldb.get_connection()
-        cursor = con.cursor()
-        cursor.execute(sql)
-        rowcount = cursor.rowcount
-        batches = cursor.fetcharrowbatches(strings_as_dictionary=True)  # string_as.. - similar to pd.Categorical
-        arrow_table = pa.concat_tables(batches)
-        cursor.close()
-        con.close()
-        if debug:
-            return arrow_table, rowcount
-        return arrow_table
+        records = self.to_records()
+        colnames = self.get_fields(aliased=True)
+        coltypes = [rds_to_pyarrow_type(dtype) for dtype in self.get_dtypes()]
+        schema = pa.Schema([pa.field(name, dtype) for name, dtype in zip(colnames, coltypes)])
+        records_dict = dict(zip(colnames, records))
+        print(records_dict)
+        self.logger.info(records_dict)
+        table = pa.Table.from_pydict(records_dict, schema=schema)
+        return table
 
     @deprecation.deprecated(details="Use QFrame.to_csv or QFrame.to_df and then use SQLDB or S3 class instead",)
     def to_sql(

@@ -4,6 +4,8 @@ from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
 from sys import platform
 import json
+import pyarrow as pa
+import re
 
 from functools import partial
 import deprecation
@@ -55,6 +57,45 @@ def sfdc_to_sqlalchemy_dtype(sfdc_dtype):
     }
     sqlalchemy_dtype = sqlalchemy_dtypes[sfdc_dtype]
     return sqlalchemy_dtype
+
+
+def rds_to_pyarrow_type(dtype):
+    dtypes = {
+        "BOOL": pa.bool_(),
+        "BOOLEAN": pa.bool_(),
+        "INT": pa.int32(),
+        "INTEGER": pa.int32(),
+        "SMALLINT": pa.int8(),
+        "BIGINT": pa.int64(),
+        "INT2": pa.int8(),
+        "INT4": pa.int8(),
+        "INT8": pa.int8(),
+        "NUMERIC": pa.float64(),
+        "DECIMAL": pa.float64(),
+        "FLOAT4": pa.float32(),
+        "FLOAT8": pa.float64(),
+        "DOUBLE PRECISION": pa.float64(),
+        "REAL": pa.float32(),
+        "NULL": pa.null(),
+        "DATE": pa.date64(),
+        "VARCHAR": pa.string(),
+        "NVARCHAR": pa.string(),
+        "CHARACTER VARYING": pa.string(),
+        "TEXT": pa.string(),
+        "CHAR": pa.string(),
+        "CHARACTER": pa.string(),
+        "TIMESTAMP": pa.date64(),
+        "TIMESTAMP WITHOUT TIME ZONE": pa.date64(),
+        "TIMESTAMPTZ": pa.date64(),
+        "TIMESTAMP WITH TIME ZONE": pa.date64(),
+        "GEOMETRY": None,
+    }
+
+    for redshift_dtype in dtypes:
+        if re.search(redshift_dtype, dtype):
+            return dtypes[redshift_dtype]
+        else:
+            return pa.string()
 
 
 def get_sfdc_columns(table, columns=None, column_types=True):
