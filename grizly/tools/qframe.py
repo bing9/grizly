@@ -7,6 +7,7 @@ from copy import deepcopy
 import json
 import logging
 import pyarrow as pa
+import decimal
 
 from .s3 import S3
 from .sqldb import SQLDB, check_if_valid_type
@@ -1235,6 +1236,15 @@ class QFrame(Extract):
 
         return records
 
+    def to_dict(self):
+        _dict = {}
+        columns = self.get_fields(aliased=True)
+        records = self.to_records()
+        for i, column in enumerate(columns):
+            column_values = [float(line[i]) if type(line[i]) == decimal.Decimal else line[i] for line in records]
+            _dict[column] = column_values
+        return _dict
+
     def to_df(self, db="redshift", chunksize: int = None):
         """Writes QFrame to DataFrame. Uses pandas.read_sql.
 
@@ -1272,16 +1282,13 @@ class QFrame(Extract):
             self.logger.info(f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB")
         return df
 
-    def to_arrow(self, db="redshift", debug=False):
+    def to_arrow(self):
         """Writes QFrame to pyarrow.Table"""
-        records = self.to_records()
         colnames = self.get_fields(aliased=True)
         coltypes = [rds_to_pyarrow_type(dtype) for dtype in self.get_dtypes()]
-        schema = pa.Schema([pa.field(name, dtype) for name, dtype in zip(colnames, coltypes)])
-        records_dict = dict(zip(colnames, records))
-        print(records_dict)
-        self.logger.info(records_dict)
-        table = pa.Table.from_pydict(records_dict, schema=schema)
+        schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(colnames, coltypes)])
+        _dict = self.to_dict()
+        table = pa.Table.from_pydict(_dict, schema=schema)
         return table
 
     @deprecation.deprecated(details="Use QFrame.to_csv or QFrame.to_df and then use SQLDB or S3 class instead",)
