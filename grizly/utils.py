@@ -94,8 +94,8 @@ def rds_to_pyarrow_type(dtype):
     for redshift_dtype in dtypes:
         if re.search(redshift_dtype, dtype):
             return dtypes[redshift_dtype]
-        else:
-            return pa.string()
+    else:
+        return pa.string()
 
 
 def get_sfdc_columns(table, columns=None, column_types=True):
