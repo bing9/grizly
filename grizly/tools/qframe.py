@@ -84,7 +84,7 @@ class QFrame(Extract):
     def create_sql_blocks(self):
         """Creates blocks which are used to generate an SQL"""
         if self.data == {}:
-            print("Your QFrame is empty.")
+            self.logger.info("Your QFrame is empty.")
             return self
         else:
             self.data["select"]["sql_blocks"] = _build_column_strings(self.data)
@@ -121,7 +121,7 @@ class QFrame(Extract):
             print("Use your_qframe.remove() to remove or your_qframe.rename() to rename columns.")
 
         else:
-            print("There are no duplicated columns.")
+            self.logger.info("There are no duplicated columns.")
         return self
 
     def save_json(self, json_path, subquery=""):
@@ -149,7 +149,7 @@ class QFrame(Extract):
 
         with open(json_path, "w") as f:
             json.dump(json_data, f, indent=4)
-        print(f"Data saved in {json_path}")
+        logger.info(f"Data saved in {json_path}")
         return self
 
     def build_subquery(self, store_path, subquery, database):
@@ -466,7 +466,7 @@ class QFrame(Extract):
             raise ValueError("Invalid value in operator. Valid values: 'and', 'or'.")
 
         if "union" in self.data["select"]:
-            print("You can't add where clause inside union. Use select() method first.")
+            self.logger.info("You can't add where clause inside union. Use select() method first.")
         else:
             if "where" not in self.data["select"] or self.data["select"]["where"] == "" or if_exists == "replace":
                 self.data["select"]["where"] = query
@@ -509,7 +509,7 @@ class QFrame(Extract):
             raise ValueError("Invalid value in operator. Valid values: 'and', 'or'.")
 
         if "union" in self.data["select"]:
-            print(
+            self.logger.info(
                 """You can't add having clause inside union. Use select() method first.
             (The GROUP BY and HAVING clauses are applied to each individual query, not the final result set.)"""
             )
@@ -585,7 +585,7 @@ class QFrame(Extract):
         if order_by.lower() not in ["asc", "desc", ""]:
             raise ValueError("Invalid value in order_by. Valid values: 'ASC', 'DESC', ''.")
         if "union" in self.data["select"]:
-            print("You can't assign expressions inside union. Use select() method first.")
+            self.logger.warning("You can't assign expressions inside union. Use select() method first.")
         else:
             if kwargs is not None:
                 for key in kwargs:
@@ -675,7 +675,7 @@ class QFrame(Extract):
             )
 
         if "union" in self.data["select"]:
-            print("You can't aggregate inside union. Use select() method first.")
+            self.logger.warning("You can't aggregate inside union. Use select() method first.")
         else:
             self.getfields = self._get_fields_names(self.getfields, aliased=False)
             for field in self.getfields:
@@ -1545,9 +1545,9 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
 
     data["select"]["join"] = {"join_type": join_type, "on": on}
 
-    print("Data joined successfully.")
+    self.logger.info("Data joined successfully.")
     if not unique_col:
-        print(
+        self.logger.warning(
             "Please remove or rename duplicated columns. Use your_qframe.show_duplicated_columns() to check duplicates."
         )
     return QFrame(data=data, engine=qframes[0].engine, db=qframes[0].db)
@@ -1668,7 +1668,7 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     data["select"]["union"] = {"union_type": union_type}
 
-    print("Data unioned successfully.")
+    self.logger.info("Data unioned successfully.")
     return QFrame(data=data, engine=qframes[0].engine, db=qframes[0].db)
 
 
@@ -1866,7 +1866,7 @@ def initiate(columns, schema, table, json_path=None, engine_str="", subquery="",
         with open(json_path, "w") as f:
             json.dump(json_data, f)
 
-        print(f"Data saved in {json_path}")
+        self.logger.info(f"Data saved in {json_path}")
 
     else:
         return json_data
