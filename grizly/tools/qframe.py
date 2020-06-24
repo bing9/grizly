@@ -10,7 +10,8 @@ import pyarrow as pa
 import decimal
 
 from .s3 import S3
-from .sqldb import SQLDB, check_if_valid_type
+from .sqldb import SQLDB
+from .dialects import check_if_valid_type
 from ..ui.qframe import SubqueryUI
 from ..utils import get_path, rds_to_pyarrow_type
 from .extract import Extract

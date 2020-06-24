@@ -23,6 +23,7 @@ class SQLDB:
         self,
         db: str,
         engine_str: str = None,
+        dsn: str = None,
         interface: str = "sqlalchemy",
         config_key: str = None,
         logger: Logger = None,
@@ -33,9 +34,11 @@ class SQLDB:
             config = {
                 "redshift": "mssql+pyodbc://redshift_acoe",
                 "denodo": "mssql+pyodbc://DenodoPROD",
+                "aurora": "mssql+pyodbc://aurora_db",
             }
-        if db not in {"redshift", "denodo", "sqlite"}:
-            raise NotImplementedError(f"DB {db} not supported yet. Supported DB's: 'redshift', 'denodo', 'sqlite'")
+        supported_dbs = ("redshift", "denodo", "sqlite", "mariadb", "aurora")
+        if db not in supported_dbs:
+            raise NotImplementedError(f"DB {db} not supported yet. Supported DB's: {supported_dbs}")
         self.db = db
         self.engine_str = engine_str or config.get(db)
         if interface not in ("sqlalchemy", "turbodbc", "pyodbc"):
@@ -43,7 +46,7 @@ class SQLDB:
                 f"Interface {interface} is not supported. Choose one of: 'sqlalchemy', 'turbodbc', 'pyodbc'"
             )
         self.interface = interface
-        self.dsn = self.engine_str.split("/")[-1]
+        self.dsn = dsn or self.engine_str.split("/")[-1]
         self.logger = logger or logging.getLogger(__name__)
 
     def get_connection(self):
@@ -80,7 +83,7 @@ class SQLDB:
             except pyodbc.InterfaceError:
                 e = f"Data source name '{self.dsn}' not found"
                 self.logger.exception(e)
-                raise OSError(e)
+                raise
         else:
             raise ValueError("Interface not specified.")
         return con
@@ -94,7 +97,9 @@ class SQLDB:
         >>> sqldb.check_if_exists(table="table_tutorial", schema="administration")
         True
         """
-        if self.db == "redshift":
+        supported_dbs = ("redshift", "aurora")
+
+        if self.db in supported_dbs:
             con = self.get_connection()
             sql_exists = f"select * from information_schema.columns where table_name='{table}'"
             if schema:
@@ -103,9 +108,10 @@ class SQLDB:
                 sql_exists += f" and column_name='{column}'"
             exists = not read_sql_query(sql=sql_exists, con=con).empty
             con.close()
-            return exists
         else:
-            print("Works only with db='redshift'")
+            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        return exists
 
     def copy_table(self, in_table, out_table, in_schema=None, out_schema=None, if_exists="fail"):
         """Copies records from one table to another.
@@ -134,12 +140,15 @@ class SQLDB:
         >>> con.close()
         >>> sqldb = sqldb.drop_table(table="test_k", schema="sandbox")
         """
-        if self.db == "redshift":
-            con = self.get_connection()
+        supported_dbs = ("redshift", "aurora")
+
+        if self.db in supported_dbs:
             in_table_name = f"{in_schema}.{in_table}" if in_schema else in_table
+
             if not self.check_if_exists(table=in_table, schema=in_schema):
-                self.logger.info(f"Table {in_table_name} doesn't exist.")
+                self.logger.exception(f"Table {in_table_name} doesn't exist.")
             else:
+                con = self.get_connection()
                 out_table_name = f"{out_schema}.{out_table}" if out_schema else out_table
                 if self.check_if_exists(table=out_table, schema=out_schema) and if_exists == "fail":
                     con.close()
@@ -151,7 +160,10 @@ class SQLDB:
                         """
                 SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
                 con.execute(sql).commit()
-            con.close()
+                con.close()
+        else:
+            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
         return self
 
     def create_table(self, table, columns, types, schema=None, char_size=500):
@@ -173,27 +185,34 @@ class SQLDB:
         >>> sqldb.check_if_exists(table="test_k", schema="sandbox")
         True
         """
-        table_name = f"{schema}.{table}" if schema else table
+        supported_dbs = ("redshift", "aurora")
 
-        if self.check_if_exists(table=table, schema=schema):
-            return self
+        if self.db in supported_dbs:
+
+            if self.check_if_exists(table=table, schema=schema):
+                return self
+            else:
+                table_name = f"{schema}.{table}" if schema else table
+                col_tuples = []
+
+                for item in range(len(columns)):
+                    if types[item] == "VARCHAR(500)":
+                        column = columns[item] + " " + "VARCHAR({})".format(char_size)
+                    else:
+                        column = columns[item] + " " + types[item]
+                    col_tuples.append(column)
+
+                columns_str = ", ".join(col_tuples)
+                sql = "CREATE TABLE {} ({})".format(table_name, columns_str)
+                SQLDB.last_commit = sql
+                con = self.get_connection()
+                con.execute(sql).commit()
+                con.close()
+
+                self.logger.info(f"Table {sql} has been created successfully.")
         else:
-            col_tuples = []
-            for item in range(len(columns)):
-                if types[item] == "VARCHAR(500)":
-                    column = columns[item] + " " + "VARCHAR({})".format(char_size)
-                else:
-                    column = columns[item] + " " + types[item]
-                col_tuples.append(column)
+            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
 
-            columns_str = ", ".join(col_tuples)
-            sql = "CREATE TABLE {} ({})".format(table_name, columns_str)
-            SQLDB.last_commit = sql
-            con = self.get_connection()
-            con.execute(sql).commit()
-            con.close()
-
-            self.logger.info(f"Table {sql} has been created successfully.")
         return self
 
     def insert_into(self, table, columns, sql, schema=None):
@@ -210,9 +229,12 @@ class SQLDB:
         >>> con.close()
 
         """
-        if self.db == "redshift":
+        supported_dbs = ("redshift", "aurora")
+
+        if self.db in supported_dbs:
             con = self.get_connection()
             table_name = f"{schema}.{table}" if schema else table
+
             if self.check_if_exists(table=table, schema=schema):
                 columns = ", ".join(columns)
                 sql = f"INSERT INTO {table_name} ({columns}) {sql}"
@@ -221,6 +243,9 @@ class SQLDB:
             else:
                 self.logger.info(f"Table {table_name} doesn't exist.")
             con.close()
+        else:
+            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
         return self
 
     def delete_from(self, table, schema=None, where=None):
@@ -235,9 +260,12 @@ class SQLDB:
         []
         >>> con.close()
         """
-        if self.db == "redshift":
+        supported_dbs = ("redshift", "aurora")
+
+        if self.db in supported_dbs:
             con = self.get_connection()
             table_name = f"{schema}.{table}" if schema else table
+
             if self.check_if_exists(table=table, schema=schema):
                 sql = f"DELETE FROM {table_name}"
                 if where is None:
@@ -252,6 +280,9 @@ class SQLDB:
             else:
                 self.logger.info(f"Table {table_name} doesn't exist.")
             con.close()
+        else:
+            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
         return self
 
     def drop_table(self, table, schema=None):
@@ -264,9 +295,12 @@ class SQLDB:
         >>> sqldb.check_if_exists(table="test_k", schema="sandbox")
         False
         """
-        if self.db == "redshift":
+        supported_dbs = ("redshift", "aurora")
+
+        if self.db in supported_dbs:
             con = self.get_connection()
             table_name = f"{schema}.{table}" if schema else table
+
             if self.check_if_exists(table=table, schema=schema):
                 sql = f"DROP TABLE {table_name}"
                 SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
@@ -275,6 +309,9 @@ class SQLDB:
             else:
                 self.logger.info(f"Table {table_name} doesn't exist.")
             con.close()
+        else:
+            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
         return self
 
     def write_to(self, table, columns, sql, schema=None, if_exists="fail"):
@@ -299,8 +336,12 @@ class SQLDB:
         >>> con.close()
         >>> sqldb = sqldb.drop_table(table="test_k", schema="sandbox")
         """
-        if self.db == "redshift":
+        supported_dbs = ("redshift", "aurora")
+
+        if self.db in supported_dbs:
+
             if self.check_if_exists(table=table, schema=schema):
+
                 if if_exists == "replace":
                     self.delete_from(table=table, schema=schema)
                     self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
@@ -311,7 +352,10 @@ class SQLDB:
                     self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
                     self.logger.info(f"Data has been appended to {schema}.{table}")
             else:
-                raise ValueError("Table doesn't exist. Use create_table first")
+                self.logger.exception("Table doesn't exist. Use create_table first")
+        else:
+            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
         return self
 
     def get_columns(
@@ -339,15 +383,15 @@ class SQLDB:
         (['col1', 'col2', 'col3', 'col4'], ['character varying(500)', 'double precision', 'character varying(500)', 'double precision'])
         """
         if self.db == "denodo":
-            return self._get_denodo_columns(
+            return self._get_columns_1(
                 schema=schema, table=table, column_types=column_types, date_format=date_format, columns=columns,
             )
-        elif self.db == "redshift":
-            return self._get_redshift_columns(schema=schema, table=table, column_types=column_types, columns=columns)
+        elif self.db in ("redshift", "mariadb", "aurora"):
+            return self._get_columns_2(schema=schema, table=table, column_types=column_types, columns=columns)
         elif self.db == "sqlite":
-            return self._get_sqlite_columns(schema=schema, table=table, column_types=column_types)
+            return self._get_columns_3(schema=schema, table=table, column_types=column_types)
 
-    def _get_denodo_columns(
+    def _get_columns_1(
         self, table, schema: str = None, column_types: bool = False, columns: list = None, date_format: str = "DATE",
     ):
         """Get column names (and optionally types) from Denodo view.
@@ -416,10 +460,10 @@ class SQLDB:
                 col_types = [type for type in col_names_and_types.values()]
             return col_names, col_types
 
-    def _get_redshift_columns(
+    def _get_columns_2(
         self, table, schema: str = None, column_types: bool = False, columns: list = None,
     ):
-        """Get column names (and optionally types) from a Redshift table.
+        """Get column names (and optionally types) from a Redshift, MariaDB or Aurora table.
 
         Parameters
         ----------
@@ -490,7 +534,7 @@ class SQLDB:
 
         return to_return
 
-    def _get_sqlite_columns(self, table, schema: str = None, column_types: bool = False):
+    def _get_columns_3(self, table, schema: str = None, column_types: bool = False):
         """Get column names (and optionally types) from a SQLite table.
 
         Parameters
@@ -526,85 +570,6 @@ class SQLDB:
             return col_names, col_types
         else:
             return col_names
-
-
-def check_if_valid_type(type: str):
-    """Checks if given type is valid in Redshift.
-
-    Parameters
-    ----------
-    type : str
-        Input type
-
-    Returns
-    -------
-    bool
-        True if type is valid, False if not
-    """
-    valid_types = [
-        "SMALLINT",
-        "INT2",
-        "INTEGER",
-        "INT",
-        "INT4",
-        "BIGINT",
-        "INT8",
-        "DECIMAL",
-        "NUMERIC",
-        "REAL",
-        "FLOAT4",
-        "DOUBLE PRECISION",
-        "FLOAT8",
-        "FLOAT",
-        "BOOLEAN",
-        "BOOL",
-        "CHAR",
-        "CHARACTER",
-        "NCHAR",
-        "BPCHAR",
-        "VARCHAR",
-        "CHARACTER VARYING",
-        "NVARCHAR",
-        "TEXT",
-        "DATE",
-        "TIMESTAMP",
-        "TIMESTAMP WITHOUT TIME ZONE",
-        "TIMESTAMPTZ",
-        "TIMESTAMP WITH TIME ZONE",
-    ]
-
-    for valid_type in valid_types:
-        if type.upper().startswith(valid_type):
-            return True
-    return False
-
-
-def pyarrow_to_rds_type(dtype):
-    dtypes = {
-        "bool": "BOOL",
-        "int8": "SMALLINT",
-        "int16": "INT2",
-        "int32": "INT4",
-        "int64": "INT8",
-        "uint8": "INT",
-        "uint16": "INT",
-        "uint32": "INT",
-        "uint64": "INT",
-        "float32": "FLOAT4",
-        "float64": "FLOAT8",
-        "double": "FLOAT8",
-        "null": "FLOAT8",
-        "date": "DATE",
-        "string": "VARCHAR(500)",
-        "timestamp.*\s*": "TIMESTAMP",
-        "datetime.*\s*": "TIMESTAMP",
-    }
-
-    for pyarrow_dtype in dtypes:
-        if re.search(pyarrow_dtype, dtype):
-            return dtypes[pyarrow_dtype]
-    else:
-        return "VARCHAR(500)"
 
 
 @deprecation.deprecated(details="Use SQLDB.check_if_exists function instead",)

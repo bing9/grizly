@@ -12,6 +12,7 @@ from .tools.sfdc import SFDC
 from .tools.s3 import S3, s3_to_csv, csv_to_s3, df_to_s3, s3_to_rds
 from .tools.github import GitHub
 from .tools.sqldb import SQLDB, check_if_exists, delete_where, get_columns, copy_table
+from .tools.dialects import mysql_to_postgres_types
 from .scheduling.orchestrate import Workflow, Listener, EmailListener, Schedule, Runner, retry
 
 
