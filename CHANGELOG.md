@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `to_records()` method [#417](https://github.com/kfk/grizly/issues/417)
 - Added `pivot()` method [#420](https://github.com/kfk/grizly/issues/420)
 - Added option to use fields aliases in methods: `rearrange()`, `select()`, `orderby()`, `groupby()`, `remove()` [#205](https://github.com/kfk/grizly/issues/205)
+- Changed all prints (except the few necessary ones) to logs
 
 ### Crosstab
 - Added method `hide_columns()` (works for now only for dimensions)
