@@ -5,16 +5,15 @@ import os
 import sqlparse
 from copy import deepcopy
 import json
-import logging
 import pyarrow as pa
 import decimal
 
 from .s3 import S3
 from .sqldb import SQLDB
-from .dialects import check_if_valid_type
+from .dialects import check_if_valid_type, mysql_to_postgres_type
 from ..ui.qframe import SubqueryUI
 from ..utils import get_path, rds_to_pyarrow_type
-from .extract import Extract
+from .base import BaseTool
 
 import deprecation
 import psutil
@@ -38,7 +37,7 @@ def prepend_table(data, expression):
     return expression
 
 
-class QFrame(Extract):
+class QFrame(BaseTool):
     """Class which builds a SQL statement.
 
     Parameters
@@ -60,27 +59,32 @@ class QFrame(Extract):
         data: dict = {},
         engine: str = None,
         db: str = None,
+        dsn: str = None,
+        dialect: str = None,
+        interface: str = None,
+        sqldb: SQLDB = None,
         sql: str = None,
         getfields: list = [],
-        chunksize: int = None,
-        interface: str = None,
-        logger=None,
-        debug=False,
+        *args,
+        **kwargs,
     ):
-        self.tool_name = "QFrame"
+        super().__init__(*args, **kwargs)
+        self.data = data
+        self.sql = sql or ""
+        self.getfields = getfields
+
         self.engine = engine if engine else "mssql+pyodbc://DenodoODBC"
         if not isinstance(self.engine, str):
             raise ValueError("QFrame engine is not of type: str")
-        self.data = data
-        self.db = db or ("denodo" if "denodo" in self.engine.lower() else "redshift")
-        self.sql = sql or ""
-        self.getfields = getfields
-        self.dtypes = {}
-        self.chunksize = chunksize
-        self.interface = interface or "sqlalchemy"
-        self.logger = logger or logging.getLogger(__name__)
-        self.debug = debug
-        super().__init__()
+
+        self.sqldb = sqldb or SQLDB(
+            db=db or ("denodo" if "denodo" in self.engine else "redshift"),
+            engine_str=self.engine,
+            dsn=dsn,
+            dialect=dialect,
+            interface=interface,
+            logger=self.logger,
+        )
 
     def create_sql_blocks(self):
         """Creates blocks which are used to generate an SQL"""
@@ -179,14 +183,6 @@ class QFrame(Extract):
                     self.data = self.validate_data(data[subquery])
             else:
                 self.data = data
-        for field in self.data["select"]["fields"]:
-            _type = self.data["select"]["fields"][field]["type"]
-            dtype = "object"
-            if _type == "num":
-                dtype = "float64"
-            elif _type == "dim":
-                dtype == "object"
-            self.dtypes[field] = dtype
         return self
 
     @deprecation.deprecated(details="Use QFrame.from_json instead",)
@@ -239,7 +235,7 @@ class QFrame(Extract):
             Path to output json file, by default None
         subquery : str, optional
             Name of the query in json file. If this name already exists it will be overwritten, by default None
-        
+
         Examples
         --------
         >>> engine_str = "mssql+pyodbc://redshift_acoe"
@@ -251,14 +247,12 @@ class QFrame(Extract):
                col3,
                col4
         FROM administration.table_tutorial
-        
         """
-        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface)
 
         if schema is None:
             schema = ""
         schema = schema if schema is not None else ""
-        col_names, col_types = sqldb.get_columns(schema=schema, table=table, columns=columns, column_types=True)
+        col_names, col_types = self.sqldb.get_columns(schema=schema, table=table, columns=columns, column_types=True)
 
         if col_names == []:
             raise ValueError("No columns were loaded. Please check if specified table exists and is not empty.")
@@ -1097,11 +1091,12 @@ class QFrame(Extract):
         QFrame
         """
         self.create_sql_blocks()
-        self.sql = _get_sql(data=self.data, db=self.db)
+        self.sql = _get_sql(data=self.data, db=self.sqldb.db)
         return self.sql
 
-    def create_table(self, table, schema="", char_size=500, engine_str=None):
+    def create_table(self, table, schema="", char_size=500, engine_str=None, sqldb=None, if_exists=None):
         """Creates a new empty QFrame table in database if the table doesn't exist.
+        TODO: Remove engine_str, db, dsn and dialect and leave sqldb
 
         Parameters
         ----------
@@ -1111,22 +1106,25 @@ class QFrame(Extract):
             Specify the schema.
         char_size : int, optional
             Default size of the VARCHAR field in the database column, by default 500
-        engine_str : str, optional
-            Engine string, by default "mssql+pyodbc://redshift_acoe"
 
         Returns
         -------
         QFrame
         """
         engine_str = engine_str or self.engine
-        self.create_sql_blocks()
-        sqldb = SQLDB(db=self.db, engine_str=engine_str, interface=self.interface)
+        sqldb = sqldb or SQLDB(db=self.sqldb.db, engine_str=engine_str)
+
+        types = self.get_dtypes()
+        if self.sqldb.dialect == "mysql" and sqldb.dialect == "postgresql":
+            types = [mysql_to_postgres_type(dtype) for dtype in types]
+
         sqldb.create_table(
             columns=self.get_fields(aliased=True),
-            types=self.get_dtypes(),
+            types=types,
             table=table,
             schema=schema,
             char_size=char_size,
+            if_exists=if_exists,
         )
         return self
 
@@ -1179,7 +1177,7 @@ class QFrame(Extract):
             * fail: Raise a ValueError.
             * replace: Clean table before inserting new values.
             * append: Insert new values to the existing table.
-            
+
         char_size : int, optional
             Default size of the VARCHAR field in the database column, by default 500
 
@@ -1187,16 +1185,14 @@ class QFrame(Extract):
         -------
         QFrame
         """
-        self.create_sql_blocks()
-        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface)
-        sqldb.create_table(
+        self.sqldb.create_table(
             columns=self.get_fields(aliased=True),
             types=self.get_dtypes(),
             table=table,
             schema=schema,
             char_size=char_size,
         )
-        sqldb.write_to(
+        self.sqldb.write_to(
             table=table, columns=self.get_fields(aliased=True), sql=self.get_sql(), schema=schema, if_exists=if_exists,
         )
         return self
@@ -1219,14 +1215,13 @@ class QFrame(Extract):
         """
 
         sql = self.get_sql()
-        if self.db == "denodo":
+        if self.sqldb.db == "denodo":
             sql += (
                 " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est',"
                 " 'queryTimeout' = '9000000000', 'simplify' = 'on')"
             )
 
-        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface, logger=self.logger)
-        con = sqldb.get_connection()
+        con = self.sqldb.get_connection()
         cursor = con.cursor()
 
         cursor.execute(sql)
@@ -1246,24 +1241,20 @@ class QFrame(Extract):
             _dict[column] = column_values
         return _dict
 
-    def to_df(self, db="redshift", chunksize: int = None):
+    def to_df(self, chunksize: int = None):
         """Writes QFrame to DataFrame. Uses pandas.read_sql.
 
         TODO: DataFarme types should correspond to types defined in QFrame data.
 
-        Parameters
-        ---------
-        db : not really used but has to be provided
-        
         Returns
         -------
         DataFrame
             Data generated from sql.
         """
         sql = self.get_sql()
-        if "denodo" in self.engine.lower():
+        if "denodo" in self.engine.lower() and self.sqldb.db == "denodo":
             sql += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
-        con = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface).get_connection()
+        con = self.sqldb.get_connection()
         if self.debug:
             process = psutil.Process(os.getpid())
             self.logger.info("Executing pd.read_sql()...")
@@ -1306,8 +1297,7 @@ class QFrame(Extract):
         method=None,
     ):
         df = self.to_df()
-        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface)
-        con = sqldb.get_connection()
+        con = self.sqldb.get_connection()
 
         df.to_sql(
             name=table,
@@ -1352,20 +1342,21 @@ class QFrame(Extract):
         QFrame
         """
         data = deepcopy(self.data)
-        engine = self.engine
-        db = self.db
         sql = self.sql
         getfields = deepcopy(self.getfields)
+
+        engine = self.engine
+        sqldb = self.sqldb
+
         logger = self.logger
-        interface = self.interface
-        return QFrame(data=data, engine=engine, db=db, sql=sql, getfields=getfields, logger=logger, interface=interface)
+        return QFrame(data=data, sql=sql, getfields=getfields, engine=engine, sqldb=sqldb, logger=logger,)
 
     def __str__(self):
         sql = self.get_sql()
         return sql
 
     def __len__(self):
-        con = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface).get_connection()
+        con = self.sqldb.get_connection()
         query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
         try:
             no_rows = con.execute(query).fetchval()
@@ -1513,10 +1504,10 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     for q in qframes:
         if iterator == 0:
             first_engine = q.engine
-            first_db = q.db
+            first_db = q.sqldb.db
         else:
             assert first_engine == q.engine, "QFrames have different engine strings."
-            assert first_db == q.db, "QFrames have different db parameters."
+            assert first_db == q.sqldb.db, "QFrames have different db parameters."
         q.create_sql_blocks()
         iterator += 1
         data[f"sq{iterator}"] = deepcopy(q.data)
@@ -1551,7 +1542,7 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
         print(
             "Please remove or rename duplicated columns. Use your_qframe.show_duplicated_columns() to check duplicates."
         )
-    return QFrame(data=data, engine=qframes[0].engine, db=qframes[0].db)
+    return QFrame(data=data, engine=qframes[0].engine, sqldb=qframes[0].sqldb,)
 
 
 def union(qframes=[], union_type=None, union_by="position"):
@@ -1619,7 +1610,7 @@ def union(qframes=[], union_type=None, union_by="position"):
     iterator = 2
     for qf in qframes:
         assert main_qf.engine == qf.engine, "QFrames have different engine strings."
-        assert main_qf.db == qf.db, "QFrames have different db parameters."
+        assert main_qf.sqldb.db == qf.sqldb.db, "QFrames have different db parameters."
         qf.create_sql_blocks()
         qf_aliases = qf.data["select"]["sql_blocks"]["select_aliases"]
         assert len(new_fields) == len(
@@ -1670,7 +1661,7 @@ def union(qframes=[], union_type=None, union_by="position"):
     data["select"]["union"] = {"union_type": union_type}
 
     print("Data unioned successfully.")
-    return QFrame(data=data, engine=qframes[0].engine, db=qframes[0].db)
+    return QFrame(data=data, engine=qframes[0].engine, sqldb=qframes[0].sqldb,)
 
 
 def _validate_data(data):
@@ -2073,9 +2064,3 @@ def _get_sql(data, db):
 
     sql = sqlparse.format(sql, reindent=True, keyword_case="upper")
     return sql
-
-
-if __name__ == "__main__":
-    import doctest
-
-    doctest.testmod()

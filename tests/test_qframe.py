@@ -18,6 +18,7 @@ from ..grizly.tools.qframe import (
 
 excel_path = get_path("tables.xlsx", from_where="here")
 engine_string = "sqlite:///" + get_path("Chinook.sqlite", from_where="here")
+dsn = get_path("Chinook.sqlite", from_where="here")
 
 orders = {
     "select": {
@@ -208,6 +209,7 @@ def test_agg():
     value = {"type": "num", "group_by": "sum"}
     assert q.data["select"]["fields"]["Value"] == value
 
+
 def test_agg_aliased():
     q = QFrame().from_dict(orders)
     q.rename({"Value": "NewValue"})
@@ -325,9 +327,11 @@ def test_get_fields():
     fields = ["Country", "Customer"]
     assert fields == q.get_fields()
 
+
 def test_not_selected_fields():
     q = QFrame(
-        engine=engine_string,
+        dsn=dsn,
+        db="sqlite",
         data={
             "select": {
                 "fields": {
@@ -343,7 +347,13 @@ def test_not_selected_fields():
     q.groupby()["UnitPrice"].sum()
     q.orderby(["InvoiceLineId", "InvoiceId"])
     q.rename({"InvoiceId": "NewName"})
-    assert q.data["select"]["fields"]["InvoiceId"] == {"type": "dim", "select": 0, "group_by": "group", "order_by": "ASC", "as": "NewName"}
+    assert q.data["select"]["fields"]["InvoiceId"] == {
+        "type": "dim",
+        "select": 0,
+        "group_by": "group",
+        "order_by": "ASC",
+        "as": "NewName",
+    }
 
     fields = ["TrackId", "InvoiceLineId", "UnitPrice", "NewName"]
     q.rearrange(fields)
@@ -392,7 +402,8 @@ def test_get_sql():
 
 def test_to_csv():
     q = QFrame(
-        engine=engine_string,
+        dsn=dsn,
+        db="sqlite",
         data={
             "select": {
                 "fields": {
@@ -435,7 +446,7 @@ def test_to_df():
         }
     }
 
-    q = QFrame(engine=engine_string).from_dict(data)
+    q = QFrame(dsn=dsn, db="sqlite").from_dict(data)
     q.assign(sales="Quantity*UnitPrice", type="num")
     q.groupby(["TrackId"])["Quantity"].agg("sum")
     df_from_qf = q.to_df()
@@ -485,8 +496,8 @@ def test_copy():
 def test_join_1():
     # using grizly
 
-    playlist_track_qf = QFrame(engine=engine_string).from_dict(deepcopy(playlist_track))
-    playlists_qf = QFrame(engine=engine_string).from_dict(deepcopy(playlists))
+    playlist_track_qf = QFrame(dsn=dsn, db="sqlite").from_dict(deepcopy(playlist_track))
+    playlists_qf = QFrame(dsn=dsn, db="sqlite").from_dict(deepcopy(playlists))
 
     joined_qf = join([playlist_track_qf, playlists_qf], join_type="left join", on="sq1.PlaylistId=sq2.PlaylistId",)
     joined_df = joined_qf.to_df()
@@ -505,7 +516,7 @@ def test_join_1():
     assert joined_df.equals(test_df)
 
     # using grizly
-    tracks_qf = QFrame(engine=engine_string).from_dict(deepcopy(tracks))
+    tracks_qf = QFrame(dsn=dsn, db="sqlite").from_dict(deepcopy(tracks))
 
     joined_qf = join(
         qframes=[playlist_track_qf, playlists_qf, tracks_qf],
@@ -560,8 +571,8 @@ def test_join_1():
 
 def test_join_2():
 
-    playlist_track_qf = QFrame(engine=engine_string).from_dict(deepcopy(playlist_track))
-    playlists_qf = QFrame(engine=engine_string).from_dict(deepcopy(playlists))
+    playlist_track_qf = QFrame(dsn=dsn, db="sqlite").from_dict(deepcopy(playlist_track))
+    playlists_qf = QFrame(dsn=dsn, db="sqlite").from_dict(deepcopy(playlists))
 
     joined_qf = join([playlist_track_qf, playlists_qf], join_type="cross join", on=0)
 
@@ -621,7 +632,7 @@ def test_join_2():
 
 
 def test_union():
-    playlists_qf = QFrame(engine=engine_string).from_dict(deepcopy(playlists))
+    playlists_qf = QFrame(dsn=dsn, db="sqlite").from_dict(deepcopy(playlists))
 
     unioned_qf = union([playlists_qf, playlists_qf], "union")
 
@@ -706,14 +717,14 @@ def test_pyodbc_interface():
     qf = QFrame(engine="mssql+pyodbc://redshift_acoe", interface="pyodbc").from_dict(
         data={"select": {"fields": {"col1": {"type": "dim"}}, "schema": "administration", "table": "table_tutorial"}}
     )
-    assert qf.interface == "pyodbc"
+    assert qf.sqldb.interface == "pyodbc"
 
-    df = qf.to_df(db="redshift")
+    df = qf.to_df()
     assert not df.empty
 
 
 def test_cut():
-    qf = QFrame(engine=engine_string, db="sqlite").from_dict(deepcopy(playlists))
+    qf = QFrame(dsn=dsn, db="sqlite").from_dict(deepcopy(playlists))
     assert len(qf) == 18
 
     qframes1 = qf.cut(18)
@@ -730,7 +741,7 @@ def test_cut():
 
 
 def test_from_table_sqlite():
-    qf = QFrame(engine=engine_string, db="sqlite").from_table(table="Track")
+    qf = QFrame(dsn=dsn, db="sqlite").from_table(table="Track")
 
     sql = """SELECT TrackId,
                 Name,
@@ -747,16 +758,16 @@ def test_from_table_sqlite():
 
 
 def test_from_table_sqlite_json():
-    QFrame(engine=engine_string, db="sqlite").from_table(table="Playlist", json_path="test.json", subquery="q1")
-    QFrame(engine=engine_string, db="sqlite").from_table(table="PlaylistTrack", json_path="test.json", subquery="q2")
+    QFrame(dsn=dsn, db="sqlite").from_table(table="Playlist", json_path="test.json", subquery="q1")
+    QFrame(dsn=dsn, db="sqlite").from_table(table="PlaylistTrack", json_path="test.json", subquery="q2")
 
-    qf1 = QFrame(engine=engine_string, db="sqlite").from_json(json_path="test.json", subquery="q1")
+    qf1 = QFrame(dsn=dsn, db="sqlite").from_json(json_path="test.json", subquery="q1")
     sql = """SELECT PlaylistId,
                 Name
             FROM Playlist"""
     assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
 
-    qf2 = QFrame(engine=engine_string, db="sqlite").from_json(json_path="test.json", subquery="q2")
+    qf2 = QFrame(dsn=dsn, db="sqlite").from_json(json_path="test.json", subquery="q2")
     sql = """SELECT PlaylistId,
                 TrackId
             FROM PlaylistTrack"""
@@ -842,9 +853,9 @@ def test_pivot_rds():
 
 
 def test_join_pivot_sqlite():
-    playlist_track_qf = QFrame(engine=engine_string, db="sqlite").from_dict(deepcopy(playlist_track))
-    playlists_qf = QFrame(engine=engine_string, db="sqlite").from_dict(deepcopy(playlists))
-    tracks_qf = QFrame(engine=engine_string, db="sqlite").from_dict(deepcopy(tracks))
+    playlist_track_qf = QFrame(dsn=dsn, db="sqlite").from_dict(deepcopy(playlist_track))
+    playlists_qf = QFrame(dsn=dsn, db="sqlite").from_dict(deepcopy(playlists))
+    tracks_qf = QFrame(dsn=dsn, db="sqlite").from_dict(deepcopy(tracks))
 
     joined_qf = join(
         qframes=[playlist_track_qf, playlists_qf, tracks_qf],

@@ -1,7 +1,7 @@
 import re
 
 
-def mysql_to_postgres_types(dtype):
+def mysql_to_postgres_type(dtype):
     dtype = dtype.upper()
 
     dtypes = {

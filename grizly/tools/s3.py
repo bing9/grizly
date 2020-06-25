@@ -65,7 +65,6 @@ class S3:
         os.makedirs(self.file_dir, exist_ok=True)
         self.logger = logger or logging.getLogger(__name__)
         self.status = "initiated"
-        self.interface = interface or "sqlalchemy"
 
         https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
         http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
@@ -481,7 +480,7 @@ class S3:
         self.status = "initiated"
 
         redshift_str = redshift_str or self.redshift_str or "mssql+pyodbc://redshift_acoe"
-        sqldb = SQLDB(db="redshift", engine_str=redshift_str, interface=self.interface)
+        sqldb = SQLDB(db="redshift", engine_str=redshift_str)
         table_name = f"{schema}.{table}" if schema else table
 
         if sqldb.check_if_exists(table, schema):
@@ -494,9 +493,7 @@ class S3:
             else:
                 pass
         else:
-            self._create_table_like_s3(
-                table=table, schema=schema, sep=sep, engine_str=redshift_str, dsn=None, db="redshift", types=types
-            )
+            self._create_table_like_s3(table=table, schema=schema, sep=sep, sqldb=sqldb, types=types)
 
         config = ConfigParser()
         config.read(get_path(".aws", "credentials"))
@@ -592,6 +589,7 @@ class S3:
         table: str,
         schema: str = None,
         dsn: str = None,
+        sqldb: SQLDB = None,
         if_exists: str = "fail",
         sep: str = "\t",
         types: dict = None,
@@ -635,8 +633,8 @@ class S3:
 
         self.status = "initiated"
 
-        dsn = dsn or "aurora_db"
-        sqldb = SQLDB(db="aurora", dsn=dsn, interface=self.interface)
+        sqldb = sqldb or SQLDB(db="aurora", dsn=(dsn or "aurora_db"))
+
         con = sqldb.get_connection()
 
         con.execute("CREATE EXTENSION IF NOT EXISTS aws_s3 CASCADE").commit()
@@ -653,9 +651,7 @@ class S3:
             else:
                 pass
         else:
-            self._create_table_like_s3(
-                table=table, schema=schema, sep=sep, engine_str=None, dsn=dsn, db="aurora", types=types
-            )
+            self._create_table_like_s3(table=table, schema=schema, sep=sep, sqldb=sqldb, types=types)
 
         from configparser import ConfigParser
 
@@ -730,7 +726,7 @@ class S3:
             else:
                 version += 1
 
-    def _create_table_like_s3(self, table, schema, engine_str, dsn, db, types, sep):
+    def _create_table_like_s3(self, table, schema, sqldb, types, sep):
         if file_extension(self.file_name) == "csv":
             s3_client = resource("s3").meta.client
 
@@ -807,7 +803,6 @@ class S3:
         else:
             raise ValueError("Table cannot be created. File extension not supported.")
 
-        sqldb = SQLDB(db=db, engine_str=engine_str, dsn=dsn, interface=self.interface)
         sqldb.create_table(table=table, schema=schema, columns=col_names, types=col_types)
 
     def _load_column_names(self, sep):

@@ -5,7 +5,6 @@ import os
 import sqlparse
 import logging
 from logging import Logger
-import re
 
 from ..config import Config
 from ..utils import get_sfdc_columns
@@ -24,7 +23,8 @@ class SQLDB:
         db: str,
         engine_str: str = None,
         dsn: str = None,
-        interface: str = "sqlalchemy",
+        dialect: str = None,
+        interface: str = None,
         config_key: str = None,
         logger: Logger = None,
     ):
@@ -36,17 +36,20 @@ class SQLDB:
                 "denodo": "mssql+pyodbc://DenodoPROD",
                 "aurora": "mssql+pyodbc://aurora_db",
             }
+
+        if interface not in ("sqlalchemy", "turbodbc", "pyodbc", None):
+            raise NotImplementedError(
+                f"Interface {interface} is not supported. Choose one of: 'sqlalchemy', 'turbodbc', 'pyodbc'"
+            )
+        self.interface = interface or "pyodbc"
         supported_dbs = ("redshift", "denodo", "sqlite", "mariadb", "aurora")
         if db not in supported_dbs:
             raise NotImplementedError(f"DB {db} not supported yet. Supported DB's: {supported_dbs}")
         self.db = db
         self.engine_str = engine_str or config.get(db)
-        if interface not in ("sqlalchemy", "turbodbc", "pyodbc"):
-            raise ValueError(
-                f"Interface {interface} is not supported. Choose one of: 'sqlalchemy', 'turbodbc', 'pyodbc'"
-            )
-        self.interface = interface
         self.dsn = dsn or self.engine_str.split("/")[-1]
+        self.dialect = dialect or "postgresql"
+
         self.logger = logger or logging.getLogger(__name__)
 
     def get_connection(self):
@@ -60,32 +63,37 @@ class SQLDB:
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
         >>> con.close()
         """
-        engine = create_engine(self.engine_str, encoding="utf8", poolclass=NullPool)
-        if self.interface == "sqlalchemy":
-            try:
-                con = engine.raw_connection()
-            except:
-                self.logger.exception(f"Error connectig to {self.engine_str}. Retrying...")
-                con = engine.raw_connection()
-        elif self.interface == "turbodbc":
-            import turbodbc
+        if self.db != "sqlite":
+            if self.interface == "sqlalchemy":
+                engine = create_engine(self.engine_str, encoding="utf8", poolclass=NullPool)
+                try:
+                    con = engine.raw_connection()
+                except:
+                    self.logger.exception(f"Error connectig to {self.engine_str}. Retrying...")
+                    con = engine.raw_connection()
+            elif self.interface == "turbodbc":
+                import turbodbc
 
-            try:
-                con = turbodbc.connect(dsn=self.dsn)
-            except turbodbc.exceptions.Error as error_msg:
-                self.logger.exception(error_msg)
-                raise
-        elif self.interface == "pyodbc":
-            import pyodbc
+                try:
+                    con = turbodbc.connect(dsn=self.dsn)
+                except turbodbc.exceptions.Error as error_msg:
+                    self.logger.exception(error_msg)
+                    raise
+            elif self.interface == "pyodbc":
+                import pyodbc
 
-            try:
-                con = pyodbc.connect(DSN=self.dsn)
-            except pyodbc.InterfaceError:
-                e = f"Data source name '{self.dsn}' not found"
-                self.logger.exception(e)
-                raise
+                try:
+                    con = pyodbc.connect(DSN=self.dsn)
+                except pyodbc.InterfaceError:
+                    e = f"Data source name '{self.dsn}' not found"
+                    self.logger.exception(e)
+                    raise
+            else:
+                raise ValueError("Interface not specified.")
         else:
-            raise ValueError("Interface not specified.")
+            import sqlite3
+
+            con = sqlite3.connect(database=self.dsn)
         return con
 
     def check_if_exists(self, table, schema=None, column=None):
@@ -140,6 +148,10 @@ class SQLDB:
         >>> con.close()
         >>> sqldb = sqldb.drop_table(table="test_k", schema="sandbox")
         """
+        valid_if_exists = ("fail", "drop")
+        if if_exists not in valid_if_exists:
+            raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
+
         supported_dbs = ("redshift", "aurora")
 
         if self.db in supported_dbs:
@@ -166,7 +178,7 @@ class SQLDB:
 
         return self
 
-    def create_table(self, table, columns, types, schema=None, char_size=500):
+    def create_table(self, table, columns, types, schema=None, char_size=500, if_exists: str = "skip"):
         """Creates a new table in Redshift if the table doesn't exist.
 
         Parameters
@@ -177,6 +189,12 @@ class SQLDB:
             Column types
         char_size : int,
             Size of the VARCHAR field in the database column
+        if_exists : {'fail', 'skip', 'drop'}, optional
+            How to behave if the table already exists, by default 'skip'
+
+            * fail: Raise a ValueError
+            * skip: Abort without throwing an error
+            * drop: Drop table before creating new one
 
         Examples
         --------
@@ -185,14 +203,24 @@ class SQLDB:
         >>> sqldb.check_if_exists(table="test_k", schema="sandbox")
         True
         """
+        valid_if_exists = ("fail", "skip", "drop")
+        if if_exists not in valid_if_exists:
+            raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
+
         supported_dbs = ("redshift", "aurora")
 
         if self.db in supported_dbs:
+            table_name = f"{schema}.{table}" if schema else table
 
             if self.check_if_exists(table=table, schema=schema):
-                return self
+                if if_exists == "fail":
+                    raise ValueError(f"Table {table_name} in datasource {self.dsn} already exists.")
+                elif if_exists == "skip":
+                    self.logger.info(f"Table {table_name} already exists.")
+                    return self
+                elif if_exists == "drop":
+                    self.drop_table(table=table, schema=schema)
             else:
-                table_name = f"{schema}.{table}" if schema else table
                 col_tuples = []
 
                 for item in range(len(columns)):
@@ -323,7 +351,7 @@ class SQLDB:
             How to behave if the table already exists, by default 'fail'
 
             * fail: Raise a ValueError
-            * replace: Clean table before inserting new values.
+            * replace: Clean table before inserting new values
             * append: Insert new values to the existing table
 
         Examples
