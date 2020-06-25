@@ -7,8 +7,8 @@ boto>=2.49.0
 botocore>=1.12.200
 configparser
 croniter>=0.3.29
-dask==2.15.0
-distributed==2.15.1
+dask==2.19
+distributed==2.19
 deprecation
 exchangelib>=2.0.1
 fpdf
