@@ -38,9 +38,9 @@ class SQLDB:
             raise NotImplementedError(f"DB {db} not supported yet. Supported DB's: 'redshift', 'denodo', 'sqlite'")
         self.db = db
         self.engine_str = engine_str or config.get(db)
-        if interface not in ("sqlalchemy", "turbodbc", "pyodbc"):
+        if interface not in ("sqlalchemy",  "pyodbc"):
             raise ValueError(
-                f"Interface {interface} is not supported. Choose one of: 'sqlalchemy', 'turbodbc', 'pyodbc'"
+                f"Interface {interface} is not supported. Choose one of: 'sqlalchemy', 'pyodbc'"
             )
         self.interface = interface
         self.dsn = self.engine_str.split("/")[-1]
@@ -64,14 +64,6 @@ class SQLDB:
             except:
                 self.logger.exception(f"Error connectig to {self.engine_str}. Retrying...")
                 con = engine.raw_connection()
-        elif self.interface == "turbodbc":
-            import turbodbc
-
-            try:
-                con = turbodbc.connect(dsn=self.dsn)
-            except turbodbc.exceptions.Error as error_msg:
-                self.logger.exception(error_msg)
-                raise
         elif self.interface == "pyodbc":
             import pyodbc
 
