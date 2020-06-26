@@ -135,7 +135,7 @@ class S3:
         key_list = self.s3_key.split("/")[:-1]
         data = resource("s3").meta.client.list_objects(Bucket=self.bucket, Prefix=self.s3_key)
         if "Contents" in data:
-            for file in resource("s3").meta.client.list_objects(Bucket=self.bucket, Prefix=self.s3_key)["Contents"]:
+            for file in data["Contents"]:
                 file_list = file["Key"].split("/")
                 for item in key_list:
                     file_list.pop(0)
