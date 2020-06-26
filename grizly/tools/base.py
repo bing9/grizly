@@ -28,14 +28,18 @@ class BaseTool:
                 self.sql += " CONTEXT('swap' = 'ON', 'swapsize' = '400', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'off')"
 
             self.logger.info(f"Downloading data into '{basename(csv_path)}'...")
-            row_count = to_csv(
-                columns=self.get_fields(aliased=True, not_selected=False),
-                csv_path=csv_path,
-                sql=self.sql,
-                sqldb=self.sqldb,
-                sep=sep,
-                chunksize=chunksize,
-            )
+            try:
+                row_count = to_csv(
+                    columns=self.get_fields(aliased=True, not_selected=False),
+                    csv_path=csv_path,
+                    sql=self.sql,
+                    sqldb=self.sqldb,
+                    sep=sep,
+                    chunksize=chunksize,
+                )
+            except:
+                self.logger.exception(f"There was an error when running the query {self.sql}")
+                raise
             self.logger.info(f"Successfully wrote to '{basename(csv_path)}'")
             if debug:
                 return row_count

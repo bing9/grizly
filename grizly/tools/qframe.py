@@ -78,7 +78,7 @@ class QFrame(BaseTool):
             raise ValueError("QFrame engine is not of type: str")
 
         self.sqldb = sqldb or SQLDB(
-            db=db or ("denodo" if "denodo" in self.engine else "redshift"),
+            db=db or ("denodo" if "denodo" in self.engine.lower() else "redshift"),
             engine_str=self.engine,
             dsn=dsn,
             dialect=dialect,
