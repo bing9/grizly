@@ -135,7 +135,7 @@ class S3:
         key_list = self.s3_key.split("/")[:-1]
         data = resource("s3").meta.client.list_objects(Bucket=self.bucket, Prefix=self.s3_key)
         if "Contents" in data:
-            for file in resource("s3").meta.client.list_objects(Bucket=self.bucket, Prefix=self.s3_key)["Contents"]:
+            for file in data["Contents"]:
                 file_list = file["Key"].split("/")
                 for item in key_list:
                     file_list.pop(0)
@@ -438,6 +438,7 @@ class S3:
         types: dict = None,
         redshift_str: str = None,
         column_order: list = None,
+        preserve_column_names: bool = False,
         remove_inside_quotes: bool = False,
         time_format: str = None,
         execute_on_skip: bool = False,
@@ -457,7 +458,7 @@ class S3:
             * replace: Clean table before inserting new values.
             * drop: Drop table and create new one.
             * append: Insert new values to the existing table.
-        
+
         redshift_str : str, optional
             Redshift engine string, if None then 'mssql+pyodbc://redshift_acoe'
         sep : str, optional
@@ -465,7 +466,7 @@ class S3:
         types : dict, optional
             Data types to force, by default None
         column_order : list, optional
-            List of column names in other order than default 
+            List of column names in other order than default
             (more info https://docs.aws.amazon.com/redshift/latest/dg/copy-parameters-column-mapping.html)
         remove_inside_quotes : bool, optional
             Whether to add REMOVEQUOTES to copy statement, by default False
@@ -505,7 +506,10 @@ class S3:
         columns_output_table = sqldb.get_columns(table=table, schema=schema)
 
         if column_order is None:
-            column_order, is_null = self._load_column_names(sep=sep)
+            if preserve_column_names:
+                column_order = []
+            else:
+                column_order, is_null = self._load_column_names(sep=sep)
         else:
             not_found_columns = set(column_order) - set(columns_output_table)
             if not_found_columns != set():
@@ -529,7 +533,7 @@ class S3:
             else:
                 _format = "FORMAT AS csv"
             sql = f"""
-                COPY {table_name} {column_order} 
+                COPY {table_name} {column_order}
                 FROM 's3://{self.bucket}/{self.full_s3_key}'
                 access_key_id '{S3_access_key_id}'
                 secret_access_key '{S3_secret_access_key}'

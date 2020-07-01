@@ -8,7 +8,13 @@ from os.path import basename
 
 class BaseTool:
     def __init__(
-        self, chunksize: int = None, logger: logging.Logger = None, debug: bool = False, config_key: str = "standard",
+        self,
+        chunksize: int = None,
+        logger: logging.Logger = None,
+        debug: bool = False,
+        config_key: str = "standard",
+        *args,
+        **kwargs,
     ):
         """TODO: Probably we don't need tool_name, df, dtypes and path"""
         self.tool_name = self.__class__.__name__
@@ -24,7 +30,7 @@ class BaseTool:
 
         if self.__class__.__name__ == "QFrame":
             self.sql = self.get_sql()
-            if "denodo" in self.engine.lower() and self.sqldb.db == "denodo":
+            if self.sqldb.db == "denodo":
                 self.sql += " CONTEXT('swap' = 'ON', 'swapsize' = '400', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'off')"
 
             self.logger.info(f"Downloading data into '{basename(csv_path)}'...")

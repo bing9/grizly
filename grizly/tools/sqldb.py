@@ -1,10 +1,9 @@
-from sqlalchemy import create_engine
-from sqlalchemy.pool import NullPool
 from pandas import read_sql_query
 import os
 import sqlparse
 import logging
 from logging import Logger
+import warnings
 
 from ..config import Config
 from ..utils import get_sfdc_columns
@@ -20,37 +19,64 @@ class SQLDB:
 
     def __init__(
         self,
-        db: str,
-        engine_str: str = None,
         dsn: str = None,
+        db: str = None,
         dialect: str = None,
-        interface: str = None,
         config_key: str = None,
         logger: Logger = None,
+        **kwargs,
     ):
-        if config_key:
-            config = Config().get_service(config_key=config_key, service="sqldb")
-        else:
-            config = {
-                "redshift": "mssql+pyodbc://redshift_acoe",
-                "denodo": "mssql+pyodbc://DenodoPROD",
-                "aurora": "mssql+pyodbc://aurora_db",
-            }
-
-        if interface not in ("sqlalchemy", "turbodbc", "pyodbc", None):
-            raise NotImplementedError(
-                f"Interface {interface} is not supported. Choose one of: 'sqlalchemy', 'turbodbc', 'pyodbc'"
-            )
-        self.interface = interface or "pyodbc"
-        supported_dbs = ("redshift", "denodo", "sqlite", "mariadb", "aurora")
-        if db not in supported_dbs:
-            raise NotImplementedError(f"DB {db} not supported yet. Supported DB's: {supported_dbs}")
-        self.db = db
-        self.engine_str = engine_str or config.get(db)
-        self.dsn = dsn or self.engine_str.split("/")[-1]
-        self.dialect = dialect or "postgresql"
-
+        # config needs to be fixed - right now hard coded
+        # if config_key:
+        #     config = Config().get_service(config_key=config_key, service="sqldb")
+        # else:
+        #     config = {}
+        config = {
+            "redshift_acoe": {"db": "redshift", "dialect": "postgresql"},
+            "Redshift": {"db": "redshift", "dialect": "postgresql"},
+            "DenodoPROD": {"db": "denodo", "dialect": "postgresql"},
+            "DenodoODBC": {"db": "denodo", "dialect": "postgresql"},
+            "aurora_db": {"db": "aurora", "dialect": "postgresql"},
+            "retool_dev_db": {"db": "mariadb", "dialect": "mysql"},
+            "tableau_postgre": {"db": "tableau", "dialect": "postgresql"},
+        }
         self.logger = logger or logging.getLogger(__name__)
+
+        engine_str = kwargs.get("engine_str")
+        if engine_str is not None:
+            dsn = engine_str.split("://")[-1]
+            warnings.warn(
+                "Parameter engine_str is deprecated as of 0.3.5 and will be removed in 0.3.8. "
+                f"Please use dsn='{dsn}' instead.",
+                DeprecationWarning,
+            )
+        if kwargs.get("interface") is not None:
+            warnings.warn(
+                f"Parameter interface will be ignored. Since version 0.3.6 grizly only supports 'pyodbc' interface.",
+                DeprecationWarning,
+            )
+        if dsn is None:
+            self.logger.warning("Please specify dsn parameter. Since version 0.3.8 it will be obligatory.")
+            if db is not None:
+                for key in config:
+                    if db == config[key]["db"]:
+                        dsn = key
+                        break
+
+            if dsn is None:
+                raise ValueError("Please specify dsn parameter")
+        self.dsn = dsn
+        if None in [dialect, db] and config.get(dsn) is None:
+            raise ValueError(
+                f"DataSource '{dsn}' not found in the config. Please specify both db and dialect parameters."
+            )
+
+        self.db = db or config[dsn]["db"]
+        supported_dbs = ("redshift", "denodo", "sqlite", "mariadb", "aurora")
+        if self.db not in supported_dbs:
+            raise NotImplementedError(f"DB {db} not supported yet. Supported DB's: {supported_dbs}")
+
+        self.dialect = dialect or config[dsn]["dialect"]
 
     def get_connection(self):
         """Returns sqlalchemy connection.
@@ -64,32 +90,14 @@ class SQLDB:
         >>> con.close()
         """
         if self.db != "sqlite":
-            if self.interface == "sqlalchemy":
-                engine = create_engine(self.engine_str, encoding="utf8", poolclass=NullPool)
-                try:
-                    con = engine.raw_connection()
-                except:
-                    self.logger.exception(f"Error connectig to {self.engine_str}. Retrying...")
-                    con = engine.raw_connection()
-            elif self.interface == "turbodbc":
-                import turbodbc
+            import pyodbc
 
-                try:
-                    con = turbodbc.connect(dsn=self.dsn)
-                except turbodbc.exceptions.Error as error_msg:
-                    self.logger.exception(error_msg)
-                    raise
-            elif self.interface == "pyodbc":
-                import pyodbc
-
-                try:
-                    con = pyodbc.connect(DSN=self.dsn)
-                except pyodbc.InterfaceError:
-                    e = f"Data source name '{self.dsn}' not found"
-                    self.logger.exception(e)
-                    raise
-            else:
-                raise ValueError("Interface not specified.")
+            try:
+                con = pyodbc.connect(DSN=self.dsn)
+            except pyodbc.InterfaceError:
+                e = f"Data source name '{self.dsn}' not found"
+                self.logger.exception(e)
+                raise
         else:
             import sqlite3
 
@@ -598,6 +606,14 @@ class SQLDB:
             return col_names, col_types
         else:
             return col_names
+
+    def __eq__(self, other):
+        return (
+            self.__class__ == other.__class__
+            and self.db == other.db
+            and self.dsn == other.dsn
+            and self.dialect == other.dialect
+        )
 
 
 @deprecation.deprecated(details="Use SQLDB.check_if_exists function instead",)

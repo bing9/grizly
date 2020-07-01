@@ -1,4 +1,5 @@
 import pandas as pd
+import warnings
 
 import re
 import os
@@ -44,24 +45,12 @@ class QFrame(BaseTool):
     ----------
     data : dict
         Dictionary structure holding fields, schema, table, sql information.
-
-    engine : str
-        Engine string. If empty then the engine string is "mssql+pyodbc://DenodoODBC".
-        Other engine strings:
-
-        * DenodoPROD: "mssql+pyodbc://DenodoPROD",
-        * Redshift: "mssql+pyodbc://redshift_acoe",
-        * MariaDB: "mssql+pyodbc://retool_dev_db"
     """
 
     def __init__(
         self,
         data: dict = {},
-        engine: str = None,
-        db: str = None,
         dsn: str = None,
-        dialect: str = None,
-        interface: str = None,
         sqldb: SQLDB = None,
         sql: str = None,
         getfields: list = [],
@@ -73,23 +62,22 @@ class QFrame(BaseTool):
         self.sql = sql or ""
         self.getfields = getfields
 
-        self.engine = engine if engine else "mssql+pyodbc://DenodoODBC"
-        if not isinstance(self.engine, str):
-            raise ValueError("QFrame engine is not of type: str")
+        engine = kwargs.get("engine")
+        if engine is not None:
+            if not isinstance(engine, str):
+                raise ValueError("QFrame engine is not of type: str")
+            dsn = engine.split("://")[-1]
+            warnings.warn(
+                f"Parameter engine is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
+                DeprecationWarning,
+            )
 
-        self.sqldb = sqldb or SQLDB(
-            db=db or ("denodo" if "denodo" in self.engine.lower() else "redshift"),
-            engine_str=self.engine,
-            dsn=dsn,
-            dialect=dialect,
-            interface=interface,
-            logger=self.logger,
-        )
+        self.sqldb = sqldb or SQLDB(dsn=dsn, **kwargs)
 
     def create_sql_blocks(self):
         """Creates blocks which are used to generate an SQL"""
         if self.data == {}:
-            print("Your QFrame is empty.")
+            self.logger.info("Your QFrame is empty.")
             return self
         else:
             self.data["select"]["sql_blocks"] = _build_column_strings(self.data)
@@ -126,7 +114,7 @@ class QFrame(BaseTool):
             print("Use your_qframe.remove() to remove or your_qframe.rename() to rename columns.")
 
         else:
-            print("There are no duplicated columns.")
+            self.logger.info("There are no duplicated columns.")
         return self
 
     def save_json(self, json_path, subquery=""):
@@ -154,7 +142,7 @@ class QFrame(BaseTool):
 
         with open(json_path, "w") as f:
             json.dump(json_data, f, indent=4)
-        print(f"Data saved in {json_path}")
+        self.logger.info(f"Data saved in {json_path}")
         return self
 
     def build_subquery(self, store_path, subquery, database):
@@ -461,7 +449,7 @@ class QFrame(BaseTool):
             raise ValueError("Invalid value in operator. Valid values: 'and', 'or'.")
 
         if "union" in self.data["select"]:
-            print("You can't add where clause inside union. Use select() method first.")
+            self.logger.info("You can't add where clause inside union. Use select() method first.")
         else:
             if "where" not in self.data["select"] or self.data["select"]["where"] == "" or if_exists == "replace":
                 self.data["select"]["where"] = query
@@ -504,7 +492,7 @@ class QFrame(BaseTool):
             raise ValueError("Invalid value in operator. Valid values: 'and', 'or'.")
 
         if "union" in self.data["select"]:
-            print(
+            self.logger.info(
                 """You can't add having clause inside union. Use select() method first.
             (The GROUP BY and HAVING clauses are applied to each individual query, not the final result set.)"""
             )
@@ -580,7 +568,7 @@ class QFrame(BaseTool):
         if order_by.lower() not in ["asc", "desc", ""]:
             raise ValueError("Invalid value in order_by. Valid values: 'ASC', 'DESC', ''.")
         if "union" in self.data["select"]:
-            print("You can't assign expressions inside union. Use select() method first.")
+            self.logger.warning("You can't assign expressions inside union. Use select() method first.")
         else:
             if kwargs is not None:
                 for key in kwargs:
@@ -670,7 +658,7 @@ class QFrame(BaseTool):
             )
 
         if "union" in self.data["select"]:
-            print("You can't aggregate inside union. Use select() method first.")
+            self.logger.warning("You can't aggregate inside union. Use select() method first.")
         else:
             self.getfields = self._get_fields_names(self.getfields, aliased=False)
             for field in self.getfields:
@@ -1091,10 +1079,10 @@ class QFrame(BaseTool):
         QFrame
         """
         self.create_sql_blocks()
-        self.sql = _get_sql(data=self.data, db=self.sqldb.db)
+        self.sql = _get_sql(data=self.data, dialect=self.sqldb.dialect)
         return self.sql
 
-    def create_table(self, table, schema="", char_size=500, engine_str=None, sqldb=None, if_exists=None):
+    def create_table(self, table, schema="", char_size=500, dsn=None, sqldb=None, if_exists=None, **kwargs):
         """Creates a new empty QFrame table in database if the table doesn't exist.
         TODO: Remove engine_str, db, dsn and dialect and leave sqldb
 
@@ -1111,8 +1099,13 @@ class QFrame(BaseTool):
         -------
         QFrame
         """
-        engine_str = engine_str or self.engine
-        sqldb = sqldb or SQLDB(db=self.sqldb.db, engine_str=engine_str)
+        if kwargs.get("engine_str") is not None:
+            dsn = engine_str.split("://")[-1]
+            raise DeprecationWarning(
+                f"Parameter engine_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead."
+            )
+
+        sqldb = sqldb or (self.sqldb if dsn is None else SQLDB(dsn=dsn, **kwargs))
 
         types = self.get_dtypes()
         if self.sqldb.dialect == "mysql" and sqldb.dialect == "postgresql":
@@ -1252,7 +1245,7 @@ class QFrame(BaseTool):
             Data generated from sql.
         """
         sql = self.get_sql()
-        if "denodo" in self.engine.lower() and self.sqldb.db == "denodo":
+        if self.sqldb.db == "denodo":
             sql += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
         con = self.sqldb.get_connection()
         if self.debug:
@@ -1344,12 +1337,9 @@ class QFrame(BaseTool):
         data = deepcopy(self.data)
         sql = self.sql
         getfields = deepcopy(self.getfields)
-
-        engine = self.engine
         sqldb = self.sqldb
-
         logger = self.logger
-        return QFrame(data=data, sql=sql, getfields=getfields, engine=engine, sqldb=sqldb, logger=logger,)
+        return QFrame(data=data, sql=sql, getfields=getfields, sqldb=sqldb, logger=logger,)
 
     def __str__(self):
         sql = self.get_sql()
@@ -1457,8 +1447,6 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
 
     NOTE: Order of the elements in join_type and on list is important.
 
-    TODO: Add validations on engines. QFarmes engines have to be the same.
-
     Examples
     --------
     >>> playlist_track = {"select": {"fields":{"PlaylistId": {"type" : "dim"}, "TrackId": {"type" : "dim"}}, "table" : "PlaylistTrack"}}
@@ -1503,11 +1491,9 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     iterator = 0
     for q in qframes:
         if iterator == 0:
-            first_engine = q.engine
-            first_db = q.sqldb.db
+            first_sqldb = q.sqldb
         else:
-            assert first_engine == q.engine, "QFrames have different engine strings."
-            assert first_db == q.sqldb.db, "QFrames have different db parameters."
+            assert first_sqldb == q.sqldb, "QFrames have different datasources."
         q.create_sql_blocks()
         iterator += 1
         data[f"sq{iterator}"] = deepcopy(q.data)
@@ -1537,12 +1523,14 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
 
     data["select"]["join"] = {"join_type": join_type, "on": on}
 
-    print("Data joined successfully.")
+    out_qf = QFrame(data=data, sqldb=qframes[0].sqldb, logger=qframes[0].logger)
+
+    out_qf.logger.info("Data joined successfully.")
     if not unique_col:
-        print(
+        out_qf.logger.warning(
             "Please remove or rename duplicated columns. Use your_qframe.show_duplicated_columns() to check duplicates."
         )
-    return QFrame(data=data, engine=qframes[0].engine, sqldb=qframes[0].sqldb,)
+    return out_qf
 
 
 def union(qframes=[], union_type=None, union_by="position"):
@@ -1609,8 +1597,7 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     iterator = 2
     for qf in qframes:
-        assert main_qf.engine == qf.engine, "QFrames have different engine strings."
-        assert main_qf.sqldb.db == qf.sqldb.db, "QFrames have different db parameters."
+        assert main_qf.sqldb == qf.sqldb, "QFrames have different datasources."
         qf.create_sql_blocks()
         qf_aliases = qf.data["select"]["sql_blocks"]["select_aliases"]
         assert len(new_fields) == len(
@@ -1660,8 +1647,10 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     data["select"]["union"] = {"union_type": union_type}
 
-    print("Data unioned successfully.")
-    return QFrame(data=data, engine=qframes[0].engine, sqldb=qframes[0].sqldb,)
+    out_qf = QFrame(data=data, sqldb=qframes[0].sqldb, logger=qframes[0].logger)
+    out_qf.logger.info("Data unioned successfully.")
+
+    return out_qf
 
 
 def _validate_data(data):
@@ -1978,7 +1967,7 @@ def _build_column_strings(data):
     return sql_blocks
 
 
-def _get_sql(data, db):
+def _get_sql(data, dialect):
     if data == {}:
         return ""
 
@@ -1988,12 +1977,12 @@ def _get_sql(data, db):
     if "union" in data["select"]:
         iterator = 1
         sq_data = deepcopy(data[f"sq{iterator}"])
-        sql += _get_sql(sq_data, db)
+        sql += _get_sql(sq_data, dialect)
 
         for union in data["select"]["union"]["union_type"]:
             union_type = data["select"]["union"]["union_type"][iterator - 1]
             sq_data = deepcopy(data[f"sq{iterator+1}"])
-            right_table = _get_sql(sq_data, db)
+            right_table = _get_sql(sq_data, dialect)
 
             sql += f" {union_type} {right_table}"
             iterator += 1
@@ -2016,13 +2005,13 @@ def _get_sql(data, db):
         elif "join" in data["select"]:
             iterator = 1
             sq_data = deepcopy(data[f"sq{iterator}"])
-            left_table = _get_sql(sq_data, db)
+            left_table = _get_sql(sq_data, dialect)
             sql += f" FROM ({left_table}) sq{iterator}"
 
             for join in data["select"]["join"]["join_type"]:
                 join_type = data["select"]["join"]["join_type"][iterator - 1]
                 sq_data = deepcopy(data[f"sq{iterator+1}"])
-                right_table = _get_sql(sq_data, db)
+                right_table = _get_sql(sq_data, dialect)
                 on = data["select"]["join"]["on"][iterator - 1]
 
                 sql += f" {join_type} ({right_table}) sq{iterator+1}"
@@ -2032,7 +2021,7 @@ def _get_sql(data, db):
 
         elif "table" not in data["select"] and "join" not in data["select"] and "sq" in data:
             sq_data = deepcopy(data["sq"])
-            sq = _get_sql(sq_data, db)
+            sq = _get_sql(sq_data, dialect)
             sql += f" FROM ({sq}) sq"
 
         if "where" in data["select"] and data["select"]["where"] != "":
@@ -2049,7 +2038,7 @@ def _get_sql(data, db):
         order_by = ", ".join(data["select"]["sql_blocks"]["order_by"])
         sql += f" ORDER BY {order_by}"
 
-    if db in ["sqlite", "mariadb"]:
+    if dialect == "mysql":
         if "limit" in data["select"] and data["select"]["limit"] != "":
             sql += " LIMIT {}".format(data["select"]["limit"])
 
