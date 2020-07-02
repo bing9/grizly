@@ -46,7 +46,7 @@ def test_to_rds():
     qf.assign(LikeIt="CASE WHEN GenreId = 5 THEN 1 ELSE 0 END", custom_type="BOOL")
     qf.assign(SpareColumn="NULL")
     qf.rename({field: "_".join(re.findall('[A-Z][^A-Z]*', alias)).lower() for field, alias in zip(qf.get_fields(aliased=False), qf.get_fields(aliased=True))})
-    
+
     s3_key = "test/"
     bucket = "acoe-s3"
     table_parquet = "grizly_test_parquet"
@@ -87,3 +87,8 @@ def test_to_rds():
     sqldb = SQLDB(db="redshift", engine_str="mssql+pyodbc://redshift_acoe", interface="pyodbc")
     sqldb.drop_table(table=table_parquet, schema=schema)
     sqldb.drop_table(table=table_csv, schema=schema)
+
+def test_to_dict():
+    s3 = S3(bucket="acoe-s3", s3_key="test/", file_name="test_s3.json")
+    dict = s3.to_dict()
+    assert dict == {"a": 42}

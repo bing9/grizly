@@ -14,6 +14,7 @@ import logging
 from functools import wraps, partial
 from itertools import count
 import deprecation
+import json
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
@@ -154,10 +155,15 @@ class S3:
     def delete(self):
         """Removes S3 file.
         """
-        s3_key = self.s3_key + self.file_name
-        resource("s3").Object(self.bucket, s3_key).delete()
+        resource("s3").Object(self.bucket, self.full_s3_key).delete()
+        self.logger.info(f"'{self.full_s3_key}' has been successfully removed")
 
-        self.logger.info(f"'{s3_key}' has been removed successfully")
+    @_check_if_s3_exists
+    def to_dict(self):
+        content_object = resource("s3").Object(self.bucket, self.full_s3_key)
+        file_content = content_object.get()['Body'].read().decode('utf-8')
+        _dict = json.loads(file_content)
+        return _dict
 
     @_check_if_s3_exists
     def copy_to(
