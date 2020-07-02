@@ -204,9 +204,7 @@ class QFrame(BaseTool):
     def read_dict(self, data):
         return self.from_dict(data=data)
 
-    def from_table(
-        self, table: str, schema: str = None, columns: list = None, json_path: str = None, subquery: str = None
-    ):
+    def from_table(self, table: str, schema: str = None, columns: list = None, json_path: str = None, subquery: str = None):
         """Generates QFrame by pulling columns and types from specified table.
 
         Parameters
@@ -244,12 +242,7 @@ class QFrame(BaseTool):
 
         if json_path:
             initiate(
-                schema=schema,
-                table=table,
-                columns=col_names,
-                col_types=col_types,
-                subquery=subquery,
-                json_path=json_path,
+                schema=schema, table=table, columns=col_names, col_types=col_types, subquery=subquery, json_path=json_path,
             )
             self.from_json(json_path=json_path, subquery=subquery)
 
@@ -650,9 +643,7 @@ class QFrame(BaseTool):
             "avg",
             "stddev",
         ]:
-            raise ValueError(
-                "Invalid value in aggtype. Valid values: 'group', 'sum', 'count', 'min', 'max', 'avg','stddev'."
-            )
+            raise ValueError("Invalid value in aggtype. Valid values: 'group', 'sum', 'count', 'min', 'max', 'avg','stddev'.")
 
         if "union" in self.data["select"]:
             self.logger.warning("You can't aggregate inside union. Use select() method first.")
@@ -683,10 +674,7 @@ class QFrame(BaseTool):
         """
         fields = []
         for field in self.data["select"]["fields"]:
-            if (
-                "group_by" not in self.data["select"]["fields"][field]
-                or self.data["select"]["fields"][field]["group_by"] == ""
-            ):
+            if "group_by" not in self.data["select"]["fields"][field] or self.data["select"]["fields"][field]["group_by"] == "":
                 fields.append(field)
         return self[fields].agg("sum")
 
@@ -919,9 +907,7 @@ class QFrame(BaseTool):
         aliased_fields = self._get_fields(aliased=True, not_selected=True)
         not_aliased_fields = self._get_fields(aliased=False, not_selected=True)
 
-        if not set(set(aliased_fields) | set(not_aliased_fields)) >= set(fields) or len(not_aliased_fields) != len(
-            fields
-        ):
+        if not set(set(aliased_fields) | set(not_aliased_fields)) >= set(fields) or len(not_aliased_fields) != len(fields):
             raise ValueError("Fields are not matching, make sure that fields are the same as in your QFrame.")
 
         fields = self._get_fields_names(fields)
@@ -937,9 +923,7 @@ class QFrame(BaseTool):
 
         return self
 
-    def pivot(
-        self, rows: list, columns: list, values: str, aggtype: str = "sum", prefix: str = None, sort: bool = True
-    ):
+    def pivot(self, rows: list, columns: list, values: str, aggtype: str = "sum", prefix: str = None, sort: bool = True):
         """Reshapes QFrame to generate pivot table
 
         Parameters
@@ -1005,9 +989,7 @@ class QFrame(BaseTool):
                     col_filter.append(f""""{col}" IS NULL""")
             col_filter = " AND ".join(col_filter)
 
-            self.assign(
-                **{col_name: f'CASE WHEN {col_filter} THEN "{values}" ELSE 0 END'}, type="num", group_by=aggtype
-            )
+            self.assign(**{col_name: f'CASE WHEN {col_filter} THEN "{values}" ELSE 0 END'}, type="num", group_by=aggtype)
 
         return self
 
@@ -1137,10 +1119,7 @@ class QFrame(BaseTool):
             csv_path=csv_path, sep=sep, chunksize=chunksize, cursor=cursor,
         )
         s3 = S3(
-            file_name=os.path.basename(csv_path),
-            file_dir=os.path.dirname(csv_path),
-            bucket=bucket,
-            redshift_str=redshift_str,
+            file_name=os.path.basename(csv_path), file_dir=os.path.dirname(csv_path), bucket=bucket, redshift_str=redshift_str,
         )
         s3.from_file()
         if use_col_names:
@@ -1230,7 +1209,7 @@ class QFrame(BaseTool):
             _dict[column] = column_values
         return _dict
 
-    def to_df(self, chunksize: int = None):
+    def to_df(self, chunksize: int = None, verbose=False):
         """Writes QFrame to DataFrame. Uses pandas.read_sql.
 
         TODO: DataFarme types should correspond to types defined in QFrame data.
@@ -1240,17 +1219,20 @@ class QFrame(BaseTool):
         DataFrame
             Data generated from sql.
         """
+        if self.debug:
+            verbose = True
+
         sql = self.get_sql()
         if self.sqldb.db == "denodo":
             sql += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
         con = self.sqldb.get_connection()
-        if self.debug:
+        if verbose:
             process = psutil.Process(os.getpid())
             self.logger.info("Executing pd.read_sql()...")
             self.logger.info(f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB")
         try:
             df = pd.read_sql(sql, con)
-            if self.debug:
+            if verbose:
                 self.logger.info(df.memory_usage(deep=True))
         except:
             self.logger.exception("There was an error when running the query")
@@ -1258,7 +1240,7 @@ class QFrame(BaseTool):
         finally:
             con.close()
             # engine.dispose()
-        if self.debug:
+        if verbose:
             self.logger.info("Successfully executed pd.read_sql()")
             self.logger.info(f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB")
         return df
@@ -1274,16 +1256,7 @@ class QFrame(BaseTool):
 
     @deprecation.deprecated(details="Use QFrame.to_csv or QFrame.to_df and then use SQLDB or S3 class instead",)
     def to_sql(
-        self,
-        table,
-        engine,
-        schema="",
-        if_exists="fail",
-        index=True,
-        index_label=None,
-        chunksize=None,
-        dtype=None,
-        method=None,
+        self, table, engine, schema="", if_exists="fail", index=True, index_label=None, chunksize=None, dtype=None, method=None,
     ):
         df = self.to_df()
         con = self.sqldb.get_connection()
@@ -1401,9 +1374,7 @@ class QFrame(BaseTool):
                     continue
                 else:
                     alias = (
-                        field
-                        if "as" not in fields_data[field] or fields_data[field]["as"] == ""
-                        else fields_data[field]["as"]
+                        field if "as" not in fields_data[field] or fields_data[field]["as"] == "" else fields_data[field]["as"]
                     )
                     fields_out.append(alias)
         else:
@@ -1475,9 +1446,7 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     -------
     QFrame
     """
-    assert (
-        len(qframes) == len(join_type) + 1 or len(qframes) == 2 and isinstance(join_type, str)
-    ), "Incorrect list size."
+    assert len(qframes) == len(join_type) + 1 or len(qframes) == 2 and isinstance(join_type, str), "Incorrect list size."
     assert len(qframes) == 2 and isinstance(on, (int, str)) or len(join_type) == len(on), "Incorrect list size."
 
     data = {"select": {"fields": {}}}
@@ -1506,9 +1475,7 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
                             "as": alias,
                         }
                         if "custom_type" in sq["fields"][field] and sq["fields"][field]["custom_type"] != "":
-                            data["select"]["fields"][f"sq{iterator}.{alias}"]["custom_type"] = sq["fields"][field][
-                                "custom_type"
-                            ]
+                            data["select"]["fields"][f"sq{iterator}.{alias}"]["custom_type"] = sq["fields"][field]["custom_type"]
                         break
 
     if isinstance(join_type, str):
@@ -1523,6 +1490,7 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     out_qf.logger.info("Data joined successfully.")
     if not unique_col:
         out_qf.logger.warning(
+
             "Please remove or rename duplicated columns. Use your_qframe.show_duplicated_columns() to check duplicates."
         )
     return out_qf
@@ -1759,7 +1727,7 @@ def _validate_data(data):
     return data
 
 
-def initiate(columns, schema, table, json_path=None, engine_str="", subquery="", col_types=None):
+def initiate(columns, schema, table, json_path=None, engine_str="", subquery="", col_types=None, logger=None):
     """Creates a dictionary with fields information for a Qframe and saves the data in json file.
 
     Parameters
@@ -1777,6 +1745,9 @@ def initiate(columns, schema, table, json_path=None, engine_str="", subquery="",
     col_type : list
         List of data types of columns (in 'columns' list)
     """
+    if not logger:
+        logger = logging.getLogger(__name__)
+
     if columns == [] or table == "":
         return {}
 
@@ -1842,6 +1813,7 @@ def initiate(columns, schema, table, json_path=None, engine_str="", subquery="",
             json.dump(json_data, f)
 
         print(f"Data saved in {json_path}")
+
 
     else:
         return json_data
