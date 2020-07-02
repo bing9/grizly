@@ -1,6 +1,5 @@
 from boto3 import resource
 from botocore.exceptions import ClientError
-from botocore.config import Config
 import os
 from datetime import datetime, timezone
 from .sqldb import SQLDB
@@ -60,7 +59,6 @@ class S3:
         self.full_s3_key = self.s3_key + self.file_name
         self.bucket = bucket if bucket else "acoe-s3"
         self.file_dir = file_dir if file_dir else get_path("s3_loads")
-        self.redshift_str = kwargs.get("redshift_str") or "mssql+pyodbc://redshift_acoe"
         self.min_time_window = min_time_window
         os.makedirs(self.file_dir, exist_ok=True)
         self.logger = logger or logging.getLogger(__name__)
@@ -72,13 +70,18 @@ class S3:
             os.environ["HTTPS_PROXY"] = https_proxy
             os.environ["HTTP_PROXY"] = http_proxy
 
+        if kwargs.get("redshift_str") is not None:
+            self.logger.warning(
+                f"Parameter redshift_str will be ignored. If you are going to use S3.to_rds method, "
+                "please specify dsn parameter there.",
+            )
+
     def __repr__(self):
         info_list = [
             f"file_name: '{self.file_name}'",
             f"s3_key: '{self.s3_key}'",
             f"bucket: '{self.bucket}'",
             f"file_dir: '{self.file_dir}'",
-            f"redshift_str: '{self.redshift_str}'",
         ]
         info = "\n".join(info_list)
         return info
@@ -124,7 +127,6 @@ class S3:
         s3_key: 'test/'
         bucket: 'acoe-s3'
         file_dir: '/home/analyst/'
-        redshift_str: 'mssql+pyodbc://redshift_acoe'
         """
         print(self.__repr__())
 
@@ -196,14 +198,12 @@ class S3:
         s3_key: 'test/test/'
         bucket: 'acoe-s3'
         file_dir: '/home/analyst/'
-        redshift_str: 'mssql+pyodbc://redshift_acoe'
         >>> s3 = s3.copy_to('test_old.csv', s3_key='test/')
         >>> s3
         file_name: 'test_old.csv'
         s3_key: 'test/'
         bucket: 'acoe-s3'
         file_dir: '/home/analyst/'
-        redshift_str: 'mssql+pyodbc://redshift_acoe'
 
         Returns
         -------
@@ -216,9 +216,7 @@ class S3:
         s3_key = s3_key if s3_key else self.s3_key
         bucket = bucket if bucket else self.bucket
 
-        out_s3 = S3(
-            file_name=file_name, s3_key=s3_key, bucket=bucket, file_dir=self.file_dir, redshift_str=self.redshift_str,
-        )
+        out_s3 = S3(file_name=file_name, s3_key=s3_key, bucket=bucket, file_dir=self.file_dir,)
         exists = self.exists()
 
         if exists:
@@ -388,7 +386,6 @@ class S3:
         s3_key: 'test/'
         bucket: 'acoe-s3'
         file_dir: '/home/analyst/'
-        redshift_str: 'mssql+pyodbc://redshift_acoe'
 
         Parameters
         ----------
@@ -433,15 +430,17 @@ class S3:
         self,
         table: str,
         schema: str = None,
+        dsn: str = None,
+        sqldb: SQLDB = None,
         if_exists: str = "fail",
         sep: str = "\t",
         types: dict = None,
-        redshift_str: str = None,
         column_order: list = None,
         preserve_column_names: bool = False,
         remove_inside_quotes: bool = False,
         time_format: str = None,
         execute_on_skip: bool = False,
+        **kwargs,
     ):
         """Writes S3 to Redshift table.
 
@@ -459,8 +458,6 @@ class S3:
             * drop: Drop table and create new one.
             * append: Insert new values to the existing table.
 
-        redshift_str : str, optional
-            Redshift engine string, if None then 'mssql+pyodbc://redshift_acoe'
         sep : str, optional
             Separator, by default '\t'
         types : dict, optional
@@ -480,8 +477,20 @@ class S3:
 
         self.status = "initiated"
 
-        redshift_str = redshift_str or self.redshift_str or "mssql+pyodbc://redshift_acoe"
-        sqldb = SQLDB(db="redshift", engine_str=redshift_str)
+        redshift_str = kwargs.get("redshift_str")
+        if redshift_str is not None:
+            dsn = redshift_str.split("://")[-1]
+            self.logger.warning(
+                f"Parameter redshift_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
+            )
+        if dsn is None and sqldb is None:
+            self.logger.warning("Please specify dsn parameter. Since version 0.3.8 it will be obligatory.")
+
+        sqldb = sqldb or SQLDB(dsn=(dsn or "redshift_acoe"), **kwargs)
+
+        if sqldb.db.lower() != "redshift":
+            raise ValueError(f"Specified datasource '{sqldb.dsn}' is not a Redshift Database.")
+
         table_name = f"{schema}.{table}" if schema else table
 
         if sqldb.check_if_exists(table, schema):
@@ -599,6 +608,7 @@ class S3:
         types: dict = None,
         column_order: list = None,
         execute_on_skip: bool = False,
+        **kwargs,
     ):
         """Writes S3 to Aurora table.
 
@@ -637,7 +647,10 @@ class S3:
 
         self.status = "initiated"
 
-        sqldb = sqldb or SQLDB(db="aurora", dsn=(dsn or "aurora_db"))
+        sqldb = sqldb or SQLDB(dsn=dsn, **kwargs)
+
+        if sqldb.db.lower() != "aurora":
+            raise ValueError(f"Specified datasource '{sqldb.dsn}' is not an Aurora Database.")
 
         con = sqldb.get_connection()
 
@@ -717,7 +730,6 @@ class S3:
         s3_key: 'archive/test/'
         bucket: 'acoe-s3'
         file_dir: '/home/analyst/'
-        redshift_str: 'mssql+pyodbc://redshift_acoe'
         >>> s3_arch.delete()
         """
         s3_archive = S3(file_name=self.file_name, s3_key="archive/" + self.s3_key, bucket=self.bucket,)
@@ -899,13 +911,11 @@ def df_to_s3(
     keep_csv=True,
     chunksize=10000,
     if_exists="fail",
-    redshift_str=None,
     s3_key=None,
     bucket=None,
+    **kwargs,
 ):
-    s3 = S3(
-        file_name=table_name + ".csv", s3_key=s3_key, bucket=bucket, file_dir=os.getcwd(), redshift_str=redshift_str,
-    )
+    s3 = S3(file_name=table_name + ".csv", s3_key=s3_key, bucket=bucket, file_dir=os.getcwd())
 
     return s3.from_df(df=df, sep=sep, clean_df=clean_df, keep_file=keep_csv, chunksize=chunksize)
 

@@ -3,7 +3,6 @@ import os
 import sqlparse
 import logging
 from logging import Logger
-import warnings
 
 from ..config import Config
 from ..utils import get_sfdc_columns
@@ -45,15 +44,13 @@ class SQLDB:
         engine_str = kwargs.get("engine_str")
         if engine_str is not None:
             dsn = engine_str.split("://")[-1]
-            warnings.warn(
+            self.logger.warning(
                 "Parameter engine_str is deprecated as of 0.3.5 and will be removed in 0.3.8. "
-                f"Please use dsn='{dsn}' instead.",
-                DeprecationWarning,
+                f"Please use dsn='{dsn}' instead."
             )
         if kwargs.get("interface") is not None:
-            warnings.warn(
+            self.logger.warning(
                 f"Parameter interface will be ignored. Since version 0.3.6 grizly only supports 'pyodbc' interface.",
-                DeprecationWarning,
             )
         if dsn is None:
             self.logger.warning("Please specify dsn parameter. Since version 0.3.8 it will be obligatory.")
@@ -83,7 +80,7 @@ class SQLDB:
 
         Examples
         --------
-        >>> sqldb = SQLDB(db="redshift")
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> con = sqldb.get_connection()
         >>> con.execute("SELECT * FROM administration.table_tutorial").fetchall()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
@@ -109,7 +106,7 @@ class SQLDB:
 
         Examples
         --------
-        >>> sqldb = SQLDB(db="redshift")
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb.check_if_exists(table="table_tutorial", schema="administration")
         True
         """
@@ -142,7 +139,7 @@ class SQLDB:
 
         Examples
         --------
-        >>> sqldb = SQLDB(db="redshift")
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb = sqldb.copy_table(
         ...    in_table="table_tutorial",
         ...    in_schema="administration",
@@ -206,7 +203,7 @@ class SQLDB:
 
         Examples
         --------
-        >>> sqldb = SQLDB(db="redshift")
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb = sqldb.create_table(table="test_k", columns=["col1", "col2"], types=["varchar", "int"], schema="sandbox")
         >>> sqldb.check_if_exists(table="test_k", schema="sandbox")
         True
@@ -228,24 +225,24 @@ class SQLDB:
                     return self
                 elif if_exists == "drop":
                     self.drop_table(table=table, schema=schema)
-            else:
-                col_tuples = []
 
-                for item in range(len(columns)):
-                    if types[item] == "VARCHAR(500)":
-                        column = columns[item] + " " + "VARCHAR({})".format(char_size)
-                    else:
-                        column = columns[item] + " " + types[item]
-                    col_tuples.append(column)
+            col_tuples = []
 
-                columns_str = ", ".join(col_tuples)
-                sql = "CREATE TABLE {} ({})".format(table_name, columns_str)
-                SQLDB.last_commit = sql
-                con = self.get_connection()
-                con.execute(sql).commit()
-                con.close()
+            for item in range(len(columns)):
+                if types[item] == "VARCHAR(500)":
+                    column = columns[item] + " " + "VARCHAR({})".format(char_size)
+                else:
+                    column = columns[item] + " " + types[item]
+                col_tuples.append(column)
 
-                self.logger.info(f"Table {sql} has been created successfully.")
+            columns_str = ", ".join(col_tuples)
+            sql = "CREATE TABLE {} ({})".format(table_name, columns_str)
+            SQLDB.last_commit = sql
+            con = self.get_connection()
+            con.execute(sql).commit()
+            con.close()
+
+            self.logger.info(f"Table {sql} has been created successfully.")
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
 
@@ -256,7 +253,7 @@ class SQLDB:
 
         Examples
         --------
-        >>> sqldb = SQLDB(db="redshift")
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb = sqldb.create_table(table="test_k", columns=["col1", "col2"], types=["varchar", "int"], schema="sandbox")
         >>> sqldb = sqldb.insert_into(table="test_k", columns=["col1"], sql="SELECT col1 from administration.table_tutorial", schema="sandbox")
         >>> con = sqldb.get_connection()
@@ -289,7 +286,7 @@ class SQLDB:
 
         Examples
         --------
-        >>> sqldb = SQLDB(db="redshift")
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb = sqldb.delete_from(table="test_k", schema="sandbox", where="col2 is NULL")
         >>> con = sqldb.get_connection()
         >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
@@ -326,7 +323,7 @@ class SQLDB:
 
         Examples
         --------
-        >>> sqldb = SQLDB(db="redshift")
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb = sqldb.drop_table(table="test_k", schema="sandbox")
         >>> sqldb.check_if_exists(table="test_k", schema="sandbox")
         False
@@ -364,7 +361,7 @@ class SQLDB:
 
         Examples
         --------
-        >>> sqldb = SQLDB(db="redshift")
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb = sqldb.write_to(table="test_k", columns=["col1"], sql="SELECT col1 from administration.table_tutorial", schema="sandbox", if_exists="replace")
         >>> con = sqldb.get_connection()
         >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
@@ -414,7 +411,7 @@ class SQLDB:
 
         Examples
         --------
-        >>> sqldb = SQLDB(db="redshift")
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb.get_columns(table="table_tutorial", schema="administration", column_types=True)
         (['col1', 'col2', 'col3', 'col4'], ['character varying(500)', 'double precision', 'character varying(500)', 'double precision'])
         """
@@ -434,14 +431,6 @@ class SQLDB:
 
         Parameters
         ----------
-        table: str
-            Name of table.
-        schema: str
-            Name of schema.
-        column_types: bool
-            True means user wants to get also data types.
-        columns: list
-            List of column names to retrive.
         date_format: str
             Denodo date format differs from those from other databases. User can choose which format is desired.
         """
@@ -499,19 +488,7 @@ class SQLDB:
     def _get_columns_2(
         self, table, schema: str = None, column_types: bool = False, columns: list = None,
     ):
-        """Get column names (and optionally types) from a Redshift, MariaDB or Aurora table.
-
-        Parameters
-        ----------
-        table: str
-            Name of table.
-        schema: str
-            Name of schema.
-        column_types: bool
-            Whether to retrieve field types.
-        columns: list
-            List of column names to retrive.
-        """
+        """Get column names (and optionally types) from a Redshift, MariaDB or Aurora table."""
         con = self.get_connection()
         cursor = con.cursor()
         where = f"table_name = '{table}' AND table_schema = '{schema}' " if schema else f"table_name = '{table}' "
@@ -571,17 +548,7 @@ class SQLDB:
         return to_return
 
     def _get_columns_3(self, table, schema: str = None, column_types: bool = False):
-        """Get column names (and optionally types) from a SQLite table.
-
-        Parameters
-        ----------
-        table: str
-            Name of table.
-        schema: str
-            Name of schema.
-        column_types: bool
-            Whether to retrieve field types.
-        """
+        """Get column names (and optionally types) from a SQLite table."""
         con = self.get_connection()
         cursor = con.cursor()
         table_name = table if schema is None or schema == "" else f"{schema}.{table}"
@@ -606,6 +573,9 @@ class SQLDB:
             return col_names, col_types
         else:
             return col_names
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(dsn='{self.dsn}', db='{self.db}', dialect='{self.dialect}')"
 
     def __eq__(self, other):
         return (

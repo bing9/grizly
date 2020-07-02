@@ -1,5 +1,4 @@
 import pandas as pd
-import warnings
 
 import re
 import os
@@ -67,9 +66,8 @@ class QFrame(BaseTool):
             if not isinstance(engine, str):
                 raise ValueError("QFrame engine is not of type: str")
             dsn = engine.split("://")[-1]
-            warnings.warn(
+            self.logger.warning(
                 f"Parameter engine is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
-                DeprecationWarning,
             )
 
         self.sqldb = sqldb or SQLDB(dsn=dsn, **kwargs)
@@ -188,7 +186,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> print(qf)
         SELECT CustomerId,
                Sales
@@ -226,8 +224,7 @@ class QFrame(BaseTool):
 
         Examples
         --------
-        >>> engine_str = "mssql+pyodbc://redshift_acoe"
-        >>> qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
+        >>> qf = QFrame(dsn="redshift_acoe")
         >>> qf = qf.from_table(table="table_tutorial", schema="administration")
         >>> print(qf)
         SELECT col1,
@@ -271,7 +268,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim', 'as': 'Id'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> print(qf)
         SELECT CustomerId AS "Id",
                Sales
@@ -343,7 +340,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.rename({'Sales': 'Billings'})
         >>> print(qf)
         SELECT CustomerId,
@@ -375,7 +372,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.remove(['Sales'])
         >>> print(qf)
         SELECT CustomerId
@@ -401,7 +398,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.distinct()
         >>> print(qf)
         SELECT DISTINCT CustomerId,
@@ -431,7 +428,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.query("Sales != 0")
         >>> print(qf)
         SELECT CustomerId,
@@ -472,7 +469,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> qf = qf.having("sum(sales)>100")
         >>> print(qf)
@@ -527,7 +524,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.assign(Sales_Div="Sales/100", type='num')
         >>> print(qf)
         SELECT CustomerId,
@@ -535,7 +532,7 @@ class QFrame(BaseTool):
                Sales/100 AS "Sales_Div"
         FROM schema.table
 
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.assign(Sales_Positive="CASE WHEN Sales>0 THEN 1 ELSE 0 END")
         >>> print(qf)
         SELECT CustomerId,
@@ -594,7 +591,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> print(qf)
         SELECT CustomerId,
@@ -631,7 +628,7 @@ class QFrame(BaseTool):
 
         Examples
         --------
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.groupby(['CustomerId'])['Sales', 'Orders'].agg('sum')
         >>> print(qf)
         SELECT CustomerId,
@@ -671,7 +668,7 @@ class QFrame(BaseTool):
 
         Examples
         --------
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.groupby(['CustomerId']).sum()
         >>> print(qf)
         SELECT CustomerId,
@@ -705,7 +702,7 @@ class QFrame(BaseTool):
 
         Examples
         --------
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.orderby(["Sales"])
         >>> print(qf)
         SELECT CustomerId,
@@ -713,7 +710,7 @@ class QFrame(BaseTool):
         FROM schema.table
         ORDER BY Sales
 
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.orderby(["Sales"], ascending=False)
         >>> print(qf)
         SELECT CustomerId,
@@ -756,7 +753,7 @@ class QFrame(BaseTool):
 
         Examples
         --------
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.limit(100)
         >>> print(qf)
         SELECT CustomerId,
@@ -782,7 +779,7 @@ class QFrame(BaseTool):
 
         Examples
         --------
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.offset(100)
         >>> print(qf)
         SELECT CustomerId,
@@ -815,7 +812,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.window(5, 10)
         >>> print(qf)
         SELECT CustomerId,
@@ -862,7 +859,7 @@ class QFrame(BaseTool):
 
     def cut(self, chunksize: int, deterministic: bool = True, order_by: list = None):
         """Divides a QFrame into multiple smaller QFrames, each containing chunksize rows.
-        
+
         Parameters
         ----------
         chunksize : int
@@ -874,10 +871,9 @@ class QFrame(BaseTool):
 
         Examples
         --------
-        >>> playlists = {"select": {"fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}}, "table": "Playlist",}}
-        >>> engine = "sqlite:///" + get_path("grizly_dev", "tests", "Chinook.sqlite")
-        >>> qf = QFrame(engine=engine).from_dict(playlists)
-        >>> qframes = qf.cut(5)
+        >>> dsn = get_path("grizly_dev", "tests", "Chinook.sqlite")
+        >>> qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(table="Playlist")
+        >>> qframes = qf.cut(5, order_by="PlaylistId")
         >>> len(qframes)
         4
 
@@ -906,7 +902,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.rearrange(['Sales', 'CustomerId'])
         >>> print(qf)
         SELECT Sales,
@@ -1028,7 +1024,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf.get_fields()
         ['CustomerId', 'Sales']
 
@@ -1049,7 +1045,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf.get_dtypes()
         ['VARCHAR(500)', 'FLOAT(53)']
 
@@ -1068,7 +1064,7 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> print(qf.get_sql())
         SELECT CustomerId,
                Sales
@@ -1099,10 +1095,11 @@ class QFrame(BaseTool):
         -------
         QFrame
         """
-        if kwargs.get("engine_str") is not None:
+        engine_str = kwargs.get("engine_str")
+        if engine_str is not None:
             dsn = engine_str.split("://")[-1]
-            raise DeprecationWarning(
-                f"Parameter engine_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead."
+            self.logger.warning(
+                f"Parameter engine_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
             )
 
         sqldb = sqldb or (self.sqldb if dsn is None else SQLDB(dsn=dsn, **kwargs))
@@ -1195,8 +1192,7 @@ class QFrame(BaseTool):
 
         Examples
         --------
-        >>> engine_str = "mssql+pyodbc://redshift_acoe"
-        >>> qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
+        >>> qf = QFrame(dsn="redshift_acoe")
         >>> qf = qf.from_table(table="table_tutorial", schema="administration")
         >>> qf.to_records()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
@@ -1450,19 +1446,18 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     Examples
     --------
     >>> playlist_track = {"select": {"fields":{"PlaylistId": {"type" : "dim"}, "TrackId": {"type" : "dim"}}, "table" : "PlaylistTrack"}}
-    >>> playlist_track_qf = QFrame().from_dict(playlist_track)
+    >>> playlist_track_qf = QFrame(dsn="redshift_acoe").from_dict(playlist_track)
     >>> print(playlist_track_qf)
     SELECT PlaylistId,
            TrackId
     FROM PlaylistTrack
     >>> playlists = {"select": {"fields": {"PlaylistId": {"type" : "dim"}, "Name": {"type" : "dim"}}, "table" : "Playlist"}}
-    >>> playlists_qf = QFrame().from_dict(playlists)
+    >>> playlists_qf = QFrame(dsn="redshift_acoe").from_dict(playlists)
     >>> print(playlists_qf)
     SELECT PlaylistId,
            Name
     FROM Playlist
     >>> joined_qf = join(qframes=[playlist_track_qf, playlists_qf], join_type='left join', on='sq1.PlaylistId=sq2.PlaylistId')
-    Data joined successfully.
     >>> print(joined_qf)
     SELECT sq1.PlaylistId AS "PlaylistId",
            sq1.TrackId AS "TrackId",
@@ -1550,12 +1545,11 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     Examples
     --------
-    >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+    >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
     >>> qf1 = qf.copy()
     >>> qf2 = qf.copy()
     >>> qf3 = qf.copy()
     >>> q_unioned = union(qframes=[qf1, qf2, qf3], union_type=["UNION ALL", "UNION"])
-    Data unioned successfully.
     >>> print(q_unioned)
     SELECT CustomerId,
            Sales
