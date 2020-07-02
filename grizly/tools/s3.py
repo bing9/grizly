@@ -1,9 +1,9 @@
 from boto3 import resource
 from botocore.exceptions import ClientError
-from botocore.config import Config
 import os
 from datetime import datetime, timezone
-from .sqldb import SQLDB, pyarrow_to_rds_type
+from .sqldb import SQLDB
+from .dialects import pyarrow_to_rds_type
 from ..utils import get_path, clean, clean_colnames, file_extension
 from pandas import DataFrame, read_csv, read_parquet
 import pyarrow.parquet as pq
@@ -60,12 +60,10 @@ class S3:
         self.full_s3_key = self.s3_key + self.file_name
         self.bucket = bucket if bucket else "acoe-s3"
         self.file_dir = file_dir if file_dir else get_path("s3_loads")
-        self.redshift_str = kwargs.get("redshift_str") or "mssql+pyodbc://redshift_acoe"
         self.min_time_window = min_time_window
         os.makedirs(self.file_dir, exist_ok=True)
         self.logger = logger or logging.getLogger(__name__)
         self.status = "initiated"
-        self.interface = interface or "sqlalchemy"
 
         https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
         http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
@@ -73,13 +71,18 @@ class S3:
             os.environ["HTTPS_PROXY"] = https_proxy
             os.environ["HTTP_PROXY"] = http_proxy
 
+        if kwargs.get("redshift_str") is not None:
+            self.logger.warning(
+                f"Parameter redshift_str will be ignored. If you are going to use S3.to_rds method, "
+                "please specify dsn parameter there.",
+            )
+
     def __repr__(self):
         info_list = [
             f"file_name: '{self.file_name}'",
             f"s3_key: '{self.s3_key}'",
             f"bucket: '{self.bucket}'",
             f"file_dir: '{self.file_dir}'",
-            f"redshift_str: '{self.redshift_str}'",
         ]
         info = "\n".join(info_list)
         return info
@@ -125,7 +128,6 @@ class S3:
         s3_key: 'test/'
         bucket: 'acoe-s3'
         file_dir: '/home/analyst/'
-        redshift_str: 'mssql+pyodbc://redshift_acoe'
         """
         print(self.__repr__())
 
@@ -202,14 +204,12 @@ class S3:
         s3_key: 'test/test/'
         bucket: 'acoe-s3'
         file_dir: '/home/analyst/'
-        redshift_str: 'mssql+pyodbc://redshift_acoe'
         >>> s3 = s3.copy_to('test_old.csv', s3_key='test/')
         >>> s3
         file_name: 'test_old.csv'
         s3_key: 'test/'
         bucket: 'acoe-s3'
         file_dir: '/home/analyst/'
-        redshift_str: 'mssql+pyodbc://redshift_acoe'
 
         Returns
         -------
@@ -222,9 +222,7 @@ class S3:
         s3_key = s3_key if s3_key else self.s3_key
         bucket = bucket if bucket else self.bucket
 
-        out_s3 = S3(
-            file_name=file_name, s3_key=s3_key, bucket=bucket, file_dir=self.file_dir, redshift_str=self.redshift_str,
-        )
+        out_s3 = S3(file_name=file_name, s3_key=s3_key, bucket=bucket, file_dir=self.file_dir,)
         exists = self.exists()
 
         if exists:
@@ -251,7 +249,7 @@ class S3:
         return out_s3
 
     def from_file(
-        self, keep_file: bool = True, if_exists: {"fail", "skip", "replace", "archive"} = "replace",
+        self, keep_file: bool = True, if_exists: str = "replace",
     ):
         """Writes local file to S3.
 
@@ -394,7 +392,6 @@ class S3:
         s3_key: 'test/'
         bucket: 'acoe-s3'
         file_dir: '/home/analyst/'
-        redshift_str: 'mssql+pyodbc://redshift_acoe'
 
         Parameters
         ----------
@@ -420,8 +417,6 @@ class S3:
             raise ValueError("'df' must be DataFrame object")
 
         file_path = os.path.join(self.file_dir, self.file_name)
-        # if not file_path.endswith(".csv"):
-        #     raise ValueError("Invalid file extention - 'file_name' attribute must end with '.csv'")
 
         if clean_df:
             df = clean(df)
@@ -441,15 +436,17 @@ class S3:
         self,
         table: str,
         schema: str = None,
-        if_exists: {"fail", "replace", "append"} = "fail",
+        dsn: str = None,
+        sqldb: SQLDB = None,
+        if_exists: str = "fail",
         sep: str = "\t",
         types: dict = None,
-        redshift_str: str = None,
         column_order: list = None,
         preserve_column_names: bool = False,
         remove_inside_quotes: bool = False,
         time_format: str = None,
         execute_on_skip: bool = False,
+        **kwargs,
     ):
         """Writes S3 to Redshift table.
 
@@ -459,15 +456,14 @@ class S3:
             Table name
         schema : str, optional
             Schame name, by default None
-        if_exists : {'fail', 'replace', 'append'}, default 'fail'
+        if_exists : {'fail', 'replace', 'drop', 'append'}, default 'fail'
             How to behave if the table already exists.
 
             * fail: Raise a ValueError.
             * replace: Clean table before inserting new values.
+            * drop: Drop table and create new one.
             * append: Insert new values to the existing table.
 
-        redshift_str : str, optional
-            Redshift engine string, if None then 'mssql+pyodbc://redshift_acoe'
         sep : str, optional
             Separator, by default '\t'
         types : dict, optional
@@ -487,20 +483,33 @@ class S3:
 
         self.status = "initiated"
 
-        redshift_str = redshift_str or self.redshift_str or "mssql+pyodbc://redshift_acoe"
-        sqldb = SQLDB(db="redshift", engine_str=redshift_str, interface=self.interface)
+        redshift_str = kwargs.get("redshift_str")
+        if redshift_str is not None:
+            dsn = redshift_str.split("://")[-1]
+            self.logger.warning(
+                f"Parameter redshift_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
+            )
+        if dsn is None and sqldb is None:
+            self.logger.warning("Please specify dsn parameter. Since version 0.3.8 it will be obligatory.")
+
+        sqldb = sqldb or SQLDB(dsn=(dsn or "redshift_acoe"), **kwargs)
+
+        if sqldb.db.lower() != "redshift":
+            raise ValueError(f"Specified datasource '{sqldb.dsn}' is not a Redshift Database.")
+
         table_name = f"{schema}.{table}" if schema else table
 
         if sqldb.check_if_exists(table, schema):
             if if_exists == "fail":
-                raise AssertionError(f"Table {table_name} already exists")
+                self.logger.exception(f"Table {table_name} already exists")
             elif if_exists == "replace":
                 sqldb.delete_from(table=table, schema=schema)
-                self.logger.info("SQL table has been cleaned up successfully.")
+            elif if_exists == "drop":
+                sqldb.drop_table(table=table, schema=schema)
             else:
                 pass
         else:
-            self._create_table_like_s3(table_name, sep, engine_str=redshift_str, types=types)
+            self._create_table_like_s3(table=table, schema=schema, sep=sep, sqldb=sqldb, types=types)
 
         config = ConfigParser()
         config.read(get_path(".aws", "credentials"))
@@ -593,6 +602,126 @@ class S3:
         self.logger.info(f"Successfully inserted '{self.file_name}' into Redshift")
         self.logger.debug(f"'{self.file_name}''s Redshift location: {table_name}")
 
+    @_check_if_s3_exists
+    def to_aurora(
+        self,
+        table: str,
+        schema: str = None,
+        dsn: str = None,
+        sqldb: SQLDB = None,
+        if_exists: str = "fail",
+        sep: str = "\t",
+        types: dict = None,
+        column_order: list = None,
+        execute_on_skip: bool = False,
+        **kwargs,
+    ):
+        """Writes S3 to Aurora table.
+
+        Parameters
+        ----------
+        table : str
+            Table name
+        schema : str, optional
+            Schema name, by default None
+        dsn : str, optional
+            Data source name, if None then 'aurora_db'
+        if_exists : {'fail', 'replace', 'drop', 'append'}, default 'fail'
+            How to behave if the table already exists.
+
+            * fail: Raise a ValueError.
+            * replace: Clean table before inserting new values.
+            * drop: Drop table and create new one.
+            * append: Insert new values to the existing table.
+
+        sep : str, optional
+            Separator, by default '\t'
+        types : dict, optional
+            Data types to force, by default None
+        column_order : list, optional
+            List of column names in other order than default
+        """
+        if file_extension(self.file_name) != "csv":
+            raise NotImplementedError("Unsupported file format. Please use CSV files.")
+
+        if if_exists not in ("fail", "replace", "drop", "append"):
+            raise ValueError(f"'{if_exists}' is not valid for if_exists")
+
+        if not execute_on_skip:
+            if self.status == "skipped":
+                return None
+
+        self.status = "initiated"
+
+        sqldb = sqldb or SQLDB(dsn=dsn, **kwargs)
+
+        if sqldb.db.lower() != "aurora":
+            raise ValueError(f"Specified datasource '{sqldb.dsn}' is not an Aurora Database.")
+
+        con = sqldb.get_connection()
+
+        con.execute("CREATE EXTENSION IF NOT EXISTS aws_s3 CASCADE").commit()
+
+        table_name = f"{schema}.{table}" if schema else table
+
+        if sqldb.check_if_exists(table, schema):
+            if if_exists == "fail":
+                self.logger.exception(f"Table {table_name} already exists")
+            elif if_exists == "replace":
+                sqldb.delete_from(table=table, schema=schema)
+            elif if_exists == "drop":
+                sqldb.drop_table(table=table, schema=schema)
+            else:
+                pass
+        else:
+            self._create_table_like_s3(table=table, schema=schema, sep=sep, sqldb=sqldb, types=types)
+
+        from configparser import ConfigParser
+
+        config = ConfigParser()
+        config.read(get_path(".aws", "credentials"))
+        S3_access_key_id = config["default"]["aws_access_key_id"]
+        S3_secret_access_key = config["default"]["aws_secret_access_key"]
+
+        config.read(get_path(".aws", "config"))
+        region = config["default"]["region"]
+
+        if column_order is None:
+            column_order, _ = self._load_column_names(sep=sep)
+        else:
+            not_found_columns = set(column_order) - set(columns_output_table)
+            if not_found_columns != set():
+                self.logger.exception(
+                    f"Columns {not_found_columns} not found in output table."
+                    f"Please change 'column_order' parameter or rename output table columns."
+                )
+
+        columns_str = ",".join(column_order)
+        sql = f"""SELECT aws_s3.table_import_from_s3 (
+                    '{table_name}',
+                    '{columns_str}',
+                    '(DELIMITER E''{sep}'', FORMAT CSV, HEADER TRUE)',
+                    '{self.bucket}',
+                    '{self.s3_key}{self.file_name}',
+                    '{region}',
+                    '{S3_access_key_id}',
+                    '{S3_secret_access_key}',
+                    ''
+                    )"""
+        try:
+            con.execute(sql).commit()
+        except:
+            self.logger.exception(f"Failed to insert '{self.file_name}' into Aurora [{table_name}]")
+            self.logger.exception(sql)
+            self.status = "failed"
+            raise
+        finally:
+            con.close()
+
+        self.status = "success"
+        self.logger.info(f"Successfully inserted {self.file_name} into Aurora")
+        self.logger.debug(f"'{self.file_name}''s Aurora location: {table_name}")
+
     def archive(self):
         """Moves S3 to 'archive/' key. It adds also the versions of the file eg. file(0).csv, file(1).csv, ...
 
@@ -607,7 +736,6 @@ class S3:
         s3_key: 'archive/test/'
         bucket: 'acoe-s3'
         file_dir: '/home/analyst/'
-        redshift_str: 'mssql+pyodbc://redshift_acoe'
         >>> s3_arch.delete()
         """
         s3_archive = S3(file_name=self.file_name, s3_key="archive/" + self.s3_key, bucket=self.bucket,)
@@ -620,7 +748,7 @@ class S3:
             else:
                 version += 1
 
-    def _create_table_like_s3(self, table_name, sep, engine_str, types):
+    def _create_table_like_s3(self, table, schema, sqldb, types, sep):
         if file_extension(self.file_name) == "csv":
             s3_client = resource("s3").meta.client
 
@@ -660,8 +788,8 @@ class S3:
                         i += 1
                 count += 1
 
-            columns = []
-
+            col_names = []
+            col_types = []
             count = 0
             for col in column_names:
                 if types and col in types:
@@ -672,36 +800,32 @@ class S3:
                         col_type = "FLOAT"
                     else:
                         col_type = "VARCHAR(500)"
-                columns.append(f"{col} {col_type}")
+                col_names.append(col)
+                col_types.append(col_type)
+                # columns.append(f"{col} {col_type}")
                 count += 1
             if types:
                 other_cols = list(types.keys())
                 if other_cols:
-                    self.logger.info(f"Columns {other_cols} were not found.")
+                    self.logger.warning(f"Columns {other_cols} were not found.")
 
         elif file_extension(self.file_name) == "parquet":
             self.to_file()
             pq_table = pq.read_table(os.path.join(self.file_dir, self.file_name))
-            columns = []
+            col_names = []
+            col_types = []
             for col_name, dtype in zip(pq_table.schema.names, pq_table.schema.types):
                 dtype = str(dtype)
                 if types and col_name in types:
                     col_type = types[col_name]
                 else:
                     col_type = pyarrow_to_rds_type(dtype)
-                columns.append(f"{col_name} {col_type}")
+                col_names.append(col_name)
+                col_types.append(col_type)
         else:
             raise ValueError("Table cannot be created. File extension not supported.")
 
-        column_str = ", ".join(columns)
-        sql = "CREATE TABLE {} ({})".format(table_name, column_str)
-
-        sqldb = SQLDB(db="redshift", engine_str=engine_str, interface=self.interface)
-        con = sqldb.get_connection()
-        con.execute(sql).commit()
-        con.close()
-
-        self.logger.info(f"Table {table_name} has been created successfully.")
+        sqldb.create_table(table=table, schema=schema, columns=col_names, types=col_types)
 
     def _load_column_names(self, sep):
         if file_extension(self.file_name) == "csv":
@@ -793,13 +917,11 @@ def df_to_s3(
     keep_csv=True,
     chunksize=10000,
     if_exists="fail",
-    redshift_str=None,
     s3_key=None,
     bucket=None,
+    **kwargs,
 ):
-    s3 = S3(
-        file_name=table_name + ".csv", s3_key=s3_key, bucket=bucket, file_dir=os.getcwd(), redshift_str=redshift_str,
-    )
+    s3 = S3(file_name=table_name + ".csv", s3_key=s3_key, bucket=bucket, file_dir=os.getcwd())
 
     return s3.from_df(df=df, sep=sep, clean_df=clean_df, keep_file=keep_csv, chunksize=chunksize)
 

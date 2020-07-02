@@ -39,13 +39,19 @@ def test_can_upload():
 def test_to_rds():
 
     engine_string = "sqlite:///" + get_path("grizly_dev", "tests", "Chinook.sqlite")
-    qf = QFrame(engine=engine_string, db="sqlite").from_table(table="Track")
+    qf = QFrame(engine=engine_string, db="sqlite", dialect="mysql").from_table(table="Track")
 
     qf.window(offset=100, limit=30, order_by=["TrackId"])
 
     qf.assign(LikeIt="CASE WHEN GenreId = 5 THEN 1 ELSE 0 END", custom_type="BOOL")
     qf.assign(SpareColumn="NULL")
-    qf.rename({field: "_".join(re.findall('[A-Z][^A-Z]*', alias)).lower() for field, alias in zip(qf.get_fields(aliased=False), qf.get_fields(aliased=True))})
+
+    qf.rename(
+        {
+            field: "_".join(re.findall("[A-Z][^A-Z]*", alias)).lower()
+            for field, alias in zip(qf.get_fields(aliased=False), qf.get_fields(aliased=True))
+        }
+    )
 
     s3_key = "test/"
     bucket = "acoe-s3"
@@ -55,19 +61,25 @@ def test_to_rds():
     path_csv = get_path("grizly_test.csv")
     path_parquet = get_path("grizly_test.parquet")
 
-    s3_parquet = S3(file_name=os.path.basename(path_parquet), file_dir=os.path.dirname(path_parquet), s3_key=s3_key, bucket=bucket)
+    s3_parquet = S3(
+        file_name=os.path.basename(path_parquet), file_dir=os.path.dirname(path_parquet), s3_key=s3_key, bucket=bucket
+    )
     s3_csv = S3(file_name=os.path.basename(path_csv), file_dir=os.path.dirname(path_csv), s3_key=s3_key, bucket=bucket)
 
     qf.to_parquet(path_parquet)
     s3_parquet.from_file(keep_file=False)
-    s3_parquet.to_rds(table=table_parquet, schema=schema)
-    qf_parquet = QFrame(engine="mssql+pyodbc://redshift_acoe", interface="pyodbc").from_table(table=table_parquet, schema=schema)
+    s3_parquet.to_rds(table=table_parquet, schema=schema, if_exists="replace")
+    qf_parquet = QFrame(engine="mssql+pyodbc://redshift_acoe", interface="pyodbc").from_table(
+        table=table_parquet, schema=schema
+    )
     assert len(qf_parquet) == 30
 
     qf.to_csv(path_csv)
     s3_csv.from_file(keep_file=False)
-    s3_csv.to_rds(table=table_csv, schema=schema)
-    qf_csv = QFrame(engine="mssql+pyodbc://redshift_acoe", interface="pyodbc").from_table(table=table_csv, schema=schema)
+    s3_csv.to_rds(table=table_csv, schema=schema, if_exists="replace")
+    qf_csv = QFrame(engine="mssql+pyodbc://redshift_acoe", interface="pyodbc").from_table(
+        table=table_csv, schema=schema
+    )
     assert len(qf_csv) == 30
 
     qf.to_parquet(path_parquet)
@@ -75,7 +87,21 @@ def test_to_rds():
     s3_parquet.to_rds(table=table_parquet, schema=schema, if_exists="append")
     assert len(qf_parquet) == 60
 
-    qf.rearrange(['composer', 'milliseconds', 'bytes', 'unit_price', 'like_it', 'spare_column', 'track_id', 'name', 'album_id', 'media_type_id', 'genre_id'])
+    qf.rearrange(
+        [
+            "composer",
+            "milliseconds",
+            "bytes",
+            "unit_price",
+            "like_it",
+            "spare_column",
+            "track_id",
+            "name",
+            "album_id",
+            "media_type_id",
+            "genre_id",
+        ]
+    )
     qf.to_csv(path_csv)
     s3_csv.from_file(keep_file=False)
     s3_csv.to_rds(table=table_csv, schema=schema, if_exists="append")
