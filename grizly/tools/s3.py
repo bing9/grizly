@@ -248,6 +248,23 @@ class S3:
 
         return out_s3
 
+    def from_serializable(self, serializable):
+        """Writes a JSON-serializable object to S3
+
+        Parameters
+        ----------
+        serializable:
+            A JSON-serializable object
+
+        Examples
+        --------
+        >>> s3 = S3('test_from_serializable.json', s3_key='test/')
+        >>> s3 = s3.from_serializable(["a", "b", 1])
+        """
+        s3_obj = resource('s3').Object(self.bucket, self.full_s3_key)
+        s3_obj.put(Body=(bytes(json.dumps(serializable).encode('UTF-8'))))
+        self.logger.info(f"Successfully uploaded '{self.file_name}' to 's3://{self.bucket}/{self.s3_key}'")
+
     def from_file(
         self, keep_file: bool = True, if_exists: str = "replace",
     ):
