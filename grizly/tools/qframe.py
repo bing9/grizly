@@ -1194,7 +1194,7 @@ class QFrame(BaseTool):
         --------
         >>> qf = QFrame(dsn="redshift_acoe")
         >>> qf = qf.from_table(table="table_tutorial", schema="grizly")
-        >>> qf.to_records()
+        >>> qf.orderby("col1").to_records()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
 
         Returns

@@ -82,7 +82,7 @@ class SQLDB:
         --------
         >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> con = sqldb.get_connection()
-        >>> con.execute("SELECT * FROM grizly.table_tutorial").fetchall()
+        >>> con.execute("SELECT * FROM grizly.table_tutorial ORDER BY 1").fetchall()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
         >>> con.close()
         """
@@ -412,7 +412,7 @@ class SQLDB:
         elif self.db in ("redshift", "mariadb", "aurora"):
             output = self._get_tables_2(schema=schema)
             if self.db == "redshift":
-                output.append(self._get_external_tables(schema=schema))
+                output += self._get_external_tables(schema=schema)
         else:
             raise NotImplementedError("Unsupported database.")
 
@@ -429,6 +429,7 @@ class SQLDB:
 
         con = self.get_connection()
         output = con.execute(sql).fetchall()
+        output = [tuple(i) for i in output]
         con.close()
 
         return output
@@ -443,6 +444,7 @@ class SQLDB:
             """
         con = self.get_connection()
         output = con.execute(sql).fetchall()
+        output = [tuple(i) for i in output]
         con.close()
 
         return output
@@ -459,6 +461,7 @@ class SQLDB:
             """
         con = self.get_connection()
         output = con.execute(sql).fetchall()
+        output = [tuple(i) for i in output]
         con.close()
 
         return output
@@ -492,7 +495,12 @@ class SQLDB:
                 schema=schema, table=table, column_types=column_types, date_format=date_format, columns=columns,
             )
         elif self.db in ("redshift", "mariadb", "aurora"):
-            return self._get_columns_2(schema=schema, table=table, column_types=column_types, columns=columns)
+            if (schema, table) in self._get_tables_2(schema=schema) or self.db != "redshift":
+                return self._get_columns_2(schema=schema, table=table, column_types=column_types, columns=columns)
+            else:
+                return self._get_external_columns(
+                    schema=schema, table=table, column_types=column_types, columns=columns
+                )
         elif self.db == "sqlite":
             return self._get_columns_3(schema=schema, table=table, column_types=column_types)
         else:
@@ -655,20 +663,25 @@ class SQLDB:
 
         sql = f"""
             SELECT columnnum,
-            columnname,
-            external_type
+                columnname,
+                external_type
             FROM SVV_EXTERNAL_COLUMNS
             WHERE tablename = '{table}'{where}
             ORDER BY 1
             """
         con = self.get_connection()
         records = con.execute(sql).fetchall()
+        records = [tuple(i) for i in records]
         con.close()
 
-        col_names = [col for _, col, _ in records if col in columns]
-        col_types = [_type for _, col, _type in records if col in columns]
+        if columns is not None:
+            col_names = [col for _, col, _ in records if col in columns]
+            col_types = [typ for _, col, typ in records if col in columns]
+        else:
+            col_names = [col for _, col, _ in records]
+            col_types = [typ for _, _, typ in records]
 
-        return col_names, col_types if column_types else col_names
+        return (col_names, col_types) if column_types else col_names
 
     def __repr__(self):
         return f"{self.__class__.__name__}(dsn='{self.dsn}', db='{self.db}', dialect='{self.dialect}')"
