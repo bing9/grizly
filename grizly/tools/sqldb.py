@@ -82,7 +82,7 @@ class SQLDB:
         --------
         >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> con = sqldb.get_connection()
-        >>> con.execute("SELECT * FROM administration.table_tutorial").fetchall()
+        >>> con.execute("SELECT * FROM grizly.table_tutorial").fetchall()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
         >>> con.close()
         """
@@ -107,7 +107,7 @@ class SQLDB:
         Examples
         --------
         >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb.check_if_exists(table="table_tutorial", schema="administration")
+        >>> sqldb.check_if_exists(table="table_tutorial", schema="grizly")
         True
         """
         supported_dbs = ("redshift", "aurora")
@@ -142,7 +142,7 @@ class SQLDB:
         >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb = sqldb.copy_table(
         ...    in_table="table_tutorial",
-        ...    in_schema="administration",
+        ...    in_schema="grizly",
         ...    out_table="test_k",
         ...    out_schema="sandbox",
         ...    if_exists="drop",
@@ -255,7 +255,7 @@ class SQLDB:
         --------
         >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb = sqldb.create_table(table="test_k", columns=["col1", "col2"], types=["varchar", "int"], schema="sandbox")
-        >>> sqldb = sqldb.insert_into(table="test_k", columns=["col1"], sql="SELECT col1 from administration.table_tutorial", schema="sandbox")
+        >>> sqldb = sqldb.insert_into(table="test_k", columns=["col1"], sql="SELECT col1 from grizly.table_tutorial", schema="sandbox")
         >>> con = sqldb.get_connection()
         >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
         [('item1', None), ('item2', None)]
@@ -362,7 +362,7 @@ class SQLDB:
         Examples
         --------
         >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb = sqldb.write_to(table="test_k", columns=["col1"], sql="SELECT col1 from administration.table_tutorial", schema="sandbox", if_exists="replace")
+        >>> sqldb = sqldb.write_to(table="test_k", columns=["col1"], sql="SELECT col1 from grizly.table_tutorial", schema="sandbox", if_exists="replace")
         >>> con = sqldb.get_connection()
         >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
         [('item1', None), ('item2', None)]
@@ -391,6 +391,78 @@ class SQLDB:
 
         return self
 
+    def get_tables(
+        self, schema=None,
+    ):
+        """Retrieves list of (schema, table) tuples
+
+        Parameters
+        ----------
+        schema: str
+            Name of schema.
+
+        Examples
+        --------
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
+        >>> sqldb.get_tables(schema="grizly")
+        [('grizly', 'table_tutorial')]
+        """
+        if self.db == "denodo":
+            output = self._get_tables_1(schema=schema)
+        elif self.db in ("redshift", "mariadb", "aurora"):
+            output = self._get_tables_2(schema=schema)
+            if self.db == "redshift":
+                output.append(self._get_external_tables(schema=schema))
+        else:
+            raise NotImplementedError("Unsupported database.")
+
+        return output
+
+    def _get_tables_1(self, schema=None):
+        where = f"\nWHERE database_name = '{schema}'\n" if schema else ""
+
+        sql = f"""
+            SELECT database_name, name
+            FROM get_view_columns(){where}
+            GROUP BY 1, 2
+            """
+
+        con = self.get_connection()
+        output = con.execute(sql).fetchall()
+        con.close()
+
+        return output
+
+    def _get_tables_2(self, schema=None):
+        where = f"\nWHERE table_schema = '{schema}'\n" if schema else ""
+
+        sql = f"""
+            SELECT table_schema, table_name
+            FROM information_schema.tables{where}
+            GROUP BY 1, 2
+            """
+        con = self.get_connection()
+        output = con.execute(sql).fetchall()
+        con.close()
+
+        return output
+
+    def _get_external_tables(
+        self, schema=None,
+    ):
+        where = f"\nWHERE schemaname = '{schema}'\n" if schema else ""
+
+        sql = f"""
+            SELECT schemaname, tablename
+            FROM svv_external_tables{where}
+            GROUP BY 1, 2
+            """
+        con = self.get_connection()
+        output = con.execute(sql).fetchall()
+        con.close()
+
+        return output
+
     def get_columns(
         self, table, schema=None, column_types=False, date_format="DATE", columns=None,
     ):
@@ -412,7 +484,7 @@ class SQLDB:
         Examples
         --------
         >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb.get_columns(table="table_tutorial", schema="administration", column_types=True)
+        >>> sqldb.get_columns(table="table_tutorial", schema="grizly", column_types=True)
         (['col1', 'col2', 'col3', 'col4'], ['character varying(500)', 'double precision', 'character varying(500)', 'double precision'])
         """
         if self.db == "denodo":
@@ -423,6 +495,8 @@ class SQLDB:
             return self._get_columns_2(schema=schema, table=table, column_types=column_types, columns=columns)
         elif self.db == "sqlite":
             return self._get_columns_3(schema=schema, table=table, column_types=column_types)
+        else:
+            raise NotImplementedError("Unsupported database.")
 
     def _get_columns_1(
         self, table, schema: str = None, column_types: bool = False, columns: list = None, date_format: str = "DATE",
@@ -573,6 +647,28 @@ class SQLDB:
             return col_names, col_types
         else:
             return col_names
+
+    def _get_external_columns(
+        self, table, schema: str = None, column_types: bool = False, columns: list = None,
+    ):
+        where = f" AND schemaname = '{schema}'\n" if schema else ""
+
+        sql = f"""
+            SELECT columnnum,
+            columnname,
+            external_type
+            FROM SVV_EXTERNAL_COLUMNS
+            WHERE tablename = '{table}'{where}
+            ORDER BY 1
+            """
+        con = self.get_connection()
+        records = con.execute(sql).fetchall()
+        con.close()
+
+        col_names = [col for _, col, _ in records if col in columns]
+        col_types = [_type for _, col, _type in records if col in columns]
+
+        return col_names, col_types if column_types else col_names
 
     def __repr__(self):
         return f"{self.__class__.__name__}(dsn='{self.dsn}', db='{self.db}', dialect='{self.dialect}')"
