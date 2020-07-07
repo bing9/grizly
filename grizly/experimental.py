@@ -134,6 +134,7 @@ class Extract:
     def to_backend(self, serializable, file_name):
         if self.backend == "s3":
             s3 = S3(s3_key=self.s3_key, file_name=file_name)
+            self.logger.info(f"Copying {file_name} from memory to {self.s3_key}...")
             s3.from_serializable(serializable)
         else:
             raise NotImplementedError
@@ -205,6 +206,8 @@ class Extract:
 
         # compute partitions on the cluster
         partitions = client.compute(partitions_to_download).result()
+        if not partitions:
+            raise ValueError(f"No partitions were found for columns {self.partition_cols}")
 
         if isinstance(self.partition_cols, list):
             self.partition_cols = "CONCAT(" + ", ".join(self.partition_cols) + ")"
