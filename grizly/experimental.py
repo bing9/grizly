@@ -4,6 +4,7 @@ import dask
 from grizly import S3, Workflow
 import s3fs
 import pyarrow.parquet as pq
+import logging
 
 
 class Extract:
