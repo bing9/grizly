@@ -29,14 +29,15 @@ class Extract:
         pass
 
     def load_store(self):
+        logger = logging.getLogger(__name__)
         if getattr(self, "store_file_name", None) is None:
             self.store_file_name = "store.json"
-            self.logger.warning("'store_file_name' was not provided.\n" f"Attempting to load from {self.store_file_name}...")
+            logger.warning("'store_file_name' was not provided.\n" f"Attempting to load from {self.store_file_name}...")
 
         if self.backend == "local":
             if getattr(self, "store_file_dir", None) is None:
                 self.store_file_dir = os.path.join(os.getenv("GRIZLY_WORFKLOWS_HOME"), "workflows", self.module_name)
-                self.logger.warning(
+                logger.warning(
                     "'store_file_dir' was not provided but backend is set to 'local'.\n"
                     f"Attempting to load {self.store_file_name} from {self.store_file_dir or 'current directory'}..."
                 )
@@ -47,7 +48,7 @@ class Extract:
         elif self.backend == "s3":
             if getattr(self, "s3_key", None) is None:
                 self.s3_key = f"extracts/{self.module_name}/"
-                self.logger.warning(
+                logger.warning(
                     "'s3_key' was not provided but backend is set to 's3'.\n"
                     f"Attempting to load {self.store_file_name} from {self.s3_key}..."
                 )
