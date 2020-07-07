@@ -225,13 +225,13 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> qf = QFrame(dsn="redshift_acoe")
-        >>> qf = qf.from_table(table="table_tutorial", schema="administration")
+        >>> qf = qf.from_table(table="table_tutorial", schema="grizly")
         >>> print(qf)
         SELECT col1,
                col2,
                col3,
                col4
-        FROM administration.table_tutorial
+        FROM grizly.table_tutorial
         """
 
         if schema is None:
@@ -1193,8 +1193,8 @@ class QFrame(BaseTool):
         Examples
         --------
         >>> qf = QFrame(dsn="redshift_acoe")
-        >>> qf = qf.from_table(table="table_tutorial", schema="administration")
-        >>> qf.to_records()
+        >>> qf = qf.from_table(table="table_tutorial", schema="grizly")
+        >>> qf.orderby("col1").to_records()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
 
         Returns

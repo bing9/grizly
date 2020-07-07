@@ -772,13 +772,13 @@ def test_from_table_sqlite_json():
 def test_from_table_rds():
     engine_str = "mssql+pyodbc://redshift_acoe"
     qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
-    qf = qf.from_table(table="table_tutorial", schema="administration")
+    qf = qf.from_table(table="table_tutorial", schema="grizly")
 
     sql = """SELECT col1,
                col2,
                col3,
                col4
-        FROM administration.table_tutorial"""
+        FROM grizly.table_tutorial"""
 
     assert clean_testexpr(sql) == clean_testexpr(qf.get_sql())
 
@@ -790,7 +790,7 @@ def test_from_table_rds():
 def test_pivot_rds():
     engine_str = "mssql+pyodbc://redshift_acoe"
     qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
-    qf = qf.from_table(table="table_tutorial", schema="administration")
+    qf = qf.from_table(table="table_tutorial", schema="grizly")
 
     with pytest.raises(ValueError, match=f"'my_value' not found in fields."):
         qf.pivot(rows=["col1"], columns=["col2", "col3"], values="my_value")
@@ -815,7 +815,7 @@ def test_pivot_rds():
                     col2,
                     col3,
                     col4
-            FROM administration.table_tutorial) sq
+            FROM grizly.table_tutorial) sq
             GROUP BY col1"""
 
     assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
@@ -840,7 +840,7 @@ def test_pivot_rds():
                     col2,
                     col3,
                     col4
-            FROM administration.table_tutorial) sq
+            FROM grizly.table_tutorial) sq
             GROUP BY col1"""
 
     assert clean_testexpr(sql) == clean_testexpr(qf2.get_sql())
