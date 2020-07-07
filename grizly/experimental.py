@@ -32,7 +32,9 @@ class Extract:
     def load_store(self):
         if getattr(self, "store_file_name", None) is None:
             self.store_file_name = "store.json"
-            self.logger.warning("'store_file_name' was not provided.\n" f"Attempting to load from {self.store_file_name}...")
+            self.logger.warning(
+                "'store_file_name' was not provided.\n" f"Attempting to load from {self.store_file_name}..."
+            )
 
         if self.backend == "local":
             if getattr(self, "store_file_dir", None) is None:
@@ -89,7 +91,9 @@ class Extract:
         schema = qf.data["sq"]["select"]["schema"]
         table = qf.data["sq"]["select"]["table"]
         where = qf.data["sq"]["select"]["where"]
-        partitions_qf = QFrame(dsn=self.input_dsn).from_table(table=table, schema=schema, columns=columns).query(where).groupby()
+        partitions_qf = (
+            QFrame(dsn=self.input_dsn).from_table(table=table, schema=schema, columns=columns).query(where).groupby()
+        )
         records = partitions_qf.to_records()
         values = [row[0] for row in records]
 
@@ -121,7 +125,9 @@ class Extract:
         existing_partitons_normalized = [partition.replace(".", "") for partition in existing_partitions]
         self.logger.debug(f"All partitions: {all_partitions}")
         self.logger.debug(f"Existing partitions: {existing_partitons_normalized}")
-        partitions_to_download = [partition for partition in all_partitions if partition not in existing_partitons_normalized]
+        partitions_to_download = [
+            partition for partition in all_partitions if partition not in existing_partitons_normalized
+        ]
         self.logger.debug(f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}")
         return partitions_to_download
 
@@ -193,7 +199,7 @@ class Extract:
 
         if if_exists == "replace":
             partitions_to_download = all_partitions
-        else:f
+        else:
             existing_partitions = self.get_existing_partitions()
             partitions_to_download = self.get_partitions_to_download(
                 all_partitions, existing_partitions
