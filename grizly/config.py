@@ -51,11 +51,17 @@ class Config:
         ...                "http": "first_proxy",
         ...                "https": "second_proxy"
         ...            },
-        ...             "sqldb": {
-        ...             "redshift": "mssql+pyodbc://redshift_acoe",
-        ...             "denodo": "mssql+pyodbc://DenodoPROD"
-        ...        }
-        ...            }
+        ...            "sqldb": {
+        ...                "redshift_acoe": {
+        ...                   "db": "redshift",
+        ...                   "dialect": "postgresql"
+        ...                },
+        ...                "DenodoPROD": {
+        ...                   "db": "denodo",
+        ...                   "dialect": "denodo"
+        ...                }
+        ...             }
+        ...             }
         ...        }
         ...        }
         >>> conf = Config().from_dict(standard)
@@ -245,6 +251,7 @@ class Config:
                 )
 
         if config_key not in Config.data.keys():
+            print(Config.data)
             raise KeyError(f"Key {config_key} not found in config. Please check Config class documentation.")
 
         _validate_config(self.data[config_key], services=service, env=env)
