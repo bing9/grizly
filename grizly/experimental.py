@@ -13,16 +13,17 @@ class Extract:
     def __init__(self, tool, backend="local", logger=None, **kwargs):
         self.tool = tool
         self.backend = backend
-        self.module_name = "".join(os.path.basename(__file__).split(".")[:-1])
+        self.name = "Default Extract Name"
         self.priority = 0
         self.scheduler_address = "grizly_scheduler:8786"
         self.client = None
-        self.logger = logger or logging.getLogger("distributed.worker").getChild(self.module_name)
         for k, v in kwargs.items():
             if not (k in self.__class__.__allowed):
                 raise ValueError(f"{k} parameter is not allowed")
             setattr(self, k, v)
         self.load_store()
+        self.module_name = self.name.lower().replace(" - ", "_").replace(" ", "_")
+        self.logger = logger or logging.getLogger("distributed.worker").getChild(self.module_name)
 
     def _validate_store(self, store):
         pass
@@ -34,7 +35,7 @@ class Extract:
 
         if self.backend == "local":
             if getattr(self, "store_file_dir", None) is None:
-                self.store_file_dir = os.path.dirname(__file__)
+                self.store_file_dir = os.path.join(os.getenv("GRIZLY_WORFKLOWS_HOME"), "workflows", self.module_name)
                 self.logger.warning(
                     "'store_file_dir' was not provided but backend is set to 'local'.\n"
                     f"Attempting to load {self.store_file_name} from {self.store_file_dir or 'current directory'}..."
@@ -237,7 +238,6 @@ class Extract:
 #     return qf_copy.query(query)
 
 
-# __file__ = "historical_backlog_is_parquet.py"
 # #  AND business_unit_group = 'MEDG'
 # where = """
 #         segment in ( 101, 105 )
