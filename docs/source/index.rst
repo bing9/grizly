@@ -10,7 +10,6 @@ Welcome to grizly's documentation!
    :maxdepth: 4
    :caption: Contents:
 
-   content/how_to_install
    content/tutorials
    content/api_QFrame
    content/api_Email
