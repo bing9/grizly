@@ -70,7 +70,7 @@ class Extract:
 
     @dask.delayed
     def get_distinct_values(self):
-        def _validate_columns(columns, existing_columnns):
+        def _validate_columns(columns, existing_columns):
             """ Check whether the provided columns exist within the table """
             if isinstance(columns, str):
                 column = columns
@@ -88,14 +88,17 @@ class Extract:
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
-        schema = qf.data["sq"]["select"]["schema"]
-        table = qf.data["sq"]["select"]["table"]
-        where = qf.data["sq"]["select"]["where"]
+        schema = qf.data["select"]["schema"]
+        table = qf.data["select"]["table"]
+        where = qf.data["select"]["where"]
         partitions_qf = (
             QFrame(dsn=self.input_dsn).from_table(table=table, schema=schema, columns=columns).query(where).groupby()
         )
         records = partitions_qf.to_records()
-        values = [row[0] for row in records]
+        if isinstance(columns, list):
+            values = ["".join(str(val) for val in row) for row in records]
+        else:
+            values = [row[0] for row in records]
 
         self.logger.info(f"Successfully obtained the list of unique values in {columns}")
         self.logger.debug(f"Unique values in {columns}: {values}")
