@@ -25,20 +25,8 @@ class SQLDB:
         logger: Logger = None,
         **kwargs,
     ):
-        # config needs to be fixed - right now hard coded
-        # if config_key:
-        #     config = Config().get_service(config_key=config_key, service="sqldb")
-        # else:
-        #     config = {}
-        config = {
-            "redshift_acoe": {"db": "redshift", "dialect": "postgresql"},
-            "Redshift": {"db": "redshift", "dialect": "postgresql"},
-            "DenodoPROD": {"db": "denodo", "dialect": "postgresql"},
-            "DenodoODBC": {"db": "denodo", "dialect": "postgresql"},
-            "aurora_db": {"db": "aurora", "dialect": "postgresql"},
-            "retool_dev_db": {"db": "mariadb", "dialect": "mysql"},
-            "tableau_postgre": {"db": "tableau", "dialect": "postgresql"},
-        }
+        config = Config().get_service(config_key=config_key, service="sqldb")
+
         self.logger = logger or logging.getLogger(__name__)
 
         engine_str = kwargs.get("engine_str")
