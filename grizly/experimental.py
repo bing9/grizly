@@ -10,10 +10,10 @@ import logging
 class Extract:
     __allowed = ("store_file_dir", "store_file_name", "s3_key")
 
-    def __init__(self, tool, backend="local", logger=None, **kwargs):
+    def __init__(self, name, tool, backend="local", logger=None, **kwargs):
         self.tool = tool
         self.backend = backend
-        self.name = "Default Extract Name"
+        self.name = name or "Default Extract Name"
         self.priority = 0
         self.scheduler_address = "grizly_scheduler:8786"
         self.client = None
@@ -21,23 +21,22 @@ class Extract:
             if not (k in self.__class__.__allowed):
                 raise ValueError(f"{k} parameter is not allowed")
             setattr(self, k, v)
-        self.load_store()
         self.module_name = self.name.lower().replace(" - ", "_").replace(" ", "_")
         self.logger = logger or logging.getLogger("distributed.worker").getChild(self.module_name)
+        self.load_store()
 
     def _validate_store(self, store):
         pass
 
     def load_store(self):
-        logger = logging.getLogger(__name__)
         if getattr(self, "store_file_name", None) is None:
             self.store_file_name = "store.json"
-            logger.warning("'store_file_name' was not provided.\n" f"Attempting to load from {self.store_file_name}...")
+            self.logger.warning("'store_file_name' was not provided.\n" f"Attempting to load from {self.store_file_name}...")
 
         if self.backend == "local":
             if getattr(self, "store_file_dir", None) is None:
                 self.store_file_dir = os.path.join(os.getenv("GRIZLY_WORFKLOWS_HOME"), "workflows", self.module_name)
-                logger.warning(
+                self.logger.warning(
                     "'store_file_dir' was not provided but backend is set to 'local'.\n"
                     f"Attempting to load {self.store_file_name} from {self.store_file_dir or 'current directory'}..."
                 )
@@ -48,7 +47,7 @@ class Extract:
         elif self.backend == "s3":
             if getattr(self, "s3_key", None) is None:
                 self.s3_key = f"extracts/{self.module_name}/"
-                logger.warning(
+                self.logger.warning(
                     "'s3_key' was not provided but backend is set to 's3'.\n"
                     f"Attempting to load {self.store_file_name} from {self.s3_key}..."
                 )
@@ -58,7 +57,6 @@ class Extract:
             raise NotImplementedError
 
         self._validate_store(store)
-        self.name = store["metadata"]["name"]
         self.partition_cols = store["partition_cols"]
 
         return store
