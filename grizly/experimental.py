@@ -5,15 +5,16 @@ from grizly import S3, Workflow
 import s3fs
 import pyarrow.parquet as pq
 import logging
+from distributed import Client
 
 
 class Extract:
     __allowed = ("store_file_dir", "store_file_name", "s3_key")
 
     def __init__(self, name, tool, backend="local", logger=None, **kwargs):
+        self.name = name or "Default Extract Name"
         self.tool = tool
         self.backend = backend
-        self.name = name or "Default Extract Name"
         self.priority = 0
         self.scheduler_address = "grizly_scheduler:8786"
         self.client = None
