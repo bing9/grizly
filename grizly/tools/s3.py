@@ -161,11 +161,11 @@ class S3:
         self.logger.info(f"'{self.full_s3_key}' has been successfully removed")
 
     @_check_if_s3_exists
-    def to_dict(self):
+    def to_json(self):
         content_object = resource("s3").Object(self.bucket, self.full_s3_key)
-        file_content = content_object.get()['Body'].read().decode('utf-8')
-        _dict = json.loads(file_content)
-        return _dict
+        file_content = content_object.get()["Body"].read().decode("utf-8")
+        _json = json.loads(file_content)
+        return _json
 
     @_check_if_s3_exists
     def copy_to(
@@ -239,9 +239,7 @@ class S3:
         copy_source = {"Key": source_s3_key, "Bucket": self.bucket}
 
         s3_file.copy(copy_source)
-        self.logger.info(
-            f"'{source_s3_key}' copied from '{self.bucket}' to '{bucket}' bucket as '{s3_key + file_name}'"
-        )
+        self.logger.info(f"'{source_s3_key}' copied from '{self.bucket}' to '{bucket}' bucket as '{s3_key + file_name}'")
 
         if not keep_file:
             self.delete()
@@ -261,8 +259,8 @@ class S3:
         >>> s3 = S3('test_from_serializable.json', s3_key='test/')
         >>> s3 = s3.from_serializable(["a", "b", 1])
         """
-        s3_obj = resource('s3').Object(self.bucket, self.full_s3_key)
-        s3_obj.put(Body=(bytes(json.dumps(serializable).encode('UTF-8'))))
+        s3_obj = resource("s3").Object(self.bucket, self.full_s3_key)
+        s3_obj.put(Body=(bytes(json.dumps(serializable).encode("UTF-8"))))
         self.logger.info(f"Successfully uploaded '{self.file_name}' to 's3://{self.bucket}/{self.s3_key}'")
 
     def from_file(

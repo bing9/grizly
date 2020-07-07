@@ -1,28 +1,34 @@
 import json
 import os
 import dask
-from grizly import S3
+from grizly import S3, Workflow
+import s3fs
+import pyarrow.parquet as pq
+import logging
+from distributed import Client
 
 
 class Extract:
     __allowed = ("store_file_dir", "store_file_name", "s3_key")
 
-    def __init__(self, tool, backend="local", logger=None, **kwargs):
+    def __init__(self, name, tool, backend="local", logger=None, **kwargs):
+        self.name = name or "Default Extract Name"
         self.tool = tool
         self.backend = backend
-        self.module_name = "".join(os.path.basename(__file__).split(".")[:-1])
-        self.logger = logger or logging.getLogger("distributed.worker").getChild(self.module_name)
+        self.priority = 0
+        self.scheduler_address = "grizly_scheduler:8786"
+        self.client = None
         for k, v in kwargs.items():
             if not (k in self.__class__.__allowed):
                 raise ValueError(f"{k} parameter is not allowed")
             setattr(self, k, v)
+        self.module_name = self.name.lower().replace(" - ", "_").replace(" ", "_")
+        self.logger = logger or logging.getLogger("distributed.worker").getChild(self.module_name)
         self.load_store()
 
-    # @dask.delayed
     def _validate_store(self, store):
         pass
 
-    # @dask.delayed
     def load_store(self):
         if getattr(self, "store_file_name", None) is None:
             self.store_file_name = "store.json"
@@ -30,7 +36,7 @@ class Extract:
 
         if self.backend == "local":
             if getattr(self, "store_file_dir", None) is None:
-                self.store_file_dir = os.path.dirname(__file__)
+                self.store_file_dir = os.path.join(os.getenv("GRIZLY_WORFKLOWS_HOME"), "workflows", self.module_name)
                 self.logger.warning(
                     "'store_file_dir' was not provided but backend is set to 'local'.\n"
                     f"Attempting to load {self.store_file_name} from {self.store_file_dir or 'current directory'}..."
@@ -47,13 +53,15 @@ class Extract:
                     f"Attempting to load {self.store_file_name} from {self.s3_key}..."
                 )
             s3 = S3(s3_key=self.s3_key, file_name=self.store_file_name)
-            store = s3.to_dict()
+            store = s3.to_json()
         else:
             raise NotImplementedError
 
         self._validate_store(store)
-        self.name = store["metadata"]["name"]
-        self.partition_cols = store["partition_cols"]
+        if len(store["partition_cols"]) == 1:
+            self.partition_cols = store["partition_cols"][0]
+        else:
+            self.partition_cols = store["partition_cols"]
 
         return store
 
@@ -116,66 +124,118 @@ class Extract:
     @dask.delayed
     def get_partitions_to_download(self, all_partitions, existing_partitions):
         existing_partitons_normalized = [partition.replace(".", "") for partition in existing_partitions]
-        logger.debug(f"All partitions: {all_partitions}")
-        logger.debug(f"Existing partitions: {existing_partitons_normalized}")
+        self.logger.debug(f"All partitions: {all_partitions}")
+        self.logger.debug(f"Existing partitions: {existing_partitons_normalized}")
         partitions_to_download = [partition for partition in all_partitions if partition not in existing_partitons_normalized]
-        logger.debug(f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}")
+        self.logger.debug(f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}")
         return partitions_to_download
 
     @dask.delayed
-    def push_to_backend(self, json_obj):
+    def to_backend(self, serializable, file_name):
         if self.backend == "s3":
-            s3 = boto3.resource("s3")
-            s3object = s3.Object("your-bucket-name", os.path.join(self.s3_key, "partitions.json"))
-            s3object.put(Body=(bytes(json.dumps(json_data).encode("UTF-8"))))
-            with open(json_obj) as f:
-                s3.Bucket(...).upload_fileobj(f)
-            # add this to S3
-
-    @dask.delayed
-    def get_partitions(self):
-        if self.backend == "s3":
-            s3 = S3(s3_key=s3_key)
+            s3 = S3(s3_key=self.s3_key, file_name=file_name)
+            self.logger.info(f"Copying {file_name} from memory to {self.s3_key}...")
+            s3.from_serializable(serializable)
         else:
             raise NotImplementedError
 
     @dask.delayed
-    def to_arrow(self):
-        return self.tool.to_arrow()  # qf.to_arrow(), sfdc.to_arrow()
+    def get_cached_distinct_values(self, file_name):
+        if self.backend == "s3":
+            s3 = S3(s3_key=self.s3_key, file_name=file_name)
+            _dict = s3.to_json()
+        else:
+            raise NotImplementedError
+        return _dict
 
     @dask.delayed
-    def arrow_to_backend(self, arrow_table):
-        if backend == "s3":
-            self.arrow_to_s3(arrow_table)
+    def query_tool(self, query):
+        tool_copy = self.tool.copy()
+        return tool_copy.query(query)
+
+    @dask.delayed
+    def to_arrow(self, processed_tool):
+        return processed_tool.to_arrow()  # qf.to_arrow(), sfdc.to_arrow()
+
+    @dask.delayed
+    def arrow_to_backend(self, arrow_table, s3_key):
+        def arrow_to_s3(arrow_table):
+            def give_name(_):
+                return file_name
+
+            s3 = s3fs.S3FileSystem()
+            file_name = s3_key.split("/")[-1]
+            s3_key_root = "s3://acoe-s3/" + s3_key[: s3_key.index(file_name) - 1]  # -1 removes the last slash
+            self.logger.info(f"Uploading {file_name} to {s3_key_root}...")
+            pq.write_to_dataset(
+                arrow_table,
+                root_path=s3_key_root,
+                filesystem=s3,
+                use_dictionary=True,
+                compression="snappy",
+                partition_filename_cb=give_name,
+            )
+            self.logger.info(f"Successfully uploaded {file_name} to {s3_key}")
+
+        if self.backend == "s3":
+            arrow_to_s3(arrow_table)
         else:
             raise NotImplementedError
 
-    def generate_partitions_workflow(self):
-        existing_partitions = self.get_existing_partitions()
-        all_partitions = self.get_distinct_values()
-        partitions_to_download = self.get_partitions_to_download(all_partitions, existing_partitions)  # should return json obj
-        # backend = self.push_to_backend(partitions, resource_name=name_snake_case + ".json")
-        wf = Workflow(name=self.name, tasks=[partitions_to_download])
-        return wf
+    def generate_workflow(
+        self, refresh_partitions_list=True, if_exists="append", download_if_older_than=0, cache_distinct_values=True
+    ):
+        client = self.client or Client(self.scheduler_address)
 
-    def generate_workflow(self):
-        partitions = self.get_partitions(self.backend)
-        arrow = dask.delayed(to_arrow)
-        tasks = [arrow]
-        wf = Workflow(tasks=tasks)
+        if refresh_partitions_list:
+            all_partitions = self.get_distinct_values()
+        else:
+            all_partitions = self.get_cached_distinct_values(file_name="all_partitions.json")
+
+        # by default, always cache the list of distinct values in backend for future use
+        if cache_distinct_values:
+            cache_distinct_values_in_backend = self.to_backend(all_partitions, file_name="all_partitions.json")
+
+        if if_exists == "replace":
+            partitions_to_download = all_partitions
+        else:
+            existing_partitions = self.get_existing_partitions()
+            partitions_to_download = self.get_partitions_to_download(
+                all_partitions, existing_partitions
+            )  # should return json obj
+
+        # compute partitions on the cluster
+        partitions = client.compute(partitions_to_download).result()
+        if not partitions:
+            raise ValueError(f"No partitions were found for columns {self.partition_cols}")
+
+        if isinstance(self.partition_cols, list):
+            self.partition_cols = "CONCAT(" + ", ".join(self.partition_cols) + ")"
+
+        # create the workflow
+        uploads = []
+        for partition in partitions:
+            s3_key = self.s3_key + f"{partition}.parquet"
+            where = f"{self.partition_cols}='{partition}'"
+            processed_tool = self.query_tool(query=where)
+            arrow_table = self.to_arrow(processed_tool)
+            push_to_backend = self.arrow_to_backend(arrow_table, s3_key=s3_key)
+            uploads.append(push_to_backend)
+        wf = Workflow(name=self.name, tasks=uploads)
         return wf
 
 
 # testing
 # from grizly import QFrame
 # import logging
+# from distributed import Client
 # logger = logging.getLogger("distributed.worker").getChild("extract_test")
 
 
-# def load_qf(engine_str):
+# def load_qf(dsn):
 #     grizly_wf_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows/workflows"
 #     json_path = os.path.join(grizly_wf_dir, "workflows", "historical_backlog_parquet", "historical_backlog_is.json")
-#     qf = QFrame(engine=engine_str, logger=logger).from_json(json_path, subquery="historical_backlog_is")
+#     qf = QFrame(dsn=dsn, logger=logger).from_json(json_path, subquery="historical_backlog_is")
 #     return qf
 
 
@@ -184,20 +244,15 @@ class Extract:
 #     return qf_copy.query(query)
 
 
-# __file__ = "historical_backlog_is_parquet.py"
+# #  AND business_unit_group = 'MEDG'
 # where = """
 #         segment in ( 101, 105 )
 #         AND snapshot_weekly_indicator = 1
 #         AND current_near_real_time_data_indicator = '0'
 #         AND business_unit_group IN ('AERG', 'ENGG', 'ICTG', 'INDG', 'MEDG')
 #         """
-# qf_raw = load_qf(engine_str="mssql+pyodbc://DenodoPROD")
+# qf_raw = load_qf(dsn="DenodoPROD")
 # qf = query_qf(qf_raw, query=where)
-# # store = Extract(tool=qf, backend="s3").load_store()
-# # store
-# # existing_partitions = Extract(tool=qf, backend="s3").get_existing_partitions().compute()
-# # existing_partitions
-# # distinct_values = Extract(tool=qf, backend="s3").get_distinct_values().compute()
-# # distinct_values
-# partitions_wf = Extract(tool=qf, backend="s3").generate_partitions_workflow()
-# partitions_wf.submit(scheduler_address="grizly_scheduler:8786")
+# wf = Extract(tool=qf, backend="s3").generate_workflow(refresh_partitions_list=True)
+# local_client = Client("grizly_scheduler:8786")
+# wf.submit(client=local_client)

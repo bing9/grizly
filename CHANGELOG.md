@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed package PageLayout
 - Added the possibility to run and cancel control checks (eg. `grizly workflow run "sales daily news control check" --local`). To cancel checks running on prod, run eg. `grizly workflow cancel "sales daily news control check"`
 - **IMPORTANT**: Engine strings (`engine` or `engine_str` parameters) are deprecated since version `0.3.6`. They are replaced with suitable datasource names (`dsn` parameter) [#455](https://github.com/kfk/grizly/issues/455)
+- added experimental.py with the experimental Extract class
 
 ### Orchestrate
 
@@ -24,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## S3
 
 - Added `to_aurora()` method [#404](https://github.com/kfk/grizly/issues/404)
+- Added `to_json()` method
+- Added `from_serializable()` method
 
 ## [0.3.5] - 02-06-2020
 
