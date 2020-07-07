@@ -1,7 +1,7 @@
 import json
 import os
 import dask
-from grizly import S3, Workflow
+from grizly import QFrame, S3, Workflow
 import s3fs
 import pyarrow.parquet as pq
 import logging
@@ -32,7 +32,9 @@ class Extract:
     def load_store(self):
         if getattr(self, "store_file_name", None) is None:
             self.store_file_name = "store.json"
-            self.logger.warning("'store_file_name' was not provided.\n" f"Attempting to load from {self.store_file_name}...")
+            self.logger.warning(
+                "'store_file_name' was not provided.\n" f"Attempting to load from {self.store_file_name}..."
+            )
 
         if self.backend == "local":
             if getattr(self, "store_file_dir", None) is None:
@@ -62,6 +64,7 @@ class Extract:
             self.partition_cols = store["partition_cols"][0]
         else:
             self.partition_cols = store["partition_cols"]
+        self.input_dsn = store["input_dsn"]
 
         return store
 
@@ -81,21 +84,17 @@ class Extract:
         columns = self.partition_cols
         existing_columns = self.tool.get_fields()
         _validate_columns(columns, existing_columns)
-        qf_copy = self.tool.copy()
+        qf = self.tool
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
-        if isinstance(columns, str):
-            column = columns
-            to_select = column
-        elif isinstance(columns, list):
-            partition_col = "CONCAT(" + ", ".join(columns) + ")"
-            qf_copy.assign(partition_column=partition_col)
-            to_select = "partition_column"
-        else:
-            raise ValueError(f"columns must be one of: str, list")
-
-        records = qf_copy.select(to_select).distinct().to_records()
+        schema = qf.data["sq"]["select"]["schema"]
+        table = qf.data["sq"]["select"]["table"]
+        where = qf.data["sq"]["select"]["where"]
+        partitions_qf = (
+            QFrame(dsn=self.input_dsn).from_table(table=table, schema=schema, columns=columns).query(where).groupby()
+        )
+        records = partitions_qf.to_records()
         values = [row[0] for row in records]
 
         self.logger.info(f"Successfully obtained the list of unique values in {columns}")
@@ -126,7 +125,9 @@ class Extract:
         existing_partitons_normalized = [partition.replace(".", "") for partition in existing_partitions]
         self.logger.debug(f"All partitions: {all_partitions}")
         self.logger.debug(f"Existing partitions: {existing_partitons_normalized}")
-        partitions_to_download = [partition for partition in all_partitions if partition not in existing_partitons_normalized]
+        partitions_to_download = [
+            partition for partition in all_partitions if partition not in existing_partitons_normalized
+        ]
         self.logger.debug(f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}")
         return partitions_to_download
 

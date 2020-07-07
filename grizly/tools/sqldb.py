@@ -38,7 +38,7 @@ class SQLDB:
             )
         if kwargs.get("interface") is not None:
             self.logger.warning(
-                f"Parameter interface will be ignored. Since version 0.3.6 grizly only supports 'pyodbc' interface.",
+                f"Parameter interface will be ignored. Since version 0.3.6 grizly only supports 'pyodbc' interface."
             )
         if dsn is None:
             self.logger.warning("Please specify dsn parameter. Since version 0.3.8 it will be obligatory.")
@@ -379,9 +379,7 @@ class SQLDB:
 
         return self
 
-    def get_tables(
-        self, schema=None,
-    ):
+    def get_tables(self, schema=None):
         """Retrieves list of (schema, table) tuples
 
         Parameters
@@ -437,9 +435,7 @@ class SQLDB:
 
         return output
 
-    def _get_external_tables(
-        self, schema=None,
-    ):
+    def _get_external_tables(self, schema=None):
         where = f"\nWHERE schemaname = '{schema}'\n" if schema else ""
 
         sql = f"""
@@ -454,9 +450,7 @@ class SQLDB:
 
         return output
 
-    def get_columns(
-        self, table, schema=None, column_types=False, date_format="DATE", columns=None,
-    ):
+    def get_columns(self, table, schema=None, column_types=False, date_format="DATE", columns=None):
         """Retrieves column names and optionally other table metadata
 
         Parameters
@@ -480,7 +474,7 @@ class SQLDB:
         """
         if self.db == "denodo":
             return self._get_columns_1(
-                schema=schema, table=table, column_types=column_types, date_format=date_format, columns=columns,
+                schema=schema, table=table, column_types=column_types, date_format=date_format, columns=columns
             )
         elif self.db in ("redshift", "mariadb", "aurora"):
             if (schema, table) in self._get_tables_2(schema=schema) or self.db != "redshift":
@@ -495,7 +489,7 @@ class SQLDB:
             raise NotImplementedError("Unsupported database.")
 
     def _get_columns_1(
-        self, table, schema: str = None, column_types: bool = False, columns: list = None, date_format: str = "DATE",
+        self, table, schema: str = None, column_types: bool = False, columns: list = None, date_format: str = "DATE"
     ):
         """Get column names (and optionally types) from Denodo view.
 
@@ -551,13 +545,11 @@ class SQLDB:
                 col_names_and_types = {
                     col_name: col_type for col_name, col_type in zip(col_names, col_types) if col_name in columns
                 }
-                col_names = [col for col in col_names_and_types]
-                col_types = [type for type in col_names_and_types.values()]
-            return col_names, col_types
+                col_names = [col for col in columns if col in col_names_and_types]
+                col_types = [col_names_and_types[col_name] for col_name in col_names]
+                return col_names, col_types
 
-    def _get_columns_2(
-        self, table, schema: str = None, column_types: bool = False, columns: list = None,
-    ):
+    def _get_columns_2(self, table, schema: str = None, column_types: bool = False, columns: list = None):
         """Get column names (and optionally types) from a Redshift, MariaDB or Aurora table."""
         con = self.get_connection()
         cursor = con.cursor()
@@ -644,9 +636,7 @@ class SQLDB:
         else:
             return col_names
 
-    def _get_external_columns(
-        self, table, schema: str = None, column_types: bool = False, columns: list = None,
-    ):
+    def _get_external_columns(self, table, schema: str = None, column_types: bool = False, columns: list = None):
         where = f" AND schemaname = '{schema}'\n" if schema else ""
 
         sql = f"""
@@ -683,33 +673,33 @@ class SQLDB:
         )
 
 
-@deprecation.deprecated(details="Use SQLDB.check_if_exists function instead",)
+@deprecation.deprecated(details="Use SQLDB.check_if_exists function instead")
 def check_if_exists(table, schema=""):
     sqldb = SQLDB(db="redshift", engine_str="mssql+pyodbc://redshift_acoe")
     return sqldb.check_if_exists(table=table, schema=schema)
 
 
-@deprecation.deprecated(details="Use SQLDB.create_table function instead",)
+@deprecation.deprecated(details="Use SQLDB.create_table function instead")
 def create_table(table, columns, types, schema="", engine_str=None, char_size=500):
     sqldb = SQLDB(db="redshift", engine_str=engine_str)
     sqldb.create_table(table=table, columns=columns, types=types, schema=schema, char_size=char_size)
 
 
-@deprecation.deprecated(details="Use SQLDB.write_to function instead",)
+@deprecation.deprecated(details="Use SQLDB.write_to function instead")
 def write_to(table, columns, sql, schema="", engine_str=None, if_exists="fail"):
     sqldb = SQLDB(db="redshift", engine_str=engine_str)
     sqldb.write_to(table=table, columns=columns, sql=sql, schema=schema, if_exists=if_exists)
 
 
-@deprecation.deprecated(details="Use SQLDB.get_columns function instead",)
+@deprecation.deprecated(details="Use SQLDB.get_columns function instead")
 def get_columns(
-    table, schema=None, column_types=False, date_format="DATE", db="denodo", columns=None, engine_str: str = None,
+    table, schema=None, column_types=False, date_format="DATE", db="denodo", columns=None, engine_str: str = None
 ):
     db = db.lower()
     if db == "denodo" or db == "redshift":
         sqldb = SQLDB(db=db, engine_str=engine_str)
         return sqldb.get_columns(
-            table=table, schema=schema, column_types=column_types, date_format=date_format, columns=columns,
+            table=table, schema=schema, column_types=column_types, date_format=date_format, columns=columns
         )
     elif db == "sfdc":
         return get_sfdc_columns(table=table, column_types=column_types, columns=columns)
@@ -717,7 +707,7 @@ def get_columns(
         raise NotImplementedError("This db is not yet supported")
 
 
-@deprecation.deprecated(details="Use SQLDB.delete_where function instead",)
+@deprecation.deprecated(details="Use SQLDB.delete_where function instead")
 def delete_where(table, schema="", redshift_str=None, *argv):
     sqldb = SQLDB(db="redshift", engine_str=redshift_str)
     if argv is not None:
@@ -727,7 +717,7 @@ def delete_where(table, schema="", redshift_str=None, *argv):
         sqldb.delete_from(table=table, schema=schema)
 
 
-@deprecation.deprecated(details="Use SQLDB.copy_table function instead",)
+@deprecation.deprecated(details="Use SQLDB.copy_table function instead")
 def copy_table(schema, copy_from, to, redshift_str=None):
     sqldb = SQLDB(db="redshift", engine_str=redshift_str)
     sqldb.copy_table(in_table=copy_from, out_table=to, in_schema=schema, out_schema=schema)
