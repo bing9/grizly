@@ -106,7 +106,7 @@ class Config:
 
             for key in data["config"].keys():
                 # updating old config to be romoved in 0.3.7
-                if "sqldb" in data["config"][key] and "denodo" in data["config"][key]["sqldb"]:
+                if "sqldb" not in data["config"][key] or "denodo" in data["config"][key]["sqldb"]:
                     sqldb_config = {
                         "redshift_acoe": {"db": "redshift", "dialect": "postgresql"},
                         "Redshift": {"db": "redshift", "dialect": "postgresql"},
