@@ -1,7 +1,7 @@
 import json
 import os
 import dask
-from grizly import S3, Workflow
+from grizly import QFrame, S3, Workflow
 import s3fs
 import pyarrow.parquet as pq
 import logging
@@ -62,6 +62,7 @@ class Extract:
             self.partition_cols = store["partition_cols"][0]
         else:
             self.partition_cols = store["partition_cols"]
+        self.input_dsn = store["input_dsn"]
 
         return store
 
@@ -81,21 +82,15 @@ class Extract:
         columns = self.partition_cols
         existing_columns = self.tool.get_fields()
         _validate_columns(columns, existing_columns)
-        qf_copy = self.tool.copy()
+        qf = self.tool
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
-        if isinstance(columns, str):
-            column = columns
-            to_select = column
-        elif isinstance(columns, list):
-            partition_col = "CONCAT(" + ", ".join(columns) + ")"
-            qf_copy.assign(partition_column=partition_col)
-            to_select = "partition_column"
-        else:
-            raise ValueError(f"columns must be one of: str, list")
-
-        records = qf_copy.select(to_select).distinct().to_records()
+        schema = qf.data["sq"]["select"]["schema"]
+        table = qf.data["sq"]["select"]["table"]
+        where = qf.data["sq"]["select"]["where"]
+        partitions_qf = QFrame(dsn=self.input_dsn).from_table(table=table, schema=schema, columns=columns).query(where).groupby()
+        records = partitions_qf.to_records()
         values = [row[0] for row in records]
 
         self.logger.info(f"Successfully obtained the list of unique values in {columns}")
@@ -198,7 +193,7 @@ class Extract:
 
         if if_exists == "replace":
             partitions_to_download = all_partitions
-        else:
+        else:f
             existing_partitions = self.get_existing_partitions()
             partitions_to_download = self.get_partitions_to_download(
                 all_partitions, existing_partitions
