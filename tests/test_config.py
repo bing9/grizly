@@ -7,15 +7,7 @@ data = {
     "config": {
         "standard": {
             "email": {"email_address": "my_email@example.com", "email_password": "my_password", "send_as": "Team"},
-            "github": {
-                "username": "my_login",
-                "username_password": "my_password",
-                "pages": 100,
-                "proxies": {
-                    "http": "http://restrictedproxy.tycoelectronics.com:80",
-                    "https": "https://restrictedproxy.tycoelectronics.com:80",
-                },
-            },
+            "github": {"username": "my_login", "username_password": "my_password", "pages": 100,},
             "sfdc": {
                 "stage": {
                     "username": "my_login",
@@ -45,12 +37,7 @@ def test_from_json():
         "standard": {
             "proxies": {"http": "first_proxy", "https": "second_proxy"},
             "email": {"email_address": "my_email@example.com", "email_password": "my_password", "send_as": "Team"},
-            "github": {
-                "username": "my_login",
-                "proxies": {"http": "first_proxy", "https": "second_proxy"},
-                "pages": 100,
-                "username_password": "my_password",
-            },
+            "github": {"username": "my_login", "pages": 100, "username_password": "my_password"},
             "sfdc": {
                 "stage": {
                     "username": "my_login",
@@ -59,6 +46,11 @@ def test_from_json():
                     "organizationId": "OrgId",
                 },
                 "prod": {"username": "my_login", "password": "my_password", "organizationId": "OrgId"},
+            },
+            "sqldb": {
+                "redshift_acoe": {"db": "redshift", "dialect": "postgresql"},
+                "DenodoPROD": {"db": "denodo", "dialect": "denodo"},
+                "aurora_db": {"db": "aurora", "dialect": "postgresql"},
             },
         }
     }

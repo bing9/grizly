@@ -58,11 +58,9 @@ class GitHub(BaseTool):
         print("Test")
         records = []
         if self.username is None:
-            self.username = _validate_config(config=Config.data[self.config_key], services="github")["github"][
-                "username"
-            ]
+            self.username = Config().get_service(config_key=self.config_key, service="github")["username"]
         if self.username_password is None:
-            self.username_password = _validate_config(config=Config.data[self.config_key], services="github")["github"][
+            self.username_password = Config().get_service(config_key=self.config_key, service="github")[
                 "username_password"
             ]
 
