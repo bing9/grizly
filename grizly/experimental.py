@@ -58,7 +58,10 @@ class Extract:
             raise NotImplementedError
 
         self._validate_store(store)
-        self.partition_cols = store["partition_cols"]
+        if len(store["partition_cols"]) == 1:
+            self.partition_cols = store["partition_cols"][0]
+        else:
+            self.partition_cols = store["partition_cols"]
 
         return store
 
