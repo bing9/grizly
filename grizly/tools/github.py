@@ -35,17 +35,16 @@ class GitHub(BaseTool):
             self.username = config["username"]
             self.username_password = config["username_password"]
             self.pages = config["pages"]
-            self.proxies = config["proxies"]
         else:
             self.username = username
             self.username_password = username_password
             self.pages = pages
-            self.proxies = proxies
             self.config = None
+        self.proxies = proxies or Config().get_service(config_key=self.config_key, service="proxies")
 
     def from_issues(self, url: str):
         """Gets issues into a data frame extract
-        
+
         Parameters
         ----------
         org_name : str
@@ -55,10 +54,7 @@ class GitHub(BaseTool):
         -------
         self, do self.data for the dataframe
         """
-        proxies = {
-            "http": "http://restrictedproxy.tycoelectronics.com:80",
-            "https": "https://restrictedproxy.tycoelectronics.com:80",
-        }
+
         print("Test")
         records = []
         if self.username is None:

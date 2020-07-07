@@ -820,31 +820,6 @@ def test_pivot_rds():
 
     assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
 
-    # not sorted
-    qf2 = qf.copy()
-    qf2.pivot(rows=["col1"], columns=["col2", "col3"], values="col4", prefix="p_", sort=False)
-
-    sql = """SELECT sq.col1 AS "col1",
-                sum(CASE
-                    WHEN "col2"='1.3'
-                            AND "col3" IS NULL THEN "col4"
-                    ELSE 0
-                END) AS "p_1.3_None",
-                sum(CASE
-                    WHEN "col2"='0.0'
-                            AND "col3" IS NULL THEN "col4"
-                    ELSE 0
-                END) AS "p_0.0_None"
-            FROM
-            (SELECT col1,
-                    col2,
-                    col3,
-                    col4
-            FROM grizly.table_tutorial) sq
-            GROUP BY col1"""
-
-    assert clean_testexpr(sql) == clean_testexpr(qf2.get_sql())
-
 
 def test_join_pivot_sqlite():
     playlist_track_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(deepcopy(playlist_track))
