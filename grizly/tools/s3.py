@@ -239,7 +239,9 @@ class S3:
         copy_source = {"Key": source_s3_key, "Bucket": self.bucket}
 
         s3_file.copy(copy_source)
-        self.logger.info(f"'{source_s3_key}' copied from '{self.bucket}' to '{bucket}' bucket as '{s3_key + file_name}'")
+        self.logger.info(
+            f"'{source_s3_key}' copied from '{self.bucket}' to '{bucket}' bucket as '{s3_key + file_name}'"
+        )
 
         if not keep_file:
             self.delete()
@@ -772,7 +774,9 @@ class S3:
                 Key=self.s3_key + self.file_name,
                 ExpressionType="SQL",
                 Expression="SELECT * FROM s3object LIMIT 21",
-                InputSerialization={"CSV": {"FileHeaderInfo": "None", "FieldDelimiter": sep}},
+                InputSerialization={
+                    "CSV": {"FileHeaderInfo": "None", "AllowQuotedRecordDelimiter": True, "FieldDelimiter": sep}
+                },
                 OutputSerialization={"CSV": {}},
             )
 
@@ -855,7 +859,7 @@ class S3:
         s3_client = resource("s3").meta.client
 
         if file_ext == "CSV":
-            InputSerialization = {"CSV": {"FieldDelimiter": sep}}
+            InputSerialization = {"CSV": {"FieldDelimiter": sep, "AllowQuotedRecordDelimiter": True}}
         elif file_ext == "Parquet":
             InputSerialization = {"Parquet": {}}
 
