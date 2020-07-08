@@ -217,13 +217,14 @@ class Extract:
             raise ValueError(f"No partitions were found for columns {self.partition_cols}")
 
         if isinstance(self.partition_cols, list):
-            self.partition_cols = "CONCAT(" + ", ".join(self.partition_cols) + ")"
+            partition_cols_casted = [f"CAST({partition_col} AS VARCHAR)" for partition_col in self.partition_cols]
+            partition_cols = "CONCAT(" + ", ".join(partition_cols_casted) + ")"
 
         # create the workflow
         uploads = []
         for partition in partitions:
             s3_key = self.s3_key + f"{partition}.parquet"
-            where = f"{self.partition_cols}='{partition}'"
+            where = f"{partition_cols}='{partition}'"
             processed_tool = self.query_tool(query=where)
             arrow_table = self.to_arrow(processed_tool)
             push_to_backend = self.arrow_to_backend(arrow_table, s3_key=s3_key)
