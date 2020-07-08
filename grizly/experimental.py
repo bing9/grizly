@@ -154,8 +154,9 @@ class Extract:
 
     @dask.delayed
     def query_tool(self, query):
-        tool_copy = self.tool.copy()
-        return tool_copy.query(query)
+        queried  = self.tool.copy().query(query)
+        self.logger.info(queried)
+        return queried
 
     @dask.delayed
     def to_arrow(self, processed_tool):
