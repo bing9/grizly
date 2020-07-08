@@ -155,7 +155,6 @@ class Extract:
     @dask.delayed
     def query_tool(self, query):
         queried  = self.tool.copy().query(query)
-        self.logger.info(queried)
         return queried
 
     @dask.delayed
