@@ -124,7 +124,7 @@ class Extract:
         return existing_partitions
 
     @dask.delayed
-    def get_partitions_to_download(self, all_partitions, existing_partitions):
+    def get_partitions_to_download(self, all_partitions, existing_partitions, upstream=None):
         existing_partitons_normalized = [partition.replace(".", "") for partition in existing_partitions]
         self.logger.debug(f"All partitions: {all_partitions}")
         self.logger.debug(f"Existing partitions: {existing_partitons_normalized}")
@@ -199,13 +199,15 @@ class Extract:
         # by default, always cache the list of distinct values in backend for future use
         if cache_distinct_values:
             cache_distinct_values_in_backend = self.to_backend(all_partitions, file_name="all_partitions.json")
+        else:
+            cache_distinct_values_in_backend = None
 
         if if_exists == "replace":
             partitions_to_download = all_partitions
         else:
             existing_partitions = self.get_existing_partitions()
             partitions_to_download = self.get_partitions_to_download(
-                all_partitions, existing_partitions
+                all_partitions, existing_partitions, upstream=cache_distinct_values_in_backend
             )  # should return json obj
 
         # compute partitions on the cluster
