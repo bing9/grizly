@@ -132,6 +132,7 @@ class Extract:
             partition for partition in all_partitions if partition not in existing_partitons_normalized
         ]
         self.logger.debug(f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}")
+        self.logger.info(f"Downloading {len(partitions_to_download)} partitions...")
         return partitions_to_download
 
     @dask.delayed
@@ -233,33 +234,24 @@ class Extract:
 
 
 # testing
+# from grizly.experimental import Extract
 # from grizly import QFrame
 # import logging
 # from distributed import Client
-# logger = logging.getLogger("distributed.worker").getChild("extract_test")
+# import os
+
+
+# logger = logging.getLogger("distributed.worker").getChild("dss_extract")
 
 
 # def load_qf(dsn):
 #     grizly_wf_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows/workflows"
-#     json_path = os.path.join(grizly_wf_dir, "workflows", "historical_backlog_parquet", "historical_backlog_is.json")
-#     qf = QFrame(dsn=dsn, logger=logger).from_json(json_path, subquery="historical_backlog_is")
+#     json_path = os.path.join(grizly_wf_dir, "workflows", "direct_sales_summary_csr", "direct_sales_summary_csr_eng.json")
+#     qf = QFrame(dsn=dsn, logger=logger).from_json(json_path, subquery="direct_sales_summary_csr_eng")
 #     return qf
 
 
-# def query_qf(qf, query):
-#     qf_copy = qf.copy()
-#     return qf_copy.query(query)
-
-
-# #  AND business_unit_group = 'MEDG'
-# where = """
-#         segment in ( 101, 105 )
-#         AND snapshot_weekly_indicator = 1
-#         AND current_near_real_time_data_indicator = '0'
-#         AND business_unit_group IN ('AERG', 'ENGG', 'ICTG', 'INDG', 'MEDG')
-#         """
-# qf_raw = load_qf(dsn="DenodoPROD")
-# qf = query_qf(qf_raw, query=where)
-# wf = Extract(tool=qf, backend="s3").generate_workflow(refresh_partitions_list=True)
+# qf = load_qf(dsn="DenodoPROD")
+# wf = Extract("Direct Sales Summary CSR", tool=qf, backend="s3").generate_workflow(refresh_partitions_list=True)
 # local_client = Client("grizly_scheduler:8786")
 # wf.submit(client=local_client)
