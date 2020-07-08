@@ -547,7 +547,7 @@ class SQLDB:
                 }
                 col_names = [col for col in columns if col in col_names_and_types]
                 col_types = [col_names_and_types[col_name] for col_name in col_names]
-                return col_names, col_types
+            return col_names, col_types
 
     def _get_columns_2(self, table, schema: str = None, column_types: bool = False, columns: list = None):
         """Get column names (and optionally types) from a Redshift, MariaDB or Aurora table."""
