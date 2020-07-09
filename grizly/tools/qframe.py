@@ -1713,19 +1713,18 @@ def _validate_data(data):
 
         if "group_by" in fields[field] and fields[field]["group_by"] != "":
             group_by = fields[field]["group_by"]
-            if group_by.upper() not in [
-                "GROUP",
-                "SUM",
-                "COUNT",
-                "MAX",
-                "MIN",
-                "AVG",
-                "STDDEV",
-            ]:
+            group_by_all_aggs = ["GROUP", "SUM", "COUNT", "MAX", "MIN", "AVG", "STDDEV"]
+            group_by_numeric_aggs = group_by_all_aggs[1:]
+            numeric_types = ["DOUBLE PRECISION", "INTEGER", "NUMERIC"]
+            field_custom_type_has_parameter = field_custom_type.find("(") != -1
+            field_custom_type_trimmed = field_custom_type[:field_custom_type.find("(")] if field_custom_type_has_parameter else field_custom_type
+            
+            if group_by.upper() not in group_by_all_aggs:
                 raise ValueError(
                     f"""Field '{field}' has invalid value in  group_by: '{group_by}'. Valid values: '', 'group', 'sum', 'count', 'max', 'min', 'avg','stddev' """
                 )
-            elif group_by.upper() in ["SUM", "COUNT", "MAX", "MIN", "AVG", "STDDEV"] and field_type != "num":
+
+            if group_by.upper() in group_by_numeric_aggs and (field_type != "num" and field_custom_type_trimmed not in numeric_types):
                 raise ValueError(
                     f"Field '{field}' has value '{field_type}' in type and value '{group_by}' in group_by. In case of aggregation type should be 'num'."
                 )
