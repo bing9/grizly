@@ -79,7 +79,7 @@ class QFrame(BaseTool):
             self.logger.info("Your QFrame is empty.")
             return self
         else:
-            self.data["select"]["sql_blocks"] = _build_column_strings(self.data)
+            self.data["select"]["sql_blocks"] = self._build_column_strings()
             return self
 
     def validate_data(self, data: dict):
@@ -1077,7 +1077,7 @@ class QFrame(BaseTool):
         QFrame
         """
         self.create_sql_blocks()
-        self.sql = _get_sql(data=self.data, dialect=self.sqldb.dialect)
+        self.sql = _get_sql(data=self.data, sqldb=self.sqldb)
         return self.sql
 
     def create_table(self, table, schema="", char_size=500, dsn=None, sqldb=None, if_exists=None, **kwargs):
@@ -1463,6 +1463,90 @@ class QFrame(BaseTool):
 
         return fields_out
 
+    def _build_column_strings(self):
+        if self.data == {}:
+            return {}
+
+        duplicates = _get_duplicated_columns(self.data)
+        assert (
+            duplicates == {}
+        ), f"""Some of your fields have the same aliases {duplicates}. Use your_qframe.remove() to remove or your_qframe.rename() to rename columns."""
+        select_names = []
+        select_aliases = []
+        group_dimensions = []
+        group_values = []
+        order_by = []
+        types = []
+
+        fields = self.data["select"]["fields"]
+        selected_fields = self._get_fields(aliased=False, not_selected=False)
+
+        for field in fields:
+            if "expression" in fields[field] and fields[field]["expression"] != "":
+                expr = fields[field]["expression"]
+            else:
+                prefix = re.search(r"^sq\d*[.]", field)
+                if prefix is not None:
+                    expr = f'{prefix.group(0)}"{field[len(prefix.group(0)):]}"'
+                else:
+                    expr = f'"{field}"'
+
+            alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
+            alias = alias.replace('"', "")
+
+            # we take either position or expression - depends if field in select
+            if field in selected_fields:
+                pos_nm = str(selected_fields.index(field) + 1)
+            else:
+                pos_nm = expr
+
+            if "group_by" in fields[field]:
+                if fields[field]["group_by"].upper() == "GROUP":
+                    group_dimensions.append(pos_nm)
+
+                elif fields[field]["group_by"].upper() in [
+                    "SUM",
+                    "COUNT",
+                    "MAX",
+                    "MIN",
+                    "AVG",
+                ]:
+                    agg = fields[field]["group_by"]
+                    expr = f"{agg}({expr})"
+                    group_values.append(alias)
+
+            if "order_by" in fields[field] and fields[field]["order_by"] != "":
+                if fields[field]["order_by"].upper() == "DESC":
+                    order = " DESC"
+                else:
+                    order = ""
+                order_by.append(f"{pos_nm}{order}")
+
+            if field in selected_fields:
+                select_name = expr if expr == f'"{alias}"' else f'{expr} as "{alias}"'
+
+                if "custom_type" in fields[field] and fields[field]["custom_type"] != "":
+                    type = fields[field]["custom_type"].upper()
+                elif fields[field]["type"] == "dim":
+                    type = "VARCHAR(500)"
+                elif fields[field]["type"] == "num":
+                    type = "FLOAT(53)"
+
+                select_names.append(select_name)
+                select_aliases.append(alias)
+                types.append(type)
+
+        sql_blocks = {
+            "select_names": select_names,
+            "select_aliases": select_aliases,
+            "group_dimensions": group_dimensions,
+            "group_values": group_values,
+            "order_by": order_by,
+            "types": types,
+        }
+
+        return sql_blocks
+
 
 def join(qframes=[], join_type=None, on=None, unique_col=True):
     """Joins QFrame objects. Returns QFrame.
@@ -1713,6 +1797,7 @@ def _validate_data(data):
     fields = select["fields"]
 
     for field in fields:
+        field_custom_type = ""
         for key_attr in fields[field]:
             if key_attr not in {
                 "type",
@@ -1919,117 +2004,22 @@ def _get_duplicated_columns(data):
     return duplicates
 
 
-def _build_column_strings(data):
-    if data == {}:
-        return {}
-
-    duplicates = _get_duplicated_columns(data)
-    assert (
-        duplicates == {}
-    ), f"""Some of your fields have the same aliases {duplicates}. Use your_qframe.remove() to remove or your_qframe.rename() to rename columns."""
-    select_names = []
-    select_aliases = []
-    group_dimensions = []
-    group_values = []
-    order_by = []
-    types = []
-
-    fields = data["select"]["fields"]
-
-    for field in fields:
-        if "expression" in fields[field] and fields[field]["expression"] != "":
-            expr = fields[field]["expression"]
-        else:
-            prefix = re.search(r"^sq\d*[.]", field)
-            if prefix is not None:
-                suffix = field[len(prefix.group(0)) :]
-                if not re.match("^[a-zA-Z0-9_]*$", suffix):
-                    expr = f'{prefix.group(0)}"{field[len(prefix.group(0)):]}"'
-                else:
-                    expr = field
-            else:
-                expr = field
-        # expr = (
-        #     field
-        #     if "expression" not in fields[field] or fields[field]["expression"] == ""
-        #     else fields[field]["expression"]
-        # )
-        alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
-        alias = alias.replace('"', "")
-
-        if "group_by" in fields[field]:
-            if fields[field]["group_by"].upper() == "GROUP":
-                # TODO: group by should use position of column and expr in case of not selected columns
-                prefix = re.search(r"^sq\d*[.]", field)
-                if prefix is not None:
-                    group_dimensions.append(field[len(prefix.group(0)) :])
-                else:
-                    group_dimensions.append(field)
-
-            elif fields[field]["group_by"] == "":
-                pass
-
-            elif fields[field]["group_by"].upper() in [
-                "SUM",
-                "COUNT",
-                "MAX",
-                "MIN",
-                "AVG",
-            ]:
-                agg = fields[field]["group_by"]
-                expr = f"{agg}({expr})"
-                group_values.append(alias)
-
-        if "select" not in fields[field] or "select" in fields[field] and fields[field]["select"] == "":
-            select_name = field if expr == alias else f'{expr} as "{alias}"'
-
-            if "custom_type" in fields[field] and fields[field]["custom_type"] != "":
-                type = fields[field]["custom_type"].upper()
-            elif fields[field]["type"] == "dim":
-                type = "VARCHAR(500)"
-            elif fields[field]["type"] == "num":
-                type = "FLOAT(53)"
-
-            select_names.append(select_name)
-            select_aliases.append(alias)
-            types.append(type)
-
-            # TODO: order by should use position of column and expr in case of not selected columns
-            if "order_by" in fields[field] and fields[field]["order_by"] != "":
-                if fields[field]["order_by"].upper() == "DESC":
-                    order = fields[field]["order_by"]
-                elif fields[field]["order_by"].upper() == "ASC":
-                    order = ""
-                order_by.append(f"{alias} {order}")
-
-    sql_blocks = {
-        "select_names": select_names,
-        "select_aliases": select_aliases,
-        "group_dimensions": group_dimensions,
-        "group_values": group_values,
-        "order_by": order_by,
-        "types": types,
-    }
-
-    return sql_blocks
-
-
-def _get_sql(data, dialect):
+def _get_sql(data, sqldb):
     if data == {}:
         return ""
 
-    data["select"]["sql_blocks"] = _build_column_strings(data)
+    data["select"]["sql_blocks"] = QFrame(sqldb=sqldb).from_dict(data)._build_column_strings()
     sql = ""
 
     if "union" in data["select"]:
         iterator = 1
         sq_data = deepcopy(data[f"sq{iterator}"])
-        sql += _get_sql(sq_data, dialect)
+        sql += _get_sql(sq_data, sqldb)
 
         for _ in data["select"]["union"]["union_type"]:
             union_type = data["select"]["union"]["union_type"][iterator - 1]
             sq_data = deepcopy(data[f"sq{iterator+1}"])
-            right_table = _get_sql(sq_data, dialect)
+            right_table = _get_sql(sq_data, sqldb)
 
             sql += f" {union_type} {right_table}"
             iterator += 1
@@ -2052,13 +2042,13 @@ def _get_sql(data, dialect):
         elif "join" in data["select"]:
             iterator = 1
             sq_data = deepcopy(data[f"sq{iterator}"])
-            left_table = _get_sql(sq_data, dialect)
+            left_table = _get_sql(sq_data, sqldb)
             sql += f" FROM ({left_table}) sq{iterator}"
 
             for _ in data["select"]["join"]["join_type"]:
                 join_type = data["select"]["join"]["join_type"][iterator - 1]
                 sq_data = deepcopy(data[f"sq{iterator+1}"])
-                right_table = _get_sql(sq_data, dialect)
+                right_table = _get_sql(sq_data, sqldb)
                 on = data["select"]["join"]["on"][iterator - 1]
 
                 sql += f" {join_type} ({right_table}) sq{iterator+1}"
@@ -2068,7 +2058,7 @@ def _get_sql(data, dialect):
 
         elif "table" not in data["select"] and "join" not in data["select"] and "sq" in data:
             sq_data = deepcopy(data["sq"])
-            sq = _get_sql(sq_data, dialect)
+            sq = _get_sql(sq_data, sqldb)
             sql += f" FROM ({sq}) sq"
 
         if "where" in data["select"] and data["select"]["where"] != "":
@@ -2085,7 +2075,7 @@ def _get_sql(data, dialect):
         order_by = ", ".join(data["select"]["sql_blocks"]["order_by"])
         sql += f" ORDER BY {order_by}"
 
-    if dialect == "mysql":
+    if sqldb.dialect == "mysql":
         if "limit" in data["select"] and data["select"]["limit"] != "":
             sql += " LIMIT {}".format(data["select"]["limit"])
 
