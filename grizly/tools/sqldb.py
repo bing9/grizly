@@ -33,15 +33,15 @@ class SQLDB:
         if engine_str is not None:
             dsn = engine_str.split("://")[-1]
             self.logger.warning(
-                "Parameter engine_str is deprecated as of 0.3.5 and will be removed in 0.3.8. "
-                f"Please use dsn='{dsn}' instead."
+                "Parameter engine_str in SQLDB is deprecated as of 0.3.5 and will be removed in 0.3.8. "
+                f"Please use dsn='{dsn}' instead of engine_str='{engine_str}'."
             )
         if kwargs.get("interface") is not None:
             self.logger.warning(
-                f"Parameter interface will be ignored. Since version 0.3.6 grizly only supports 'pyodbc' interface."
+                f"Parameter interface in SQLDB will be ignored. Since version 0.3.6 grizly only supports 'pyodbc' interface."
             )
         if dsn is None:
-            self.logger.warning("Please specify dsn parameter. Since version 0.3.8 it will be obligatory.")
+            self.logger.warning("Please specify dsn parameter in SQLDB. Since version 0.3.8 it will be obligatory.")
             if db is not None:
                 for key in config:
                     if db == config[key]["db"]:

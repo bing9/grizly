@@ -113,6 +113,14 @@ def test_rename():
     assert q.data["select"]["fields"]["Value"]["as"] == "Sales"
 
 
+def test_rename_aliased():
+    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(orders)
+    q.rename({"Part1": "Part2", "not_found_test": "test", "Bookings": "Bookings_test", "Value": "Sales"})
+    assert q.data["select"]["fields"]["Part"]["as"] == "Part2"
+    assert q.data["select"]["fields"]["Order"]["as"] == "Bookings_test"
+    assert q.data["select"]["fields"]["Value"]["as"] == "Sales"
+
+
 def test_remove():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(orders)
     q.remove(["Part", "Order"])

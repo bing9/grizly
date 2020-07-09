@@ -67,7 +67,8 @@ class QFrame(BaseTool):
                 raise ValueError("QFrame engine is not of type: str")
             dsn = engine.split("://")[-1]
             self.logger.warning(
-                f"Parameter engine is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
+                f"Parameter engine in QFrame is deprecated as of 0.3 and will be removed in 0.4."
+                f" Please use dsn='{dsn}' instead of engine='{engine}'.",
             )
 
         self.sqldb = sqldb or SQLDB(dsn=dsn, **kwargs)
@@ -81,7 +82,7 @@ class QFrame(BaseTool):
             self.data["select"]["sql_blocks"] = _build_column_strings(self.data)
             return self
 
-    def validate_data(self, data):
+    def validate_data(self, data: dict):
         """Validates loaded data.
 
         Parameters
@@ -113,9 +114,8 @@ class QFrame(BaseTool):
 
         else:
             self.logger.info("There are no duplicated columns.")
-        return self
 
-    def save_json(self, json_path, subquery=""):
+    def save_json(self, json_path: str, subquery: str = ""):
         """Saves QFrame.data to json file.
 
         Parameters
@@ -140,13 +140,13 @@ class QFrame(BaseTool):
 
         with open(json_path, "w") as f:
             json.dump(json_data, f, indent=4)
+
         self.logger.info(f"Data saved in {json_path}")
-        return self
 
     def build_subquery(self, store_path, subquery, database):
         return SubqueryUI(store_path=store_path).build_subquery(self, subquery, database)
 
-    def from_json(self, json_path, subquery=""):
+    def from_json(self, json_path: str, subquery: str = ""):
         """Reads QFrame.data from json file.
 
         Parameters
@@ -175,7 +175,7 @@ class QFrame(BaseTool):
     def read_json(self, json_path, subquery=""):
         return self.from_json(json_path, subquery)
 
-    def from_dict(self, data):
+    def from_dict(self, data: dict):
         """Reads QFrame.data from dictionary.
 
         Parameters
@@ -259,11 +259,17 @@ class QFrame(BaseTool):
 
         return self
 
-    def select(self, fields):
+    def select(self, fields: list):
         """Creates a subquery that looks like "SELECT sq.col1, sq.col2 FROM (some sql) sq".
 
         NOTE: Selected fields will be placed in the new QFrame. Names of new fields are created
         as a concat of "sq." and alias in the parent QFrame.
+
+        Parameters
+        ----------
+        fields : list or str
+            Fields in list or field as a string.
+            If Fields is * then Select will contain all columns
 
         Examples
         --------
@@ -281,12 +287,6 @@ class QFrame(BaseTool):
           (SELECT CustomerId AS "Id",
                   Sales
            FROM schema.table) sq
-
-        Parameters
-        ----------
-        fields : list or str
-            Fields in list or field as a string.
-            If Fields is * then Select will contain all columns
 
         Returns
         -------
@@ -354,11 +354,13 @@ class QFrame(BaseTool):
         if not isinstance(fields, dict):
             raise ValueError("Fields parameter should be of type dict.")
 
-        # fields = self._get_fields_names(fields)
+        fields_names, not_found_fields = self._get_fields_names(fields, not_found=True)
 
-        for field in fields:
-            if field in self.data["select"]["fields"]:
-                self.data["select"]["fields"][field]["as"] = fields[field]
+        for field in not_found_fields:
+            fields.pop(field)
+
+        for field, field_nm in zip(fields.keys(), fields_names):
+            self.data["select"]["fields"][field_nm]["as"] = fields[field]
         return self
 
     def remove(self, fields: list):
@@ -413,7 +415,7 @@ class QFrame(BaseTool):
 
         return self
 
-    def query(self, query, if_exists="append", operator="and"):
+    def query(self, query: str, if_exists: str = "append", operator: str = "and"):
         """Adds WHERE statement.
 
         Parameters
@@ -454,7 +456,7 @@ class QFrame(BaseTool):
                 self.data["select"]["where"] += f" {operator} {query}"
         return self
 
-    def having(self, having, if_exists="append", operator="and"):
+    def having(self, having: str, if_exists: str = "append", operator: str = "and"):
         """Adds HAVING statement.
 
         Parameters
@@ -504,7 +506,7 @@ class QFrame(BaseTool):
                     self.data["select"]["having"] = having
         return self
 
-    def assign(self, type="dim", group_by="", order_by="", custom_type="", **kwargs):
+    def assign(self, type: str = "dim", group_by: str = "", order_by: str = "", custom_type: str = "", **kwargs):
         """Assigns expressions.
 
         Parameters
@@ -580,7 +582,7 @@ class QFrame(BaseTool):
                     }
         return self
 
-    def groupby(self, fields=None):
+    def groupby(self, fields: list = None):
         """Adds GROUP BY statement.
 
         Parameters
@@ -690,7 +692,7 @@ class QFrame(BaseTool):
                 fields.append(field)
         return self[fields].agg("sum")
 
-    def orderby(self, fields, ascending=True):
+    def orderby(self, fields: list, ascending: bool = True):
         """Adds ORDER BY statement.
 
         Parameters
@@ -743,7 +745,7 @@ class QFrame(BaseTool):
 
         return self
 
-    def limit(self, limit):
+    def limit(self, limit: int):
         """Adds LIMIT statement.
 
         Parameters
@@ -769,7 +771,7 @@ class QFrame(BaseTool):
 
         return self
 
-    def offset(self, offset):
+    def offset(self, offset: int):
         """Adds OFFSET statement.
 
         Parameters
@@ -891,7 +893,7 @@ class QFrame(BaseTool):
 
         return qfs
 
-    def rearrange(self, fields):
+    def rearrange(self, fields: list):
         """Changes order of the columns.
 
         Parameters
@@ -1011,7 +1013,7 @@ class QFrame(BaseTool):
 
         return self
 
-    def get_fields(self, aliased=False, not_selected=False):
+    def get_fields(self, aliased: bool = False, not_selected: bool = False):
         """Returns list of QFrame fields.
 
         Parameters
@@ -1058,7 +1060,7 @@ class QFrame(BaseTool):
         dtypes = self.data["select"]["sql_blocks"]["types"]
         return dtypes
 
-    def get_sql(self, print_sql=True):
+    def get_sql(self):
         """Overwrites the SQL statement inside the class and prints saved string.
 
         Examples
@@ -1362,9 +1364,11 @@ class QFrame(BaseTool):
             self.getfields = getfields
         return self
 
-    def _get_fields_names(self, fields, aliased=False):
+    def _get_fields_names(self, fields, aliased=False, not_found=False):
         """Returns a list of fields keys or fields aliases.
-        Input parameters 'fields' can contain both aliased and not aliased fields"""
+        Input parameters 'fields' can contain both aliased and not aliased fields
+
+        not_found - whether to return not found fields"""
 
         not_aliased_fields = self._get_fields(aliased=False, not_selected=True)
         aliased_fields = self._get_fields(aliased=True, not_selected=True)
@@ -1392,7 +1396,7 @@ class QFrame(BaseTool):
         if not_found_fields != []:
             self.logger.warning(f"Fields {not_found_fields} not found.")
 
-        return output_fields
+        return output_fields if not not_found else (output_fields, not_found_fields)
 
     def _get_fields(self, aliased=False, not_selected=False):
         fields_data = self.data["select"]["fields"]
