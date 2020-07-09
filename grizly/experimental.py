@@ -11,13 +11,14 @@ from distributed import Client
 class Extract:
     __allowed = ("store_file_dir", "store_file_name", "s3_key")
 
-    def __init__(self, name, tool, backend="local", logger=None, **kwargs):
+    def __init__(self, name, qf, backend="local", logger=None, **kwargs):
         self.name = name or "Default Extract Name"
-        self.tool = tool
+        self.qf = qf
         self.backend = backend
         self.priority = 0
         self.scheduler_address = "grizly_scheduler:8786"
         self.client = None
+        self.bucket = "acoe-s3"
         for k, v in kwargs.items():
             if not (k in self.__class__.__allowed):
                 raise ValueError(f"{k} parameter is not allowed")
@@ -64,7 +65,10 @@ class Extract:
             self.partition_cols = store["partition_cols"][0]
         else:
             self.partition_cols = store["partition_cols"]
-        self.input_dsn = store["input_dsn"]
+        self.input_dsn = store["input"].get("dsn") or self.qf.dsn
+        self.output_dsn = store["output"].get("dsn") or self.input_dsn
+        self.output_schema = store["output"].get("schema")
+        self.output_table = store["output"].get("table") or self.module_name
 
         return store
 
@@ -82,15 +86,14 @@ class Extract:
                         raise ValueError(f"QFrame does not contain {column}")
 
         columns = self.partition_cols
-        existing_columns = self.tool.get_fields()
+        existing_columns = self.qf.get_fields()
         _validate_columns(columns, existing_columns)
-        qf = self.tool
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
-        schema = qf.data["select"]["schema"]
-        table = qf.data["select"]["table"]
-        where = qf.data["select"]["where"]
+        schema = self.qf.data["select"]["schema"]
+        table = self.qf.data["select"]["table"]
+        where = self.qf.data["select"]["where"]
         partitions_qf = (
             QFrame(dsn=self.input_dsn).from_table(table=table, schema=schema, columns=columns).query(where).groupby()
         )
@@ -154,13 +157,13 @@ class Extract:
         return _dict
 
     @dask.delayed
-    def query_tool(self, query):
-        queried  = self.tool.copy().query(query)
+    def query_qf(self, query):
+        queried  = self.qf.copy().query(query)
         return queried
 
     @dask.delayed
-    def to_arrow(self, processed_tool):
-        return processed_tool.to_arrow()  # qf.to_arrow(), sfdc.to_arrow()
+    def to_arrow(self, processed_qf):
+        return processed_qf.to_arrow()  # qf.to_arrow(), sfdc.to_arrow()
 
     @dask.delayed
     def arrow_to_backend(self, arrow_table, s3_key):
@@ -186,6 +189,17 @@ class Extract:
             arrow_to_s3(arrow_table)
         else:
             raise NotImplementedError
+
+    @dask.delayed
+    def create_external_table(self, upstream=None):
+        self.qf.create_external_table(
+            schema=self.output_schema,
+            table=self.output_table,
+            dsn=self.output_dsn,
+            bucket=self.bucket,
+            s3_key=self.s3_key,
+            if_exists="skip"
+        )
 
     def generate_workflow(
         self, refresh_partitions_list=True, if_exists="append", download_if_older_than=0, cache_distinct_values=True
@@ -214,7 +228,7 @@ class Extract:
         # compute partitions on the cluster
         partitions = client.compute(partitions_to_download).result()
         if not partitions:
-            raise ValueError(f"No partitions were found for columns {self.partition_cols}")
+            self.logger.warning("No partitions to download")
 
         if isinstance(self.partition_cols, list):
             partition_cols_casted = [f"CAST({partition_col} AS VARCHAR)" for partition_col in self.partition_cols]
@@ -225,11 +239,12 @@ class Extract:
         for partition in partitions:
             s3_key = self.s3_key + f"{partition}.parquet"
             where = f"{partition_cols}='{partition}'"
-            processed_tool = self.query_tool(query=where)
-            arrow_table = self.to_arrow(processed_tool)
+            processed_qf = self.query_qf(query=where)
+            arrow_table = self.to_arrow(processed_qf)
             push_to_backend = self.arrow_to_backend(arrow_table, s3_key=s3_key)
             uploads.append(push_to_backend)
-        wf = Workflow(name=self.name, tasks=uploads)
+        create_table = self.create_external_table(upstream=uploads)
+        wf = Workflow(name=self.name, tasks=[create_table])
         return wf
 
 
@@ -252,6 +267,6 @@ class Extract:
 
 
 # qf = load_qf(dsn="DenodoPROD")
-# wf = Extract("Direct Sales Summary CSR", tool=qf, backend="s3").generate_workflow(refresh_partitions_list=True)
+# wf = Extract("Direct Sales Summary CSR", qf, backend="s3").generate_workflow(refresh_partitions_list=True)
 # local_client = Client("grizly_scheduler:8786")
 # wf.submit(client=local_client)

@@ -63,7 +63,7 @@ class SQLDB:
 
         self.dialect = dialect or config[dsn]["dialect"]
 
-    def get_connection(self):
+    def get_connection(self, autocommit=False):
         """Returns sqlalchemy connection.
 
         Examples
@@ -78,7 +78,7 @@ class SQLDB:
             import pyodbc
 
             try:
-                con = pyodbc.connect(DSN=self.dsn)
+                con = pyodbc.connect(DSN=self.dsn, autocommit=autocommit)
             except pyodbc.InterfaceError:
                 e = f"Data source name '{self.dsn}' not found"
                 self.logger.exception(e)
@@ -89,7 +89,16 @@ class SQLDB:
             con = sqlite3.connect(database=self.dsn)
         return con
 
-    def check_if_exists(self, table, schema=None, column=None):
+    def _check_if_exists(self, exists_query, supported_dbs):
+        if self.db in supported_dbs:
+            con = self.get_connection()
+            exists = not read_sql_query(sql=exists_query, con=con).empty
+            con.close()
+        else:
+            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+        return exists
+        
+    def check_if_exists(self, table, schema=None, column=None, external=False):
         """Checks if a table exists in Redshift.
 
         Examples
@@ -98,20 +107,20 @@ class SQLDB:
         >>> sqldb.check_if_exists(table="table_tutorial", schema="grizly")
         True
         """
-        supported_dbs = ("redshift", "aurora")
-
-        if self.db in supported_dbs:
-            con = self.get_connection()
-            sql_exists = f"select * from information_schema.columns where table_name='{table}'"
+        if external:
+            supported_dbs = ("redshift")
+            sql_exists = f"SELECT * FROM SVV_EXTERNAL_TABLES WHERE tablename='{table}'"
             if schema:
-                sql_exists += f" and table_schema='{schema}'"
-            if column:
-                sql_exists += f" and column_name='{column}'"
-            exists = not read_sql_query(sql=sql_exists, con=con).empty
-            con.close()
+                sql_exists += f" AND schemaname='{schema}'"
         else:
-            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+            supported_dbs = ("redshift", "aurora")
+            sql_exists = f"SELECT * FROM information_schema.columns WHERE table_name='{table}'"
+            if schema:
+                sql_exists += f" AND table_schema='{schema}'"
+            if column:
+                sql_exists += f" AND column_name='{column}'"
 
+        exists = self._check_if_exists(exists_query=sql_exists, supported_dbs=supported_dbs)
         return exists
 
     def copy_table(self, in_table, out_table, in_schema=None, out_schema=None, if_exists="fail"):
@@ -171,31 +180,8 @@ class SQLDB:
 
         return self
 
-    def create_table(self, table, columns, types, schema=None, char_size=500, if_exists: str = "skip"):
-        """Creates a new table in Redshift if the table doesn't exist.
-
-        Parameters
-        ----------
-        columns : list
-            Column names
-        types : list
-            Column types
-        char_size : int,
-            Size of the VARCHAR field in the database column
-        if_exists : {'fail', 'skip', 'drop'}, optional
-            How to behave if the table already exists, by default 'skip'
-
-            * fail: Raise a ValueError
-            * skip: Abort without throwing an error
-            * drop: Drop table before creating new one
-
-        Examples
-        --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb = sqldb.create_table(table="test_k", columns=["col1", "col2"], types=["varchar", "int"], schema="sandbox")
-        >>> sqldb.check_if_exists(table="test_k", schema="sandbox")
-        True
-        """
+    def _create_table(self, table, columns, types, schema=None, char_size=500, if_exists: str = "skip"):
+        """Creates a table."""
         valid_if_exists = ("fail", "skip", "drop")
         if if_exists not in valid_if_exists:
             raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
@@ -230,11 +216,106 @@ class SQLDB:
             con.execute(sql).commit()
             con.close()
 
-            self.logger.info(f"Table {sql} has been created successfully.")
+            self.logger.info(f"Table {table_name} has been created successfully.")
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
 
         return self
+
+    def _create_external_table(self, table, columns, types, bucket, s3_key, schema=None, if_exists: str = "skip"):
+        """Creates an external table"""
+        valid_if_exists = ("fail", "skip", "drop")
+        if if_exists not in valid_if_exists:
+            raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
+
+        supported_dbs = ("redshift")
+
+        if self.db in supported_dbs:
+            table_name = f"{schema}.{table}" if schema else table
+
+            if self.check_if_exists(table=table, schema=schema, external=True):
+                if if_exists == "fail":
+                    raise ValueError(f"Table {table_name} in datasource {self.dsn} already exists.")
+                elif if_exists == "skip":
+                    self.logger.info(f"Table {table_name} already exists.")
+                    return self
+                elif if_exists == "drop":
+                    self.drop_table(table=table, schema=schema)
+
+            columns_and_dtypes = ", \n".join([col + " " + dtype for col, dtype in zip(columns, types)])
+            sql = f"""
+            CREATE EXTERNAL TABLE {table_name} (
+            {columns_and_dtypes}
+            )
+            ROW FORMAT SERDE 
+            'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe' 
+            STORED AS INPUTFORMAT 
+            'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat' 
+            OUTPUTFORMAT 
+            'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
+            location 's3://{bucket}/{s3_key}';
+            """
+            SQLDB.last_commit = sql
+            con = self.get_connection(autocommit=True)
+            con.execute(sql)
+            con.close()
+
+            self.logger.info(f"Table {table_name} has been created successfully.")
+        else:
+            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        return self
+
+    def create_table_like(self, table, columns, types, schema=None, if_exists: str = "skip", type="table", **kwargs):
+        """Creates a new table.
+
+        Parameters
+        ----------
+        table : str
+            Table name
+        columns : list
+            Column names
+        types : list
+            Column types
+        schema : str, optional
+            Schema name
+        if_exists : {'fail', 'skip', 'drop'}, optional
+            How to behave if the table already exists, by default 'skip'
+
+            * fail: Raise a ValueError
+            * skip: Abort without throwing an error
+            * drop: Drop table before creating new one
+
+        Examples
+        --------
+        >>> sqldb = SQLDB(dsn="redshift_acoe")
+        >>> sqldb = sqldb.create_table_like(
+        >>>     type="external_table"
+        >>>     table="test_create_external_table", 
+        >>>     columns=["col1", "col2"], 
+        >>>     types=["varchar(100)", "int"], 
+        >>>     schema="acoe_spectrum"
+        >>> )
+        >>> sqldb.check_if_exists(table="test_create_external_table", schema="acoe_spectrum", external=True)
+        True
+        """
+
+        if type == "table":
+            self._create_table(table=table, columns=columns, types=types, schema=schema, if_exists=if_exists)
+        elif type == "external_table":
+            if not (("bucket" in kwargs) and ("s3_key" in kwargs)):
+                msg = "'bucket' and 's3_key' parameters are required when creating an external table"
+                raise ValueError(msg) 
+            bucket = kwargs.get("bucket")
+            s3_key = kwargs.get("s3_key")
+            self._create_external_table(
+                table=table, columns=columns, types=types, schema=schema, if_exists=if_exists, bucket=bucket, s3_key=s3_key
+                )
+        elif type == "view":
+            raise NotImplementedError()
+            # self._create_view()
+        else:
+            raise ValueError("Type must be one of: ('table', 'external_table', 'view')")
 
     def insert_into(self, table, columns, sql, schema=None):
         """Inserts records into redshift table.
