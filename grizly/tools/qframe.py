@@ -1108,13 +1108,55 @@ class QFrame(BaseTool):
         if self.sqldb.dialect == "mysql" and sqldb.dialect == "postgresql":
             types = [mysql_to_postgres_type(dtype) for dtype in types]
 
-        sqldb.create_table(
+        sqldb.create_table_like(
+            type="table",
             columns=self.get_fields(aliased=True),
             types=types,
             table=table,
             schema=schema,
             char_size=char_size,
             if_exists=if_exists,
+        )
+        return self
+
+
+    def create_external_table(self, table, schema=None, dsn=None, if_exists=None, **kwargs):
+        """Creates a new empty QFrame table in database if the table doesn't exist.
+        TODO: Remove engine_str, db, dsn and dialect and leave sqldb
+
+        Parameters
+        ----------
+        table : str
+            Name of SQL table.
+        schema : str, optional
+            Specify the schema.
+
+        Returns
+        -------
+        QFrame
+        """
+        if dsn is None:
+            sqldb = self.sqldb
+        else:
+            sqldb = SQLDB(dsn=dsn, **kwargs)
+
+        columns = self.get_fields(aliased=True)
+        types = self.get_dtypes()
+        bucket = kwargs.get("bucket")
+        s3_key = kwargs.get("s3_key")
+        if not (("bucket" in kwargs) and ("s3_key" in kwargs)):
+            msg = "'bucket' and 's3_key' parameters are required when creating an external table"
+            raise ValueError(msg)
+
+        sqldb.create_table_like(
+            type="external_table",
+            columns=columns,
+            types=types,
+            table=table,
+            schema=schema,
+            if_exists=if_exists,
+            bucket=bucket,
+            s3_key=s3_key
         )
         return self
 
