@@ -86,15 +86,14 @@ class Extract:
                         raise ValueError(f"QFrame does not contain {column}")
 
         columns = self.partition_cols
-        existing_columns = self.tool.get_fields()
+        existing_columns = self.qf.get_fields()
         _validate_columns(columns, existing_columns)
-        qf = self.tool
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
-        schema = qf.data["select"]["schema"]
-        table = qf.data["select"]["table"]
-        where = qf.data["select"]["where"]
+        schema = self.qf.data["select"]["schema"]
+        table = self.qf.data["select"]["table"]
+        where = self.qf.data["select"]["where"]
         partitions_qf = (
             QFrame(dsn=self.input_dsn).from_table(table=table, schema=schema, columns=columns).query(where).groupby()
         )
@@ -158,13 +157,13 @@ class Extract:
         return _dict
 
     @dask.delayed
-    def query_tool(self, query):
-        queried  = self.tool.copy().query(query)
+    def query_qf(self, query):
+        queried  = self.qf.copy().query(query)
         return queried
 
     @dask.delayed
-    def to_arrow(self, processed_tool):
-        return processed_tool.to_arrow()  # qf.to_arrow(), sfdc.to_arrow()
+    def to_arrow(self, processed_qf):
+        return processed_qf.to_arrow()  # qf.to_arrow(), sfdc.to_arrow()
 
     @dask.delayed
     def arrow_to_backend(self, arrow_table, s3_key):
@@ -192,20 +191,14 @@ class Extract:
             raise NotImplementedError
 
     @dask.delayed
-    def create_external_table(self):
-        output_schema = self.output_schema
-        output_table = self.output_table
-        output_dsn = self.output_dsn
-        bucket = self.bucket
-        s3_key = self.s3_key
-
-        self.tool.create_external_table(
-            schema=output_schema,
-            table=output_table,
-            dsn=output_dsn,
-            if_exists="skip",
-            bucket=bucket,
-            s3_key=s3_key
+    def create_external_table(self, upstream=None):
+        self.qf.create_external_table(
+            schema=self.output_schema,
+            table=self.output_table,
+            dsn=self.output_dsn,
+            bucket=self.bucket,
+            s3_key=self.s3_key,
+            if_exists="skip"
         )
 
     def generate_workflow(
@@ -246,11 +239,12 @@ class Extract:
         for partition in partitions:
             s3_key = self.s3_key + f"{partition}.parquet"
             where = f"{partition_cols}='{partition}'"
-            processed_tool = self.query_tool(query=where)
-            arrow_table = self.to_arrow(processed_tool)
+            processed_qf = self.query_qf(query=where)
+            arrow_table = self.to_arrow(processed_qf)
             push_to_backend = self.arrow_to_backend(arrow_table, s3_key=s3_key)
             uploads.append(push_to_backend)
-        wf = Workflow(name=self.name, tasks=uploads)
+        create_table = self.create_external_table(upstream=uploads)
+        wf = Workflow(name=self.name, tasks=[create_table])
         return wf
 
 
@@ -273,6 +267,6 @@ class Extract:
 
 
 # qf = load_qf(dsn="DenodoPROD")
-# wf = Extract("Direct Sales Summary CSR", tool=qf, backend="s3").generate_workflow(refresh_partitions_list=True)
+# wf = Extract("Direct Sales Summary CSR", qf, backend="s3").generate_workflow(refresh_partitions_list=True)
 # local_client = Client("grizly_scheduler:8786")
 # wf.submit(client=local_client)
