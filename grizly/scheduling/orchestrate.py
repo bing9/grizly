@@ -22,8 +22,6 @@ from dask.core import get_dependencies
 from dask.distributed import fire_and_forget
 from dask.dot import _get_display_cls
 from dask.optimization import key_split
-from sqlalchemy import create_engine
-from sqlalchemy.pool import NullPool
 from exchangelib.errors import ErrorFolderNotFound
 
 from ..config import Config
@@ -178,30 +176,29 @@ class Listener:
         field=None,
         query=None,
         db="denodo",
-        engine_str=None,
+        dsn="DenodoPROD",
         trigger=None,
         delay=0,
     ):
 
         self.workflow = workflow
         self.name = workflow.name
-        self.db = db
-        self.engine_str = engine_str
         self.schema = trigger.schema if trigger else schema
         self.table = table or trigger.table
         self.field = field
         self.query = query
-        self.logger = logging.getLogger(__name__)
+        self.dsn = dsn
         self.trigger = trigger
+        self.delay = delay
+        self.logger = logging.getLogger(__name__)
         self.last_data_refresh = self.get_last_json_refresh(key="last_data_refresh")
         self.last_trigger_run = self.get_last_json_refresh(key="last_trigger_run")
-        self.delay = delay
         self.config_key = "standard"
 
     def __repr__(self):
         if self.query:
             return f'{type(self).__name__}(query="""{self.query}""")'
-        return f"{type(self).__name__}(db={self.db}, schema={self.schema}, table={self.table}, field={self.field})"
+        return f"{type(self).__name__}(dsn={self.dsn}, schema={self.schema}, table={self.table}, field={self.field})"
 
     def retry_task(exceptions, tries=4, delay=3, backoff=2, logger=None):
         """
@@ -243,9 +240,6 @@ class Listener:
             return f_retry  # true decorator
 
         return deco_retry
-
-    def get_connection(self):
-        return SQLDB(db=self.db, engine_str=self.engine_str).get_connection()
 
     def get_last_json_refresh(self, key):
         if os.path.exists(LISTENER_STORE):
@@ -314,7 +308,7 @@ class Listener:
         else:
             sql = f"SELECT {self.field} FROM {self.schema}.{self.table} ORDER BY {self.field} DESC LIMIT 1;"
 
-        con = self.get_connection()
+        con = SQLDB(dsn=self.dsn).get_connection()
         cursor = con.cursor()
         cursor.execute(sql)
 
@@ -390,7 +384,7 @@ class Listener:
                 )
             else:
                 self.logger.exception(
-                    f"Connection or query error when connecting to {self.db}"
+                    f"Connection or query error when connecting to {self.dsn}"
                 )
             table_refresh_date = None
 
@@ -427,7 +421,6 @@ class EmailListener(Listener):
         )
         self.db = db
         self.logger = logging.getLogger(__name__)
-        self.engine = None
         self.last_trigger_run = self.get_last_json_refresh(key="last_trigger_run")
         self.delay = delay
         self.config_key = "standard"
@@ -506,6 +499,9 @@ class EmailListener(Listener):
 
         return last_received_date
 
+class S3Listener(Listener):
+    pass
+
 
 class TriggerListener(Listener):
     pass
@@ -561,6 +557,21 @@ class Workflow:
         self.scheduler_address = scheduler_address
 
         self.logger.info(f"Workflow {self.name} initiated successfully")
+    
+    def register(self, name, notification, dsn, schema, table):
+        """Registers the job in specified registry"""
+        # read args from config, eg. registry_table {dsn: a, table: b}
+        # default args can be taken from registry_table key in config:
+        # scheduling{
+        #     registry_table: {
+        #         schema: x
+        #     }
+        #     status_table: {
+        #         schema: y
+        #     }
+        # }
+        pass
+        
 
     def retry_task(exceptions, tries=4, delay=3, backoff=2, logger=None):
         """
@@ -647,28 +658,6 @@ class Workflow:
             not client
         ):  # if cient is provided, we assume the user will close it on their end
             client.close()
-
-        schema = "administration"
-        table = "workflow_queue"
-        engine = os.getenv("QUEUE_ENGINE") or "mssql+pyodbc://redshift_acoe"
-        self.submit_to_queue(engine, schema, table, priority)
-        return None
-
-    @retry_task(Exception, tries=3, delay=10)
-    def submit_to_queue(self, engine: str, schema: str, table: str, priority: int):
-
-        now_utc = datetime.now(timezone.utc).replace(microsecond=0)
-
-        sql = f"""INSERT INTO {schema}.{table} (workflow_name, priority, submitted) VALUES (
-        '{self.name}',
-        {priority},
-        '{now_utc}'
-        )"""
-        sqla_engine = create_engine(engine)
-        execute_query(sqla_engine, sql)
-
-        self.logger.info(f"{self.name} has been uploaded to workflow_queue")
-
         return None
 
     @retry_task(Exception, tries=3, delay=300)
@@ -694,6 +683,9 @@ class Workflow:
         status_data = pd.DataFrame(status_data)
 
         try:
+            # s3 = S3(s3_key="bulk", file_name=table+".csv").from_df(schema=schema, table=table, if_exists="append")
+            # do not create a temporary csv?
+
             df_to_s3(
                 status_data,
                 table,
@@ -1054,19 +1046,3 @@ def retry(exceptions, tries=4, delay=3, backoff=2, logger=None):
         return f_retry  # true decorator
 
     return deco_retry
-
-
-@retry(Exception, tries=5, delay=5)
-def get_con(engine):
-    con = engine.connect().connection
-    return con
-
-
-def execute_query(engine, query):
-    conn = engine.connect().connection
-    cursor = conn.cursor()
-    cursor.execute(query)
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return None
