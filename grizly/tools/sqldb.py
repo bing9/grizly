@@ -379,7 +379,7 @@ class SQLDB:
 
         return self
 
-    def get_tables(self, schema=None):
+    def get_tables(self, schema=None, base_table=True, view=True, external=True):
         """Retrieves list of (schema, table) tuples
 
         Parameters
@@ -393,18 +393,24 @@ class SQLDB:
         >>> sqldb.get_tables(schema="grizly")
         [('grizly', 'table_tutorial')]
         """
-        if self.db == "denodo":
-            output = self._get_tables_1(schema=schema)
-        elif self.db in ("redshift", "mariadb", "aurora"):
-            output = self._get_tables_2(schema=schema)
+        output = []
+        if base_table:
+            if self.db in ("redshift", "mariadb", "aurora"):
+                output += self._get_tables_general(schema=schema)
+
+        if view:
+            if self.db == "denodo":
+                output += self._get_views_denodo(schema=schema)
+            elif self.db in ("redshift", "mariadb", "aurora"):
+                output += self._get_views_general(schema=schema)
+
+        if external:
             if self.db == "redshift":
-                output += self._get_external_tables(schema=schema)
-        else:
-            raise NotImplementedError("Unsupported database.")
+                output += self._get_tables_external(schema=schema)
 
         return output
 
-    def _get_tables_1(self, schema=None):
+    def _get_views_denodo(self, schema=None):
         where = f"\nWHERE database_name = '{schema}'\n" if schema else ""
 
         sql = f"""
@@ -420,12 +426,13 @@ class SQLDB:
 
         return output
 
-    def _get_tables_2(self, schema=None):
-        where = f"\nWHERE table_schema = '{schema}'\n" if schema else ""
+    def _get_views_general(self, schema=None):
+        where = f" AND table_schema = '{schema}'\n" if schema else ""
 
         sql = f"""
             SELECT table_schema, table_name
-            FROM information_schema.tables{where}
+            FROM information_schema.tables
+            WHERE table_type='VIEW'{where}
             GROUP BY 1, 2
             """
         con = self.get_connection()
@@ -435,7 +442,23 @@ class SQLDB:
 
         return output
 
-    def _get_external_tables(self, schema=None):
+    def _get_tables_general(self, schema=None):
+        where = f" table_schema = '{schema}'\n" if schema else ""
+
+        sql = f"""
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            WHERE table_type='BASE TABLE'{where}
+            GROUP BY 1, 2
+            """
+        con = self.get_connection()
+        output = con.execute(sql).fetchall()
+        output = [tuple(i) for i in output]
+        con.close()
+
+        return output
+
+    def _get_tables_external(self, schema=None):
         where = f"\nWHERE schemaname = '{schema}'\n" if schema else ""
 
         sql = f"""
@@ -473,22 +496,22 @@ class SQLDB:
         (['col1', 'col2', 'col3', 'col4'], ['character varying(500)', 'double precision', 'character varying(500)', 'double precision'])
         """
         if self.db == "denodo":
-            return self._get_columns_1(
+            return self._get_columns_denodo(
                 schema=schema, table=table, column_types=column_types, date_format=date_format, columns=columns
             )
         elif self.db in ("redshift", "mariadb", "aurora"):
-            if (schema, table) in self._get_tables_2(schema=schema) or self.db != "redshift":
-                return self._get_columns_2(schema=schema, table=table, column_types=column_types, columns=columns)
-            else:
-                return self._get_external_columns(
+            if (schema, table) in self.get_tables(schema=schema, base_table=False, view=False, external=True):
+                return self._get_columns_external(
                     schema=schema, table=table, column_types=column_types, columns=columns
                 )
+            else:
+                return self._get_columns_general(schema=schema, table=table, column_types=column_types, columns=columns)
         elif self.db == "sqlite":
-            return self._get_columns_3(schema=schema, table=table, column_types=column_types)
+            return self._get_columns_sqlite(schema=schema, table=table, column_types=column_types)
         else:
             raise NotImplementedError("Unsupported database.")
 
-    def _get_columns_1(
+    def _get_columns_denodo(
         self, table, schema: str = None, column_types: bool = False, columns: list = None, date_format: str = "DATE"
     ):
         """Get column names (and optionally types) from Denodo view.
@@ -549,7 +572,7 @@ class SQLDB:
                 col_types = [col_names_and_types[col_name] for col_name in col_names]
             return col_names, col_types
 
-    def _get_columns_2(self, table, schema: str = None, column_types: bool = False, columns: list = None):
+    def _get_columns_general(self, table, schema: str = None, column_types: bool = False, columns: list = None):
         """Get column names (and optionally types) from a Redshift, MariaDB or Aurora table."""
         con = self.get_connection()
         cursor = con.cursor()
@@ -609,7 +632,7 @@ class SQLDB:
 
         return to_return
 
-    def _get_columns_3(self, table, schema: str = None, column_types: bool = False):
+    def _get_columns_sqlite(self, table, schema: str = None, column_types: bool = False):
         """Get column names (and optionally types) from a SQLite table."""
         con = self.get_connection()
         cursor = con.cursor()
@@ -636,7 +659,7 @@ class SQLDB:
         else:
             return col_names
 
-    def _get_external_columns(self, table, schema: str = None, column_types: bool = False, columns: list = None):
+    def _get_columns_external(self, table, schema: str = None, column_types: bool = False, columns: list = None):
         where = f" AND schemaname = '{schema}'\n" if schema else ""
 
         sql = f"""
