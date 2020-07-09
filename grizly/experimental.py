@@ -11,13 +11,14 @@ from distributed import Client
 class Extract:
     __allowed = ("store_file_dir", "store_file_name", "s3_key")
 
-    def __init__(self, name, tool, backend="local", logger=None, **kwargs):
+    def __init__(self, name, qf, backend="local", logger=None, **kwargs):
         self.name = name or "Default Extract Name"
-        self.tool = tool
+        self.qf = qf
         self.backend = backend
         self.priority = 0
         self.scheduler_address = "grizly_scheduler:8786"
         self.client = None
+        self.bucket = "acoe-s3"
         for k, v in kwargs.items():
             if not (k in self.__class__.__allowed):
                 raise ValueError(f"{k} parameter is not allowed")
@@ -64,7 +65,10 @@ class Extract:
             self.partition_cols = store["partition_cols"][0]
         else:
             self.partition_cols = store["partition_cols"]
-        self.input_dsn = store["input_dsn"]
+        self.input_dsn = store["input"].get("dsn") or self.qf.dsn
+        self.output_dsn = store["output"].get("dsn") or self.input_dsn
+        self.output_schema = store["output"].get("schema")
+        self.output_table = store["output"].get("table") or self.module_name
 
         return store
 
@@ -187,6 +191,23 @@ class Extract:
         else:
             raise NotImplementedError
 
+    @dask.delayed
+    def create_external_table(self):
+        output_schema = self.output_schema
+        output_table = self.output_table
+        output_dsn = self.output_dsn
+        bucket = self.bucket
+        s3_key = self.s3_key
+
+        self.tool.create_external_table(
+            schema=output_schema,
+            table=output_table,
+            dsn=output_dsn,
+            if_exists="skip",
+            bucket=bucket,
+            s3_key=s3_key
+        )
+
     def generate_workflow(
         self, refresh_partitions_list=True, if_exists="append", download_if_older_than=0, cache_distinct_values=True
     ):
@@ -214,7 +235,7 @@ class Extract:
         # compute partitions on the cluster
         partitions = client.compute(partitions_to_download).result()
         if not partitions:
-            raise ValueError(f"No partitions were found for columns {self.partition_cols}")
+            self.logger.warning("No partitions to download")
 
         if isinstance(self.partition_cols, list):
             partition_cols_casted = [f"CAST({partition_col} AS VARCHAR)" for partition_col in self.partition_cols]
