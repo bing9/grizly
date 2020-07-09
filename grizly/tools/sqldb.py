@@ -97,7 +97,7 @@ class SQLDB:
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
         return exists
-        
+
     def check_if_exists(self, table, schema=None, column=None, external=False):
         """Checks if a table exists in Redshift.
 
@@ -108,7 +108,7 @@ class SQLDB:
         True
         """
         if external:
-            supported_dbs = ("redshift")
+            supported_dbs = "redshift"
             sql_exists = f"SELECT * FROM SVV_EXTERNAL_TABLES WHERE tablename='{table}'"
             if schema:
                 sql_exists += f" AND schemaname='{schema}'"
@@ -180,7 +180,7 @@ class SQLDB:
 
         return self
 
-    def _create_table(self, table, columns, types, schema=None, char_size=500, if_exists: str = "skip"):
+    def _create_base_table(self, table, columns, types, schema=None, char_size=500, if_exists: str = "skip"):
         """Creates a table."""
         valid_if_exists = ("fail", "skip", "drop")
         if if_exists not in valid_if_exists:
@@ -228,7 +228,7 @@ class SQLDB:
         if if_exists not in valid_if_exists:
             raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
 
-        supported_dbs = ("redshift")
+        supported_dbs = "redshift"
 
         if self.db in supported_dbs:
             table_name = f"{schema}.{table}" if schema else table
@@ -266,7 +266,7 @@ class SQLDB:
 
         return self
 
-    def create_table_like(self, table, columns, types, schema=None, if_exists: str = "skip", type="table", **kwargs):
+    def create_table(self, table, columns, types, schema=None, if_exists: str = "skip", type="base_table", **kwargs):
         """Creates a new table.
 
         Parameters
@@ -285,37 +285,53 @@ class SQLDB:
             * fail: Raise a ValueError
             * skip: Abort without throwing an error
             * drop: Drop table before creating new one
+        type : {'base_table', 'view', 'external_table'}, optional
+            Type of a table
 
         Examples
         --------
         >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb = sqldb.create_table_like(
-        >>>     type="external_table"
-        >>>     table="test_create_external_table", 
-        >>>     columns=["col1", "col2"], 
-        >>>     types=["varchar(100)", "int"], 
-        >>>     schema="acoe_spectrum"
-        >>> )
-        >>> sqldb.check_if_exists(table="test_create_external_table", schema="acoe_spectrum", external=True)
+        >>> sqldb = sqldb.create_table(
+        ...     table="test_k",
+        ...     columns=["col1", "col2"],
+        ...     types=["varchar(100)", "int"],
+        ...     schema="sandbox",
+        ... )
+        >>> sqldb.check_if_exists(table="test_k", schema="sandbox")
         True
         """
 
-        if type == "table":
-            self._create_table(table=table, columns=columns, types=types, schema=schema, if_exists=if_exists)
+        if type == "base_table":
+            self._create_base_table(table=table, columns=columns, types=types, schema=schema, if_exists=if_exists)
         elif type == "external_table":
             if not (("bucket" in kwargs) and ("s3_key" in kwargs)):
                 msg = "'bucket' and 's3_key' parameters are required when creating an external table"
-                raise ValueError(msg) 
+                raise ValueError(msg)
             bucket = kwargs.get("bucket")
             s3_key = kwargs.get("s3_key")
             self._create_external_table(
-                table=table, columns=columns, types=types, schema=schema, if_exists=if_exists, bucket=bucket, s3_key=s3_key
-                )
+                table=table,
+                columns=columns,
+                types=types,
+                schema=schema,
+                if_exists=if_exists,
+                bucket=bucket,
+                s3_key=s3_key,
+            )
         elif type == "view":
             raise NotImplementedError()
             # self._create_view()
         else:
-            raise ValueError("Type must be one of: ('table', 'external_table', 'view')")
+            raise ValueError("Type must be one of: ('base_table', 'external_table', 'view')")
+
+        return self
+
+    def create_table_like(
+        self, table, columns, types, schema=None, if_exists: str = "skip", type="base_table", **kwargs
+    ):
+        return self.create_table(
+            table=table, columns=columns, types=types, schema=schema, if_exists=if_exists, type=type, **kwargs
+        )
 
     def insert_into(self, table, columns, sql, schema=None):
         """Inserts records into redshift table.
@@ -460,7 +476,7 @@ class SQLDB:
 
         return self
 
-    def get_tables(self, schema=None, base_table=True, view=True, external=True):
+    def get_tables(self, schema=None, base_table=True, view=True, external_table=True):
         """Retrieves list of (schema, table) tuples
 
         Parameters
@@ -485,7 +501,7 @@ class SQLDB:
             elif self.db in ("redshift", "mariadb", "aurora"):
                 output += self._get_views_general(schema=schema)
 
-        if external:
+        if external_table:
             if self.db == "redshift":
                 output += self._get_tables_external(schema=schema)
 
@@ -524,7 +540,7 @@ class SQLDB:
         return output
 
     def _get_tables_general(self, schema=None):
-        where = f" table_schema = '{schema}'\n" if schema else ""
+        where = f" AND table_schema = '{schema}'\n" if schema else ""
 
         sql = f"""
             SELECT table_schema, table_name
@@ -581,7 +597,7 @@ class SQLDB:
                 schema=schema, table=table, column_types=column_types, date_format=date_format, columns=columns
             )
         elif self.db in ("redshift", "mariadb", "aurora"):
-            if (schema, table) in self.get_tables(schema=schema, base_table=False, view=False, external=True):
+            if (schema, table) in self.get_tables(schema=schema, base_table=False, view=False, external_table=True):
                 return self._get_columns_external(
                     schema=schema, table=table, column_types=column_types, columns=columns
                 )

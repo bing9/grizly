@@ -22,6 +22,7 @@ def get_job(job_name):
     wf = module.generate_job(logger_name=script_name)
     return wf
 
+
 # def get_job(job_name, source):
 #     """get job source"""
 #     if source.lower().startswith("https://github.com"):
@@ -104,7 +105,7 @@ def schedule(job_name, source, cron):
     """Schedule a job"""
 
     wf = get_job(job_name)
-    wf.register(name=job_name, schedule_type="schedule", notification: dict=notification, cron=cron)
+    wf.register(name=job_name, schedule_type="schedule", notification=notification, cron=cron)
     # notification: recipients, cc
 
     print(f"Job {job_name} has been successfully scheduled")

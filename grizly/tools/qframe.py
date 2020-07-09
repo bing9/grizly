@@ -1110,8 +1110,8 @@ class QFrame(BaseTool):
         if self.sqldb.dialect == "mysql" and sqldb.dialect == "postgresql":
             types = [mysql_to_postgres_type(dtype) for dtype in types]
 
-        sqldb.create_table_like(
-            type="table",
+        sqldb.create_table(
+            type="base_table",
             columns=self.get_fields(aliased=True),
             types=types,
             table=table,
@@ -1149,7 +1149,7 @@ class QFrame(BaseTool):
             msg = "'bucket' and 's3_key' parameters are required when creating an external table"
             raise ValueError(msg)
 
-        sqldb.create_table_like(
+        sqldb.create_table(
             type="external_table",
             columns=columns,
             types=types,
@@ -1157,7 +1157,7 @@ class QFrame(BaseTool):
             schema=schema,
             if_exists=if_exists,
             bucket=bucket,
-            s3_key=s3_key
+            s3_key=s3_key,
         )
         return self
 
@@ -1758,14 +1758,20 @@ def _validate_data(data):
             group_by_numeric_aggs = group_by_all_aggs[1:]
             numeric_types = ["DOUBLE PRECISION", "INTEGER", "NUMERIC"]
             field_custom_type_has_parameter = field_custom_type.find("(") != -1
-            field_custom_type_trimmed = field_custom_type[:field_custom_type.find("(")] if field_custom_type_has_parameter else field_custom_type
-            
+            field_custom_type_trimmed = (
+                field_custom_type[: field_custom_type.find("(")]
+                if field_custom_type_has_parameter
+                else field_custom_type
+            )
+
             if group_by.upper() not in group_by_all_aggs:
                 raise ValueError(
                     f"""Field '{field}' has invalid value in  group_by: '{group_by}'. Valid values: '', 'group', 'sum', 'count', 'max', 'min', 'avg','stddev' """
                 )
 
-            if group_by.upper() in group_by_numeric_aggs and (field_type != "num" and field_custom_type_trimmed not in numeric_types):
+            if group_by.upper() in group_by_numeric_aggs and (
+                field_type != "num" and field_custom_type_trimmed not in numeric_types
+            ):
                 raise ValueError(
                     f"Field '{field}' has value '{field_type}' in type and value '{group_by}' in group_by. In case of aggregation type should be 'num'."
                 )

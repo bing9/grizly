@@ -5,7 +5,7 @@ import click
 import grizly
 
 from .config import config as _config
-from .workflow import workflow as _workflow
+from .workflow import job as _workflow
 
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
@@ -24,6 +24,7 @@ def cli():
 
 cli.add_command(_config)
 cli.add_command(_workflow)
+
 
 @cli.command(hidden=True)
 def version():
