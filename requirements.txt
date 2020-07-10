@@ -1,6 +1,5 @@
 Pillow>=6.2.0
 PyYAML>=5.1.1
-SQLAlchemy>=1.3.5
 XlsxWriter>=1.1.8
 boto3>=1.9.200
 boto>=2.49.0
