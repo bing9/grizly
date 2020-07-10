@@ -326,13 +326,6 @@ class SQLDB:
 
         return self
 
-    def create_table_like(
-        self, table, columns, types, schema=None, if_exists: str = "skip", type="base_table", **kwargs
-    ):
-        return self.create_table(
-            table=table, columns=columns, types=types, schema=schema, if_exists=if_exists, type=type, **kwargs
-        )
-
     def insert_into(self, table, columns, sql, schema=None):
         """Inserts records into redshift table.
 
