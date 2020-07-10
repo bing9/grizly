@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Improved SQL generation [#462](https://github.com/kfk/grizly/issues/462), [#430](https://github.com/kfk/grizly/issues/430)
 - Added option to use fields aliases in methods: `rename()`, `agg()` [#445](https://github.com/kfk/grizly/issues/445)
-- Improved `from_table(0` method to work with external tables [#442](https://github.com/kfk/grizly/issues/442)
+- Improved `from_table()` method to work with external tables [#442](https://github.com/kfk/grizly/issues/442)
 
 
 ## [0.3.5] - 02-06-2020
