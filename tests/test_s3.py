@@ -168,7 +168,7 @@ def test_to_aurora():
     SQLDB(dsn="aurora_db").drop_table(table=table_csv, schema=schema)
 
 
-def test_to_dict():
+def test_to_serializable():
     s3 = S3(bucket="acoe-s3", s3_key="test/", file_name="test_s3.json")
-    dict = s3.to_dict()
-    assert dict == {"a": 42}
+    serializable = s3.to_serializable()
+    assert serializable == {"a": 42}

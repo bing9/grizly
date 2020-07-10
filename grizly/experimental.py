@@ -151,10 +151,10 @@ class Extract:
     def get_cached_distinct_values(self, file_name):
         if self.backend == "s3":
             s3 = S3(s3_key=self.s3_key, file_name=file_name)
-            _dict = s3.to_json()
+            values = s3.to_serializable()
         else:
             raise NotImplementedError
-        return _dict
+        return values
 
     @dask.delayed
     def query_qf(self, query):
@@ -246,6 +246,22 @@ class Extract:
         create_table = self.create_external_table(upstream=uploads)
         wf = Workflow(name=self.name, tasks=[create_table])
         return wf
+
+    def submit(self, **kwargs):
+        """Submit to cluster
+        
+        Parameters
+        ----------
+        kwargs: arguments to pass to Workflow.submit()
+
+        Examples
+        --------
+        Extract().submit(scheduler_address="grizly_scheduler:8786")
+        """
+        wf = self.generate_workflow()
+        if not kwargs.get("schdeduler_address"):
+            scheduler_address = self.schdeduler_address
+        wf.submit(scheduler_address=scheduler_address, **kwargs)
 
 
 # testing

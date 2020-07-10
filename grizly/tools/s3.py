@@ -161,11 +161,11 @@ class S3:
         self.logger.info(f"'{self.full_s3_key}' has been successfully removed")
 
     @_check_if_s3_exists
-    def to_json(self):
+    def to_serializable(self):
         content_object = resource("s3").Object(self.bucket, self.full_s3_key)
         file_content = content_object.get()["Body"].read().decode("utf-8")
-        _json = json.loads(file_content)
-        return _json
+        serializable = json.loads(file_content)
+        return serializable
 
     @_check_if_s3_exists
     def copy_to(
