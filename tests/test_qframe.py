@@ -12,7 +12,6 @@ from ..grizly.tools.qframe import (
     union,
     join,
     initiate,
-    _build_column_strings,
     _get_sql,
 )
 
@@ -91,19 +90,19 @@ def test_from_dict():
 
 def test_create_sql_blocks():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(orders)
-    assert _build_column_strings(q.data)["select_names"] == [
-        'Order as "Bookings"',
-        'Part as "Part1"',
-        "Customer",
-        "Value",
+    assert q._build_column_strings()["select_names"] == [
+        '"Order" as "Bookings"',
+        '"Part" as "Part1"',
+        '"Customer"',
+        '"Value"',
     ]
-    assert _build_column_strings(q.data)["select_aliases"] == [
+    assert q._build_column_strings()["select_aliases"] == [
         "Bookings",
         "Part1",
         "Customer",
         "Value",
     ]
-    assert q.create_sql_blocks().data["select"]["sql_blocks"] == _build_column_strings(q.data)
+    assert q.create_sql_blocks().data["select"]["sql_blocks"] == q._build_column_strings()
 
 
 def test_rename():
@@ -207,7 +206,7 @@ def test_groupby_all():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(orders)
     q.groupby().create_sql_blocks()
     fields_1 = q.data["select"]["sql_blocks"]["group_dimensions"]
-    fields_2 = q.get_fields()
+    fields_2 = ["1", "2", "3", "4"]
     assert fields_1 == fields_2
 
 
@@ -239,14 +238,14 @@ def test_orderby():
 
     testsql = """
             SELECT
-                Order AS "Bookings",
-                Part AS "Part1",
-                Customer,
-                Value
+                "Order" AS "Bookings",
+                "Part" AS "Part1",
+                "Customer",
+                "Value"
             FROM Orders
-            ORDER BY Bookings DESC,
-                    Part1,
-                    Value
+            ORDER BY 1 DESC,
+                    2,
+                    4
             """
     assert clean_testexpr(sql) == clean_testexpr(testsql)
 
@@ -264,14 +263,14 @@ def test_orderby_aliased():
 
     testsql = """
             SELECT
-                Order AS "Bookings",
-                Part AS "Part1",
-                Customer,
-                Value
+                "Order" AS "Bookings",
+                "Part" AS "Part1",
+                "Customer",
+                "Value"
             FROM Orders
-            ORDER BY Bookings DESC,
-                    Part1,
-                    Value
+            ORDER BY 1 DESC,
+                    2,
+                    4
             """
     assert clean_testexpr(sql) == clean_testexpr(testsql)
 
@@ -293,20 +292,20 @@ def test_select():
     sql = q.get_sql()
 
     testsql = """
-            SELECT sq.Value AS "Value"
+            SELECT sq."Value" AS "Value"
             FROM
-            (SELECT sq.Value AS "Value"
+            (SELECT sq."Value" AS "Value"
             FROM
-                (SELECT sq.Customer AS "Customer",
-                        sum(sq.Value) AS "Value"
+                (SELECT sq."Customer" AS "Customer",
+                        sum(sq."Value") AS "Value"
                 FROM
                     (SELECT
-                    ORDER AS "Bookings",
-                            Part AS "Part1",
-                            Customer,
-                            Value
+                        "Order" AS "Bookings",
+                        "Part" AS "Part1",
+                        "Customer",
+                        "Value"
                     FROM Orders) sq
-                GROUP BY Customer) sq) sq
+                GROUP BY 1) sq) sq
             """
     assert clean_testexpr(sql) == clean_testexpr(testsql)
 
@@ -370,15 +369,17 @@ def test_not_selected_fields():
 
     fields = ["InvoiceLineId", "UnitPrice"]
     assert fields == q.get_fields()
+    # write_out(q.get_sql())
 
-    sql = """SELECT InvoiceLineId,
-                UnitPrice
+    sql = """SELECT "InvoiceLineId",
+                "UnitPrice"
             FROM InvoiceLine
-            GROUP BY TrackId,
-                    InvoiceLineId,
-                    UnitPrice,
-                    InvoiceId
-            ORDER BY InvoiceLineId
+            GROUP BY "TrackId",
+                    1,
+                    2,
+                    "InvoiceId"
+            ORDER BY 1,
+                    "InvoiceId"
             """
     assert clean_testexpr(q.get_sql()) == clean_testexpr(sql)
 
@@ -388,25 +389,25 @@ def test_get_sql():
     q.assign(New_case="CASE WHEN Bookings = 100 THEN 1 ELSE 0 END", type="num")
     q.limit(5)
     q.groupby(q.data["select"]["fields"])["Value"].agg("sum")
-    testsql = """SELECT Order AS "Bookings",
-                    Part AS "Part1",
-                    Customer,
-                    sum(Value) AS "Value",
+    testsql = """SELECT "Order" AS "Bookings",
+                    "Part" AS "Part1",
+                    "Customer",
+                    sum("Value") AS "Value",
                     CASE
                         WHEN Bookings = 100 THEN 1
                         ELSE 0
                     END AS "New_case"
                 FROM Orders
-                GROUP BY Order,
-                        Part,
-                        Customer,
-                        New_case
+                GROUP BY 1,
+                        2,
+                        3,
+                        5
                 LIMIT 5
             """
     sql = q.get_sql()
     # write_out(str(sql))
     assert clean_testexpr(sql) == clean_testexpr(testsql)
-    assert sql == _get_sql(q.data, dialect="mysql")
+    assert sql == _get_sql(q.data, q.sqldb)
 
 
 def test_to_csv():
@@ -589,16 +590,16 @@ def test_join_2():
     sql = joined_qf.get_sql()
 
     testsql = """
-            SELECT sq1.PlaylistId AS "PlaylistId",
-                sq1.TrackId AS "TrackId",
-                sq2.Name AS "Name"
+            SELECT sq1."PlaylistId" AS "PlaylistId",
+                sq1."TrackId" AS "TrackId",
+                sq2."Name" AS "Name"
             FROM
-            (SELECT PlaylistId,
-                    TrackId
+            (SELECT "PlaylistId",
+                    "TrackId"
             FROM PlaylistTrack) sq1
             CROSS JOIN
-            (SELECT PlaylistId,
-                    Name
+            (SELECT "PlaylistId",
+                    "Name"
             FROM Playlist) sq2
             """
 
@@ -613,28 +614,28 @@ def test_join_2():
     sql = joined_qf.get_sql()
 
     testsql = """
-                SELECT sq1.PlaylistId AS "PlaylistId",
-                    sq1.TrackId AS "TrackId",
-                    sq1.Name AS "Name"
+                SELECT sq1."PlaylistId" AS "PlaylistId",
+                    sq1."TrackId" AS "TrackId",
+                    sq1."Name" AS "Name"
                 FROM
-                (SELECT sq1.PlaylistId AS "PlaylistId",
-                        sq1.TrackId AS "TrackId",
-                        sq2.Name AS "Name"
+                (SELECT sq1."PlaylistId" AS "PlaylistId",
+                        sq1."TrackId" AS "TrackId",
+                        sq2."Name" AS "Name"
                 FROM
-                    (SELECT PlaylistId,
-                            TrackId
+                    (SELECT "PlaylistId",
+                            "TrackId"
                     FROM PlaylistTrack) sq1
                 CROSS JOIN
-                    (SELECT PlaylistId,
-                            Name
+                    (SELECT "PlaylistId",
+                            "Name"
                     FROM Playlist) sq2) sq1
                 RIGHT JOIN
-                (SELECT PlaylistId,
-                        TrackId
+                (SELECT "PlaylistId",
+                        "TrackId"
                 FROM PlaylistTrack) sq2 ON sq1.PlaylistId=sq2.PlaylistId
                 FULL JOIN
-                (SELECT PlaylistId,
-                        Name
+                (SELECT "PlaylistId",
+                        "Name"
                 FROM Playlist) sq3 ON sq2.PlaylistId=sq3.PlaylistId
             """
 
@@ -647,12 +648,12 @@ def test_union():
     unioned_qf = union([playlists_qf, playlists_qf], "union")
 
     testsql = """
-            SELECT PlaylistId,
-                Name
+            SELECT "PlaylistId",
+                "Name"
             FROM Playlist
             UNION
-            SELECT PlaylistId,
-                Name
+            SELECT "PlaylistId",
+                "Name"
             FROM Playlist
             """
     sql = unioned_qf.get_sql()
@@ -663,12 +664,12 @@ def test_union():
     unioned_qf = union([playlists_qf, playlists_qf], "union all")
 
     testsql = """
-            SELECT PlaylistId,
-                Name
+            SELECT "PlaylistId",
+                "Name"
             FROM Playlist
             UNION ALL
-            SELECT PlaylistId,
-                Name
+            SELECT "PlaylistId",
+                "Name"
             FROM Playlist
             """
     sql = unioned_qf.get_sql()
@@ -687,14 +688,14 @@ def test_union():
     unioned_qf = union([qf1, qf2], union_type="union", union_by="name")
 
     testsql = """
-            SELECT PlaylistId,
-                Name AS "Old_name",
+            SELECT "PlaylistId",
+                "Name" AS "Old_name",
                 Name || '_new' AS "New_name"
             FROM Playlist
             UNION
-            SELECT PlaylistId,
+            SELECT "PlaylistId",
                 Name || '_old' AS "Old_name",
-                Name AS "New_name"
+                "Name" AS "New_name"
             FROM Playlist
             """
     sql = unioned_qf.get_sql()
@@ -714,8 +715,8 @@ def test_initiate():
     os.remove(json)
 
     testsql = """
-        SELECT customer,
-            billings
+        SELECT "customer",
+            "billings"
         FROM test_schema.test_table
         """
 
@@ -743,15 +744,15 @@ def test_cut():
 def test_from_table_sqlite():
     qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(table="Track")
 
-    sql = """SELECT TrackId,
-                Name,
-                AlbumId,
-                MediaTypeId,
-                GenreId,
-                Composer,
-                Milliseconds,
-                Bytes,
-                UnitPrice
+    sql = """SELECT "TrackId",
+                "Name",
+                "AlbumId",
+                "MediaTypeId",
+                "GenreId",
+                "Composer",
+                "Milliseconds",
+                "Bytes",
+                "UnitPrice"
             FROM Track"""
 
     assert clean_testexpr(sql) == clean_testexpr(qf.get_sql())
@@ -764,14 +765,14 @@ def test_from_table_sqlite_json():
     )
 
     qf1 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(json_path="test.json", subquery="q1")
-    sql = """SELECT PlaylistId,
-                Name
+    sql = """SELECT "PlaylistId",
+                "Name"
             FROM Playlist"""
     assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
 
     qf2 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(json_path="test.json", subquery="q2")
-    sql = """SELECT PlaylistId,
-                TrackId
+    sql = """SELECT "PlaylistId",
+                "TrackId"
             FROM PlaylistTrack"""
     assert clean_testexpr(sql) == clean_testexpr(qf2.get_sql())
     os.remove("test.json")
@@ -782,10 +783,10 @@ def test_from_table_rds():
     qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
     qf = qf.from_table(table="table_tutorial", schema="grizly")
 
-    sql = """SELECT col1,
-               col2,
-               col3,
-               col4
+    sql = """SELECT "col1",
+               "col2",
+               "col3",
+               "col4"
         FROM grizly.table_tutorial"""
 
     assert clean_testexpr(sql) == clean_testexpr(qf.get_sql())
@@ -807,7 +808,7 @@ def test_pivot_rds():
     qf1 = qf.copy()
     qf1.pivot(rows=["col1"], columns=["col2", "col3"], values="col4", prefix="p_", sort=True)
 
-    sql = """SELECT sq.col1 AS "col1",
+    sql = """SELECT sq."col1" AS "col1",
                 sum(CASE
                     WHEN "col2"='0.0'
                             AND "col3" IS NULL THEN "col4"
@@ -819,12 +820,12 @@ def test_pivot_rds():
                         ELSE 0
                     END) AS "p_1.3_None"
             FROM
-            (SELECT col1,
-                    col2,
-                    col3,
-                    col4
+            (SELECT "col1",
+                    "col2",
+                    "col3",
+                    "col4"
             FROM grizly.table_tutorial) sq
-            GROUP BY col1"""
+            GROUP BY 1"""
 
     assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
 
@@ -867,55 +868,56 @@ def test_join_pivot_sqlite():
 
     qf11.select(["90’s Music_5"])
 
-    sql = """SELECT sq."90’s Music_5" AS "90’s Music_5"
+    sql = """SELECT sq."90’s Music_5" AS "90’s_Music_5"
             FROM
-            (SELECT sq.GenreId AS "GenreId",
-                    sq.Composer AS "Composer",
+            (SELECT sq."GenreId" AS "GenreId",
+                    sq."Composer" AS "Composer",
                     sum(CASE
                             WHEN "Name"='90’s Music'
                                 AND "PlaylistId"='5' THEN "UnitPrice"
                             ELSE 0
-                        END) AS "90’s Music_5",
+                        END) AS "90’s_Music_5",
                     sum(CASE
                             WHEN "Name"='TV Shows'
                                 AND "PlaylistId"='3' THEN "UnitPrice"
                             ELSE 0
-                        END) AS "TV Shows_3"
+                        END) AS "TV_Shows_3"
             FROM
-                (SELECT sq1.PlaylistId AS "PlaylistId",
-                        sq1.TrackId AS "TrackId",
-                        sq2.Name AS "Name",
-                        sq3.AlbumId AS "AlbumId",
-                        sq3.MediaTypeId AS "MediaTypeId",
-                        sq3.GenreId AS "GenreId",
-                        sq3.Composer AS "Composer",
-                        sq3.Milliseconds AS "Milliseconds",
-                        sq3.Bytes AS "Bytes",
-                        sq3.UnitPrice AS "UnitPrice"
+                (SELECT sq1."PlaylistId" AS "PlaylistId",
+                        sq1."TrackId" AS "TrackId",
+                        sq2."Name" AS "Name",
+                        sq3."AlbumId" AS "AlbumId",
+                        sq3."MediaTypeId" AS "MediaTypeId",
+                        sq3."GenreId" AS "GenreId",
+                        sq3."Composer" AS "Composer",
+                        sq3."Milliseconds" AS "Milliseconds",
+                        sq3."Bytes" AS "Bytes",
+                        sq3."UnitPrice" AS "UnitPrice"
                 FROM
-                    (SELECT PlaylistId,
-                            TrackId
+                    (SELECT "PlaylistId",
+                            "TrackId"
                     FROM PlaylistTrack) sq1
                 LEFT JOIN
-                    (SELECT PlaylistId,
-                            Name
+                    (SELECT "PlaylistId",
+                            "Name"
                     FROM Playlist) sq2 ON sq1.PlaylistId=sq2.PlaylistId
                 LEFT JOIN
-                    (SELECT TrackId,
-                            Name,
-                            AlbumId,
-                            MediaTypeId,
-                            GenreId,
-                            Composer,
-                            Milliseconds,
-                            Bytes,
-                            UnitPrice
+                    (SELECT "TrackId",
+                            "Name",
+                            "AlbumId",
+                            "MediaTypeId",
+                            "GenreId",
+                            "Composer",
+                            "Milliseconds",
+                            "Bytes",
+                            "UnitPrice"
                     FROM Track) sq3 ON sq1.TrackId=sq3.TrackId
-                ORDER BY PlaylistId,
-                        TrackId
+                ORDER BY 1,
+                        2
                 LIMIT 100
                 OFFSET 3500) sq
-            GROUP BY GenreId,
-                    Composer) sq
+            GROUP BY 1,
+                        2) sq
     """
+    # write_out(qf11.get_sql())
     assert clean_testexpr(qf11.get_sql()) == clean_testexpr(sql)
