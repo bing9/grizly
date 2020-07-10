@@ -25,13 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `get_tables()` method
 - Added option `type='external'` to `create_table()` method [#451](https://github.com/kfk/grizly/issues/451)
 
-## S3
+### S3
 
 - Added `to_aurora()` method [#404](https://github.com/kfk/grizly/issues/404)
 - Added `to_json()` method
 - Added `from_serializable()` method
 
-## QFrame
+### QFrame
 
 - Improved SQL generation [#462](https://github.com/kfk/grizly/issues/462), [#430](https://github.com/kfk/grizly/issues/430)
 - Added option to use fields aliases in methods: `rename()`, `agg()` [#445](https://github.com/kfk/grizly/issues/445)
