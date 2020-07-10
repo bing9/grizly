@@ -4,6 +4,7 @@ import openpyxl
 from .sqldb import SQLDB
 import logging
 from os.path import basename
+import os
 
 
 class BaseTool:
@@ -99,16 +100,23 @@ class BaseTool:
             return self.df.shape[0] or 0
 
     def to_excel(
-        self, input_excel_path, output_excel_path, sheet_name="", startrow=0, startcol=0, index=False, header=False,
+        self,
+        input_excel_path: str = None,
+        output_excel_path: str = None,
+        sheet_name="",
+        startrow=0,
+        startcol=0,
+        index=False,
+        header=True,
     ):
         """Saves data to Excel file.
 
         Parameters
         ----------
         input_excel_path : str
-            Path to template Excel file
+            Path to template Excel file, if None then 'grizly_test.xlsx'
         output_excel_path : str
-            Path to Excel file in which we want to save data
+            Path to Excel file in which we want to save data, if None then input_excel_path
         sheet_name : str, optional
             Sheet name, by default ''
         startrow : int, optional
@@ -124,6 +132,9 @@ class BaseTool:
         -------
         Class
         """
+        input_excel_path = input_excel_path or "grizly_test.xlsx"
+        output_excel_path = output_excel_path or input_excel_path
+
         if self.__class__.__name__ == "QFrame":
             df = self.to_df()
         elif self.__class__.__name__ == "GitHub":
@@ -131,16 +142,26 @@ class BaseTool:
         else:
             raise NotImplementedError(f"This method is not supported for {self.__class__.__name__} class.")
 
-        copy_df_to_excel(
-            df=df,
-            input_excel_path=input_excel_path,
-            output_excel_path=output_excel_path,
-            sheet_name=sheet_name,
-            startrow=startrow,
-            startcol=startcol,
-            index=index,
-            header=header,
-        )
+        if os.path.exists(input_excel_path):
+            copy_df_to_excel(
+                df=df,
+                input_excel_path=input_excel_path,
+                output_excel_path=output_excel_path,
+                sheet_name=sheet_name,
+                startrow=startrow,
+                startcol=startcol,
+                index=index,
+                header=header,
+            )
+        else:
+            df.to_excel(
+                output_excel_path,
+                sheet_name=sheet_name,
+                startrow=startrow,
+                startcol=startcol,
+                index=index,
+                header=header,
+            )
 
 
 def copy_df_to_excel(

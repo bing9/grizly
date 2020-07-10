@@ -188,8 +188,8 @@ class QFrame(BaseTool):
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
 
         Returns
@@ -227,10 +227,10 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe")
         >>> qf = qf.from_table(table="table_tutorial", schema="grizly")
         >>> print(qf)
-        SELECT col1,
-               col2,
-               col3,
-               col4
+        SELECT "col1",
+               "col2",
+               "col3",
+               "col4"
         FROM grizly.table_tutorial
         """
 
@@ -276,16 +276,16 @@ class QFrame(BaseTool):
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim', 'as': 'Id'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> print(qf)
-        SELECT CustomerId AS "Id",
-               Sales
+        SELECT "CustomerId" AS "Id",
+               "Sales"
         FROM schema.table
         >>> qf = qf.select(["CustomerId", "Sales"])
         >>> print(qf)
-        SELECT sq.Id AS "Id",
-               sq.Sales AS "Sales"
+        SELECT sq."Id" AS "Id",
+               sq."Sales" AS "Sales"
         FROM
-          (SELECT CustomerId AS "Id",
-                  Sales
+          (SELECT "CustomerId" AS "Id",
+                  "Sales"
            FROM schema.table) sq
 
         Returns
@@ -343,8 +343,8 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.rename({'Sales': 'Billings'})
         >>> print(qf)
-        SELECT CustomerId,
-               Sales AS "Billings"
+        SELECT "CustomerId",
+               "Sales" AS "Billings"
         FROM schema.table
 
         Returns
@@ -377,7 +377,7 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.remove(['Sales'])
         >>> print(qf)
-        SELECT CustomerId
+        SELECT "CustomerId"
         FROM schema.table
 
         Returns
@@ -403,8 +403,8 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.distinct()
         >>> print(qf)
-        SELECT DISTINCT CustomerId,
-                        Sales
+        SELECT DISTINCT "CustomerId",
+                        "Sales"
         FROM schema.table
 
         Returns
@@ -433,8 +433,8 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.query("Sales != 0")
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
         WHERE Sales != 0
 
@@ -475,10 +475,10 @@ class QFrame(BaseTool):
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> qf = qf.having("sum(sales)>100")
         >>> print(qf)
-        SELECT CustomerId,
-               sum(Sales) AS "Sales"
+        SELECT "CustomerId",
+               sum("Sales") AS "Sales"
         FROM schema.table
-        GROUP BY CustomerId
+        GROUP BY 1
         HAVING sum(sales)>100
 
         Returns
@@ -529,16 +529,16 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.assign(Sales_Div="Sales/100", type='num')
         >>> print(qf)
-        SELECT CustomerId,
-               Sales,
+        SELECT "CustomerId",
+               "Sales",
                Sales/100 AS "Sales_Div"
         FROM schema.table
 
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.assign(Sales_Positive="CASE WHEN Sales>0 THEN 1 ELSE 0 END")
         >>> print(qf)
-        SELECT CustomerId,
-               Sales,
+        SELECT "CustomerId",
+               "Sales",
                CASE
                    WHEN Sales>0 THEN 1
                    ELSE 0
@@ -596,10 +596,10 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> print(qf)
-        SELECT CustomerId,
-               sum(Sales) AS "Sales"
+        SELECT "CustomerId",
+               sum("Sales") AS "Sales"
         FROM schema.table
-        GROUP BY CustomerId
+        GROUP BY 1
 
         Returns
         -------
@@ -633,11 +633,11 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.groupby(['CustomerId'])['Sales', 'Orders'].agg('sum')
         >>> print(qf)
-        SELECT CustomerId,
-               sum(Sales) AS "Sales",
-               sum(Orders) AS "Orders"
+        SELECT "CustomerId",
+               sum("Sales") AS "Sales",
+               sum("Orders") AS "Orders"
         FROM schema.table
-        GROUP BY CustomerId
+        GROUP BY 1
 
         Returns
         -------
@@ -673,11 +673,11 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.groupby(['CustomerId']).sum()
         >>> print(qf)
-        SELECT CustomerId,
-               sum(Sales) AS "Sales",
-               sum(Orders) AS "Orders"
+        SELECT "CustomerId",
+               sum("Sales") AS "Sales",
+               sum("Orders") AS "Orders"
         FROM schema.table
-        GROUP BY CustomerId
+        GROUP BY 1
 
         Returns
         -------
@@ -707,18 +707,18 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.orderby(["Sales"])
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
-        ORDER BY Sales
+        ORDER BY 2
 
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.orderby(["Sales"], ascending=False)
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
-        ORDER BY Sales DESC
+        ORDER BY 2 DESC
 
         Returns
         -------
@@ -758,8 +758,8 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.limit(100)
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
         LIMIT 100
 
@@ -784,8 +784,8 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.offset(100)
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
         OFFSET 100
 
@@ -817,11 +817,11 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.window(5, 10)
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
-        ORDER BY CustomerId,
-                 Sales
+        ORDER BY 1,
+                 2
         OFFSET 5
         LIMIT 10
 
@@ -907,8 +907,8 @@ class QFrame(BaseTool):
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.rearrange(['Sales', 'CustomerId'])
         >>> print(qf)
-        SELECT Sales,
-               CustomerId
+        SELECT "Sales",
+               "CustomerId"
         FROM schema.table
 
         Returns
@@ -1068,8 +1068,8 @@ class QFrame(BaseTool):
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
         >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> print(qf.get_sql())
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
 
         Returns
@@ -1580,27 +1580,27 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     >>> playlist_track = {"select": {"fields":{"PlaylistId": {"type" : "dim"}, "TrackId": {"type" : "dim"}}, "table" : "PlaylistTrack"}}
     >>> playlist_track_qf = QFrame(dsn="redshift_acoe").from_dict(playlist_track)
     >>> print(playlist_track_qf)
-    SELECT PlaylistId,
-           TrackId
+    SELECT "PlaylistId",
+           "TrackId"
     FROM PlaylistTrack
     >>> playlists = {"select": {"fields": {"PlaylistId": {"type" : "dim"}, "Name": {"type" : "dim"}}, "table" : "Playlist"}}
     >>> playlists_qf = QFrame(dsn="redshift_acoe").from_dict(playlists)
     >>> print(playlists_qf)
-    SELECT PlaylistId,
-           Name
+    SELECT "PlaylistId",
+           "Name"
     FROM Playlist
     >>> joined_qf = join(qframes=[playlist_track_qf, playlists_qf], join_type='left join', on='sq1.PlaylistId=sq2.PlaylistId')
     >>> print(joined_qf)
-    SELECT sq1.PlaylistId AS "PlaylistId",
-           sq1.TrackId AS "TrackId",
-           sq2.Name AS "Name"
+    SELECT sq1."PlaylistId" AS "PlaylistId",
+           sq1."TrackId" AS "TrackId",
+           sq2."Name" AS "Name"
     FROM
-      (SELECT PlaylistId,
-              TrackId
+      (SELECT "PlaylistId",
+              "TrackId"
        FROM PlaylistTrack) sq1
     LEFT JOIN
-      (SELECT PlaylistId,
-              Name
+      (SELECT "PlaylistId",
+              "Name"
        FROM Playlist) sq2 ON sq1.PlaylistId=sq2.PlaylistId
 
     Returns
@@ -1683,16 +1683,16 @@ def union(qframes=[], union_type=None, union_by="position"):
     >>> qf3 = qf.copy()
     >>> q_unioned = union(qframes=[qf1, qf2, qf3], union_type=["UNION ALL", "UNION"])
     >>> print(q_unioned)
-    SELECT CustomerId,
-           Sales
+    SELECT "CustomerId",
+           "Sales"
     FROM schema.table
     UNION ALL
-    SELECT CustomerId,
-           Sales
+    SELECT "CustomerId",
+           "Sales"
     FROM schema.table
     UNION
-    SELECT CustomerId,
-           Sales
+    SELECT "CustomerId",
+           "Sales"
     FROM schema.table
 
     Returns
