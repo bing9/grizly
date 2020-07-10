@@ -5,14 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) 
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
-## [Unreleased]
+## [0.3.6] - 10-07-2020
 
 ### Overall changes
 
 - Removed package PageLayout
 - Added the possibility to run and cancel control checks (eg. `grizly workflow run "sales daily news control check" --local`). To cancel checks running on prod, run eg. `grizly workflow cancel "sales daily news control check"`
 - **IMPORTANT**: Engine strings (`engine` or `engine_str` parameters) are deprecated since version `0.3.6`. They are replaced with suitable datasource names (`dsn` parameter) [#455](https://github.com/kfk/grizly/issues/455)
-- added experimental.py with the experimental Extract class
+- Added experimental.py with the experimental Extract class
+- Removed SQLAlchemy from requirements 
 
 ### Orchestrate
 
@@ -21,12 +22,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### SQLDB
 
 - Changed configuration. Now the main parameter is `dsn` not `db` [#459](https://github.com/kfk/grizly/issues/459)
+- Added `get_tables()` method
+- Added option `type='external'` to `create_table()` method [#451](https://github.com/kfk/grizly/issues/451)
 
 ## S3
 
 - Added `to_aurora()` method [#404](https://github.com/kfk/grizly/issues/404)
 - Added `to_json()` method
 - Added `from_serializable()` method
+
+## QFrame
+
+- Improved SQL generation [#462](https://github.com/kfk/grizly/issues/462), [#430](https://github.com/kfk/grizly/issues/430)
+- Added option to use fields aliases in methods: `rename()`, `agg()` [#445](https://github.com/kfk/grizly/issues/445)
+- Improved `from_table(0` method to work with external tables [#442](https://github.com/kfk/grizly/issues/442)
+
 
 ## [0.3.5] - 02-06-2020
 
@@ -213,7 +223,7 @@ For the S3 we use AWS configuration so if you don't have it in `.aws` folder ple
 - **PROXY**
 You can get some connection errors if you don't have at least one of `HTTPS_PROXY` or `HTTP_PROXY` specified in env variables. Some libraries may not be installed if you don't have `HTTPS_PROXY` specified.
 
-[Unreleased]: https://github.com/kfk/grizly/compare/v0.3.5...0.3.6
+[0.3.6]: https://github.com/kfk/grizly/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/kfk/grizly/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/kfk/grizly/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/kfk/grizly/compare/v0.3.2...v0.3.3
