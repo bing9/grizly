@@ -193,18 +193,8 @@ class Email:
 
         Examples
         --------
-        >>> personal = {
-        ...        "personal": {
-        ...        "email": {
-        ...            "email_address": "john_snow@example.com",
-        ...            "email_password": "wolf123",
-        ...            "send_as": "John Snow"
-        ...        }
-        ...        }
-        ...    }
-        >>> conf = Config().add_keys(personal)
         >>> attachment_path = get_path("grizly_dev", "tests", "output.txt")
-        >>> email = Email(subject="Test", body="Testing body.", attachment_paths=attachment_path, config_key="personal")
+        >>> email = Email(subject="Test", body="Testing body.", attachment_paths=attachment_path, config_key="standard")
         >>> to = "test@example.com"
         >>> cc = ["test2@example.com", "test3@example.com"]
         >>> team_email_address = "shared_mailbox@example.com"

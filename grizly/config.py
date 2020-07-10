@@ -32,10 +32,6 @@ class Config:
         ...            "github": {
         ...                "username": "my_login",
         ...                "username_password": "my_password",
-        ...                "proxies": {
-        ...                     "http": "first_proxy",
-        ...                     "https": "second_proxy"
-        ...                },
         ...                "pages": 100
         ...            },
         ...            "sfdc": {
@@ -55,11 +51,17 @@ class Config:
         ...                "http": "first_proxy",
         ...                "https": "second_proxy"
         ...            },
-        ...             "sqldb": {
-        ...             "redshift": "mssql+pyodbc://redshift_acoe",
-        ...             "denodo": "mssql+pyodbc://DenodoPROD"
-        ...        }
-        ...            }
+        ...            "sqldb": {
+        ...                "redshift_acoe": {
+        ...                   "db": "redshift",
+        ...                   "dialect": "postgresql"
+        ...                },
+        ...                "DenodoPROD": {
+        ...                   "db": "denodo",
+        ...                   "dialect": "denodo"
+        ...                }
+        ...             }
+        ...             }
         ...        }
         ...        }
         >>> conf = Config().from_dict(standard)
@@ -109,13 +111,41 @@ class Config:
                 raise ValueError("config is empty")
 
             for key in data["config"].keys():
+                # updating old config to be romoved in 0.3.7
+                if "sqldb" not in data["config"][key] or "denodo" in data["config"][key]["sqldb"]:
+                    sqldb_config = {
+                        "redshift_acoe": {"db": "redshift", "dialect": "postgresql"},
+                        "Redshift": {"db": "redshift", "dialect": "postgresql"},
+                        "DenodoPROD": {"db": "denodo", "dialect": "denodo"},
+                        "DenodoODBC": {"db": "denodo", "dialect": "denodo"},
+                        "aurora_db": {"db": "aurora", "dialect": "postgresql"},
+                        "retool_dev_db": {"db": "mariadb", "dialect": "mysql"},
+                        "tableau_postgre": {"db": "tableau", "dialect": "postgresql"},
+                    }
+                    data["config"][key]["sqldb"] = sqldb_config
+                    with open(json_path, "w") as f:
+                        json.dump(data, f)
+                    self.logger.warning(
+                        f"File {json_path} has been overwritten. "
+                        "Old configuration for 'sqldb' has been replaced with new compatible with grizly 0.3.6."
+                    )
+
+                if "github" in data["config"][key] and "proxies" in data["config"][key]["github"]:
+                    data["config"][key]["github"].pop("proxies")
+                    with open(json_path, "w") as f:
+                        json.dump(data, f)
+                    self.logger.warning(
+                        f"File {json_path} has been overwritten. "
+                        "Old configuration for 'github' has been replaced with new compatible with grizly 0.3.6."
+                    )
+
                 _validate_config(data["config"][key], services=list(data["config"][key]))
 
             Config.data = data["config"]
-            self.logger.debug("Config data has been saved.")
+            self.logger.debug(f"Config data loaded from {json_path}.")
             return Config()
         else:
-            raise KeyError("'config' key not found")
+            raise KeyError(f"'config' key not found in config file {json_path}")
 
     def add_keys(self, data: dict, if_exists: str = "skip"):
         """Adds new keys to Config.data
@@ -168,7 +198,7 @@ class Config:
         return Config()
 
     def get_service(
-        self, service: {"email", "github", "sfdc", "proxies", "sqldb"}, config_key: str = None, env: str = None,
+        self, service: str, config_key: str = None, env: str = None,
     ):
         """Returns dictionary data for given service and config key.
 
@@ -208,7 +238,20 @@ class Config:
         config_key = config_key or "standard"
         env = env or "prod"
 
+        if Config.data == {}:
+            config_path = os.environ.get("GRIZLY_CONFIG_FILE")
+            if config_path is not None:
+                self.from_json(config_path)
+            elif os.path.exists(get_path(".grizly", "config.json")):
+                self.from_json(get_path(".grizly", "config.json"))
+            else:
+                raise FileNotFoundError(
+                    "Config file not found. Please specify env variable GRIZLY_CONFIG_FILE with path to file"
+                    " or load config file using Config.from_json() method."
+                )
+
         if config_key not in Config.data.keys():
+            print(Config.data)
             raise KeyError(f"Key {config_key} not found in config. Please check Config class documentation.")
 
         _validate_config(self.data[config_key], services=service, env=env)
@@ -282,13 +325,28 @@ def _validate_config(config: dict, services: list = None, env: str = None):
         if service == "email":
             valid_keys = {"email_address", "email_password", "send_as"}
         elif service == "github":
-            valid_keys = {"pages", "proxies", "username", "username_password"}
+            valid_keys = {"pages", "username", "username_password"}
         elif service == "sfdc":
             valid_keys = {"stage", "prod"}
         elif service == "proxies":
             valid_keys = {"http", "https"}
         elif service == "sqldb":
-            valid_keys = {"redshift", "denodo"}
+            valid_keys = {"db", "dialect"}
+            for key in config[service]:
+                if not isinstance(config[service][key], dict):
+                    raise TypeError(f"config['{service}']['{key}'] must be a dictionary")
+                if config[service][key] == {}:
+                    raise ValueError(f"config['{service}']['{key}'] is empty")
+
+                invalid_keys = set(config[service][key].keys()) - valid_keys
+                if invalid_keys != set():
+                    raise KeyError(
+                        f"Invalid keys {invalid_keys} in config['{service}']['{key}']. Valid keys: {valid_keys}"
+                    )
+                not_found_keys = valid_keys - set(config[service][key].keys())
+                if not_found_keys != set():
+                    raise KeyError(f"Keys {not_found_keys} not found in config['{service}']['{key}']")
+            return config
 
         invalid_keys = set(config[service].keys()) - valid_keys
         if invalid_keys != set():

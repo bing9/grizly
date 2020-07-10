@@ -5,16 +5,18 @@ import os
 import sqlparse
 from copy import deepcopy
 import json
-import logging
 import pyarrow as pa
+import decimal
 
 from .s3 import S3
-from .sqldb import SQLDB, check_if_valid_type
+from .sqldb import SQLDB
+from .dialects import check_if_valid_type, mysql_to_postgres_type
 from ..ui.qframe import SubqueryUI
-from ..utils import get_path
-from .extract import Extract
+from ..utils import get_path, rds_to_pyarrow_type
+from .base import BaseTool
 
 import deprecation
+import psutil
 from functools import partial
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
@@ -35,58 +37,52 @@ def prepend_table(data, expression):
     return expression
 
 
-class QFrame(Extract):
+class QFrame(BaseTool):
     """Class which builds a SQL statement.
 
     Parameters
     ----------
     data : dict
         Dictionary structure holding fields, schema, table, sql information.
-
-    engine : str
-        Engine string. If empty then the engine string is "mssql+pyodbc://DenodoODBC".
-        Other engine strings:
-
-        * DenodoPROD: "mssql+pyodbc://DenodoPROD",
-        * Redshift: "mssql+pyodbc://redshift_acoe",
-        * MariaDB: "mssql+pyodbc://retool_dev_db"
     """
 
     def __init__(
         self,
         data: dict = {},
-        engine: str = None,
-        db: str = None,
+        dsn: str = None,
+        sqldb: SQLDB = None,
         sql: str = None,
         getfields: list = [],
-        chunksize: int = None,
-        interface: str = None,
-        logger=None,
+        *args,
+        **kwargs,
     ):
-        self.tool_name = "QFrame"
-        self.engine = engine if engine else "mssql+pyodbc://DenodoODBC"
-        if not isinstance(self.engine, str):
-            raise ValueError("QFrame engine is not of type: str")
+        super().__init__(*args, **kwargs)
         self.data = data
-        self.db = db or ("denodo" if "denodo" in self.engine.lower() else "redshift")
         self.sql = sql or ""
         self.getfields = getfields
-        self.dtypes = {}
-        self.chunksize = chunksize
-        self.interface = interface or "sqlalchemy"
-        self.logger = logger or logging.getLogger(__name__)
-        super().__init__()
+
+        engine = kwargs.get("engine")
+        if engine is not None:
+            if not isinstance(engine, str):
+                raise ValueError("QFrame engine is not of type: str")
+            dsn = engine.split("://")[-1]
+            self.logger.warning(
+                f"Parameter engine in QFrame is deprecated as of 0.3 and will be removed in 0.4."
+                f" Please use dsn='{dsn}' instead of engine='{engine}'.",
+            )
+
+        self.sqldb = sqldb or SQLDB(dsn=dsn, **kwargs)
 
     def create_sql_blocks(self):
         """Creates blocks which are used to generate an SQL"""
         if self.data == {}:
-            print("Your QFrame is empty.")
+            self.logger.info("Your QFrame is empty.")
             return self
         else:
-            self.data["select"]["sql_blocks"] = _build_column_strings(self.data)
+            self.data["select"]["sql_blocks"] = self._build_column_strings()
             return self
 
-    def validate_data(self, data):
+    def validate_data(self, data: dict):
         """Validates loaded data.
 
         Parameters
@@ -117,10 +113,9 @@ class QFrame(Extract):
             print("Use your_qframe.remove() to remove or your_qframe.rename() to rename columns.")
 
         else:
-            print("There are no duplicated columns.")
-        return self
+            self.logger.info("There are no duplicated columns.")
 
-    def save_json(self, json_path, subquery=""):
+    def save_json(self, json_path: str, subquery: str = ""):
         """Saves QFrame.data to json file.
 
         Parameters
@@ -145,13 +140,13 @@ class QFrame(Extract):
 
         with open(json_path, "w") as f:
             json.dump(json_data, f, indent=4)
-        print(f"Data saved in {json_path}")
-        return self
+
+        self.logger.info(f"Data saved in {json_path}")
 
     def build_subquery(self, store_path, subquery, database):
         return SubqueryUI(store_path=store_path).build_subquery(self, subquery, database)
 
-    def from_json(self, json_path, subquery=""):
+    def from_json(self, json_path: str, subquery: str = ""):
         """Reads QFrame.data from json file.
 
         Parameters
@@ -174,21 +169,13 @@ class QFrame(Extract):
                     self.data = self.validate_data(data[subquery])
             else:
                 self.data = data
-        for field in self.data["select"]["fields"]:
-            _type = self.data["select"]["fields"][field]["type"]
-            dtype = "object"
-            if _type == "num":
-                dtype = "float64"
-            elif _type == "dim":
-                dtype == "object"
-            self.dtypes[field] = dtype
         return self
 
     @deprecation.deprecated(details="Use QFrame.from_json instead",)
     def read_json(self, json_path, subquery=""):
         return self.from_json(json_path, subquery)
 
-    def from_dict(self, data):
+    def from_dict(self, data: dict):
         """Reads QFrame.data from dictionary.
 
         Parameters
@@ -199,10 +186,10 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
 
         Returns
@@ -234,26 +221,23 @@ class QFrame(Extract):
             Path to output json file, by default None
         subquery : str, optional
             Name of the query in json file. If this name already exists it will be overwritten, by default None
-        
+
         Examples
         --------
-        >>> engine_str = "mssql+pyodbc://redshift_acoe"
-        >>> qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
-        >>> qf = qf.from_table(table="table_tutorial", schema="administration")
+        >>> qf = QFrame(dsn="redshift_acoe")
+        >>> qf = qf.from_table(table="table_tutorial", schema="grizly")
         >>> print(qf)
-        SELECT col1,
-               col2,
-               col3,
-               col4
-        FROM administration.table_tutorial
-        
+        SELECT "col1",
+               "col2",
+               "col3",
+               "col4"
+        FROM grizly.table_tutorial
         """
-        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface)
 
         if schema is None:
             schema = ""
         schema = schema if schema is not None else ""
-        col_names, col_types = sqldb.get_columns(schema=schema, table=table, columns=columns, column_types=True)
+        col_names, col_types = self.sqldb.get_columns(schema=schema, table=table, columns=columns, column_types=True)
 
         if col_names == []:
             raise ValueError("No columns were loaded. Please check if specified table exists and is not empty.")
@@ -275,34 +259,34 @@ class QFrame(Extract):
 
         return self
 
-    def select(self, fields):
+    def select(self, fields: list):
         """Creates a subquery that looks like "SELECT sq.col1, sq.col2 FROM (some sql) sq".
 
         NOTE: Selected fields will be placed in the new QFrame. Names of new fields are created
         as a concat of "sq." and alias in the parent QFrame.
-
-        Examples
-        --------
-        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim', 'as': 'Id'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
-        >>> print(qf)
-        SELECT CustomerId AS "Id",
-               Sales
-        FROM schema.table
-        >>> qf = qf.select(["CustomerId", "Sales"])
-        >>> print(qf)
-        SELECT sq.Id AS "Id",
-               sq.Sales AS "Sales"
-        FROM
-          (SELECT CustomerId AS "Id",
-                  Sales
-           FROM schema.table) sq
 
         Parameters
         ----------
         fields : list or str
             Fields in list or field as a string.
             If Fields is * then Select will contain all columns
+
+        Examples
+        --------
+        >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim', 'as': 'Id'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
+        >>> print(qf)
+        SELECT "CustomerId" AS "Id",
+               "Sales"
+        FROM schema.table
+        >>> qf = qf.select(["CustomerId", "Sales"])
+        >>> print(qf)
+        SELECT sq."Id" AS "Id",
+               sq."Sales" AS "Sales"
+        FROM
+          (SELECT "CustomerId" AS "Id",
+                  "Sales"
+           FROM schema.table) sq
 
         Returns
         -------
@@ -314,7 +298,7 @@ class QFrame(Extract):
 
         if isinstance(fields, str):
             if fields == "*":
-                fields = sq_fields
+                fields = self._get_fields(aliased=False, not_selected=False)
             else:
                 fields = [fields]
 
@@ -356,11 +340,11 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.rename({'Sales': 'Billings'})
         >>> print(qf)
-        SELECT CustomerId,
-               Sales AS "Billings"
+        SELECT "CustomerId",
+               "Sales" AS "Billings"
         FROM schema.table
 
         Returns
@@ -370,11 +354,13 @@ class QFrame(Extract):
         if not isinstance(fields, dict):
             raise ValueError("Fields parameter should be of type dict.")
 
-        # fields = self._get_fields_names(fields)
+        fields_names, not_found_fields = self._get_fields_names(fields, not_found=True)
 
-        for field in fields:
-            if field in self.data["select"]["fields"]:
-                self.data["select"]["fields"][field]["as"] = fields[field]
+        for field in not_found_fields:
+            fields.pop(field)
+
+        for field, field_nm in zip(fields.keys(), fields_names):
+            self.data["select"]["fields"][field_nm]["as"] = fields[field]
         return self
 
     def remove(self, fields: list):
@@ -388,10 +374,10 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.remove(['Sales'])
         >>> print(qf)
-        SELECT CustomerId
+        SELECT "CustomerId"
         FROM schema.table
 
         Returns
@@ -414,11 +400,11 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.distinct()
         >>> print(qf)
-        SELECT DISTINCT CustomerId,
-                        Sales
+        SELECT DISTINCT "CustomerId",
+                        "Sales"
         FROM schema.table
 
         Returns
@@ -429,7 +415,7 @@ class QFrame(Extract):
 
         return self
 
-    def query(self, query, if_exists="append", operator="and"):
+    def query(self, query: str, if_exists: str = "append", operator: str = "and"):
         """Adds WHERE statement.
 
         Parameters
@@ -444,11 +430,11 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.query("Sales != 0")
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
         WHERE Sales != 0
 
@@ -462,7 +448,7 @@ class QFrame(Extract):
             raise ValueError("Invalid value in operator. Valid values: 'and', 'or'.")
 
         if "union" in self.data["select"]:
-            print("You can't add where clause inside union. Use select() method first.")
+            self.logger.info("You can't add where clause inside union. Use select() method first.")
         else:
             if "where" not in self.data["select"] or self.data["select"]["where"] == "" or if_exists == "replace":
                 self.data["select"]["where"] = query
@@ -470,7 +456,7 @@ class QFrame(Extract):
                 self.data["select"]["where"] += f" {operator} {query}"
         return self
 
-    def having(self, having, if_exists="append", operator="and"):
+    def having(self, having: str, if_exists: str = "append", operator: str = "and"):
         """Adds HAVING statement.
 
         Parameters
@@ -485,14 +471,14 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> qf = qf.having("sum(sales)>100")
         >>> print(qf)
-        SELECT CustomerId,
-               sum(Sales) AS "Sales"
+        SELECT "CustomerId",
+               sum("Sales") AS "Sales"
         FROM schema.table
-        GROUP BY CustomerId
+        GROUP BY 1
         HAVING sum(sales)>100
 
         Returns
@@ -505,7 +491,7 @@ class QFrame(Extract):
             raise ValueError("Invalid value in operator. Valid values: 'and', 'or'.")
 
         if "union" in self.data["select"]:
-            print(
+            self.logger.info(
                 """You can't add having clause inside union. Use select() method first.
             (The GROUP BY and HAVING clauses are applied to each individual query, not the final result set.)"""
             )
@@ -520,7 +506,7 @@ class QFrame(Extract):
                     self.data["select"]["having"] = having
         return self
 
-    def assign(self, type="dim", group_by="", order_by="", custom_type="", **kwargs):
+    def assign(self, type: str = "dim", group_by: str = "", order_by: str = "", custom_type: str = "", **kwargs):
         """Assigns expressions.
 
         Parameters
@@ -540,19 +526,19 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.assign(Sales_Div="Sales/100", type='num')
         >>> print(qf)
-        SELECT CustomerId,
-               Sales,
+        SELECT "CustomerId",
+               "Sales",
                Sales/100 AS "Sales_Div"
         FROM schema.table
 
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.assign(Sales_Positive="CASE WHEN Sales>0 THEN 1 ELSE 0 END")
         >>> print(qf)
-        SELECT CustomerId,
-               Sales,
+        SELECT "CustomerId",
+               "Sales",
                CASE
                    WHEN Sales>0 THEN 1
                    ELSE 0
@@ -581,7 +567,7 @@ class QFrame(Extract):
         if order_by.lower() not in ["asc", "desc", ""]:
             raise ValueError("Invalid value in order_by. Valid values: 'ASC', 'DESC', ''.")
         if "union" in self.data["select"]:
-            print("You can't assign expressions inside union. Use select() method first.")
+            self.logger.warning("You can't assign expressions inside union. Use select() method first.")
         else:
             if kwargs is not None:
                 for key in kwargs:
@@ -596,7 +582,7 @@ class QFrame(Extract):
                     }
         return self
 
-    def groupby(self, fields=None):
+    def groupby(self, fields: list = None):
         """Adds GROUP BY statement.
 
         Parameters
@@ -607,13 +593,13 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.groupby(['CustomerId'])['Sales'].agg('sum')
         >>> print(qf)
-        SELECT CustomerId,
-               sum(Sales) AS "Sales"
+        SELECT "CustomerId",
+               sum("Sales") AS "Sales"
         FROM schema.table
-        GROUP BY CustomerId
+        GROUP BY 1
 
         Returns
         -------
@@ -625,7 +611,7 @@ class QFrame(Extract):
             fields = [fields]
 
         if fields is None:
-            fields = self.get_fields()
+            fields = self.get_fields(not_selected=True)
         else:
             fields = self._get_fields_names(fields)
 
@@ -644,14 +630,14 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.groupby(['CustomerId'])['Sales', 'Orders'].agg('sum')
         >>> print(qf)
-        SELECT CustomerId,
-               sum(Sales) AS "Sales",
-               sum(Orders) AS "Orders"
+        SELECT "CustomerId",
+               sum("Sales") AS "Sales",
+               sum("Orders") AS "Orders"
         FROM schema.table
-        GROUP BY CustomerId
+        GROUP BY 1
 
         Returns
         -------
@@ -671,13 +657,11 @@ class QFrame(Extract):
             )
 
         if "union" in self.data["select"]:
-            print("You can't aggregate inside union. Use select() method first.")
+            self.logger.warning("You can't aggregate inside union. Use select() method first.")
         else:
+            self.getfields = self._get_fields_names(self.getfields, aliased=False)
             for field in self.getfields:
-                if field in self.data["select"]["fields"]:
-                    self.data["select"]["fields"][field]["group_by"] = aggtype
-                else:
-                    self.logger.debug("Field not found.")
+                self.data["select"]["fields"][field]["group_by"] = aggtype
 
         return self
 
@@ -686,14 +670,14 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}, 'Orders': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.groupby(['CustomerId']).sum()
         >>> print(qf)
-        SELECT CustomerId,
-               sum(Sales) AS "Sales",
-               sum(Orders) AS "Orders"
+        SELECT "CustomerId",
+               sum("Sales") AS "Sales",
+               sum("Orders") AS "Orders"
         FROM schema.table
-        GROUP BY CustomerId
+        GROUP BY 1
 
         Returns
         -------
@@ -708,7 +692,7 @@ class QFrame(Extract):
                 fields.append(field)
         return self[fields].agg("sum")
 
-    def orderby(self, fields, ascending=True):
+    def orderby(self, fields: list, ascending: bool = True):
         """Adds ORDER BY statement.
 
         Parameters
@@ -720,21 +704,21 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.orderby(["Sales"])
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
-        ORDER BY Sales
+        ORDER BY 2
 
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.orderby(["Sales"], ascending=False)
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
-        ORDER BY Sales DESC
+        ORDER BY 2 DESC
 
         Returns
         -------
@@ -761,7 +745,7 @@ class QFrame(Extract):
 
         return self
 
-    def limit(self, limit):
+    def limit(self, limit: int):
         """Adds LIMIT statement.
 
         Parameters
@@ -771,11 +755,11 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.limit(100)
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
         LIMIT 100
 
@@ -787,7 +771,7 @@ class QFrame(Extract):
 
         return self
 
-    def offset(self, offset):
+    def offset(self, offset: int):
         """Adds OFFSET statement.
 
         Parameters
@@ -797,11 +781,11 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
         >>> qf = qf.offset(100)
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
         OFFSET 100
 
@@ -830,14 +814,14 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.window(5, 10)
         >>> print(qf)
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
-        ORDER BY CustomerId,
-                 Sales
+        ORDER BY 1,
+                 2
         OFFSET 5
         LIMIT 10
 
@@ -877,7 +861,7 @@ class QFrame(Extract):
 
     def cut(self, chunksize: int, deterministic: bool = True, order_by: list = None):
         """Divides a QFrame into multiple smaller QFrames, each containing chunksize rows.
-        
+
         Parameters
         ----------
         chunksize : int
@@ -889,10 +873,9 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> playlists = {"select": {"fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}}, "table": "Playlist",}}
-        >>> engine = "sqlite:///" + get_path("grizly_dev", "tests", "Chinook.sqlite")
-        >>> qf = QFrame(engine=engine).from_dict(playlists)
-        >>> qframes = qf.cut(5)
+        >>> dsn = get_path("grizly_dev", "tests", "Chinook.sqlite")
+        >>> qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(table="Playlist")
+        >>> qframes = qf.cut(5, order_by="PlaylistId")
         >>> len(qframes)
         4
 
@@ -910,7 +893,7 @@ class QFrame(Extract):
 
         return qfs
 
-    def rearrange(self, fields):
+    def rearrange(self, fields: list):
         """Changes order of the columns.
 
         Parameters
@@ -921,11 +904,11 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf = qf.rearrange(['Sales', 'CustomerId'])
         >>> print(qf)
-        SELECT Sales,
-               CustomerId
+        SELECT "Sales",
+               "CustomerId"
         FROM schema.table
 
         Returns
@@ -935,8 +918,8 @@ class QFrame(Extract):
         if isinstance(fields, str):
             fields = [fields]
 
-        aliased_fields = self._get_fields(aliased=True)
-        not_aliased_fields = self._get_fields(aliased=False)
+        aliased_fields = self._get_fields(aliased=True, not_selected=True)
+        not_aliased_fields = self._get_fields(aliased=False, not_selected=True)
 
         if not set(set(aliased_fields) | set(not_aliased_fields)) >= set(fields) or len(not_aliased_fields) != len(
             fields
@@ -1030,18 +1013,20 @@ class QFrame(Extract):
 
         return self
 
-    def get_fields(self, aliased=False):
+    def get_fields(self, aliased: bool = False, not_selected: bool = False):
         """Returns list of QFrame fields.
 
         Parameters
         ----------
         aliased : boolean
             Whether to return original names or aliases.
+        not_selected : boolean
+            Whether to return fields that have parameter `select=0`
 
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf.get_fields()
         ['CustomerId', 'Sales']
 
@@ -1051,7 +1036,7 @@ class QFrame(Extract):
             List of field names
         """
         if self.data:
-            return self._get_fields(aliased=aliased)
+            return self._get_fields(aliased=aliased, not_selected=not_selected)
         else:
             return []
 
@@ -1062,7 +1047,7 @@ class QFrame(Extract):
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> qf.get_dtypes()
         ['VARCHAR(500)', 'FLOAT(53)']
 
@@ -1075,16 +1060,16 @@ class QFrame(Extract):
         dtypes = self.data["select"]["sql_blocks"]["types"]
         return dtypes
 
-    def get_sql(self, print_sql=True):
+    def get_sql(self):
         """Overwrites the SQL statement inside the class and prints saved string.
 
         Examples
         --------
         >>> data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}}
-        >>> qf = QFrame().from_dict(data)
+        >>> qf = QFrame(dsn="redshift_acoe").from_dict(data)
         >>> print(qf.get_sql())
-        SELECT CustomerId,
-               Sales
+        SELECT "CustomerId",
+               "Sales"
         FROM schema.table
 
         Returns
@@ -1092,11 +1077,12 @@ class QFrame(Extract):
         QFrame
         """
         self.create_sql_blocks()
-        self.sql = _get_sql(data=self.data, db=self.db)
+        self.sql = _get_sql(data=self.data, sqldb=self.sqldb)
         return self.sql
 
-    def create_table(self, table, schema="", char_size=500, engine_str=None):
+    def create_table(self, table, schema="", char_size=500, dsn=None, sqldb=None, if_exists=None, **kwargs):
         """Creates a new empty QFrame table in database if the table doesn't exist.
+        TODO: Remove engine_str, db, dsn and dialect and leave sqldb
 
         Parameters
         ----------
@@ -1106,22 +1092,72 @@ class QFrame(Extract):
             Specify the schema.
         char_size : int, optional
             Default size of the VARCHAR field in the database column, by default 500
-        engine_str : str, optional
-            Engine string, by default "mssql+pyodbc://redshift_acoe"
 
         Returns
         -------
         QFrame
         """
-        engine_str = engine_str or self.engine
-        self.create_sql_blocks()
-        sqldb = SQLDB(db=self.db, engine_str=engine_str, interface=self.interface)
+        engine_str = kwargs.get("engine_str")
+        if engine_str is not None:
+            dsn = engine_str.split("://")[-1]
+            self.logger.warning(
+                f"Parameter engine_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
+            )
+
+        sqldb = sqldb or (self.sqldb if dsn is None else SQLDB(dsn=dsn, **kwargs))
+
+        types = self.get_dtypes()
+        if self.sqldb.dialect == "mysql" and sqldb.dialect == "postgresql":
+            types = [mysql_to_postgres_type(dtype) for dtype in types]
+
         sqldb.create_table(
+            type="base_table",
             columns=self.get_fields(aliased=True),
-            types=self.get_dtypes(),
+            types=types,
             table=table,
             schema=schema,
             char_size=char_size,
+            if_exists=if_exists,
+        )
+        return self
+
+    def create_external_table(self, table, schema=None, dsn=None, if_exists=None, **kwargs):
+        """Creates a new empty QFrame table in database if the table doesn't exist.
+        TODO: Remove engine_str, db, dsn and dialect and leave sqldb
+
+        Parameters
+        ----------
+        table : str
+            Name of SQL table.
+        schema : str, optional
+            Specify the schema.
+
+        Returns
+        -------
+        QFrame
+        """
+        if dsn is None:
+            sqldb = self.sqldb
+        else:
+            sqldb = SQLDB(dsn=dsn, **kwargs)
+
+        columns = self.get_fields(aliased=True)
+        types = self.get_dtypes()
+        bucket = kwargs.get("bucket")
+        s3_key = kwargs.get("s3_key")
+        if not (("bucket" in kwargs) and ("s3_key" in kwargs)):
+            msg = "'bucket' and 's3_key' parameters are required when creating an external table"
+            raise ValueError(msg)
+
+        sqldb.create_table(
+            type="external_table",
+            columns=columns,
+            types=types,
+            table=table,
+            schema=schema,
+            if_exists=if_exists,
+            bucket=bucket,
+            s3_key=s3_key,
         )
         return self
 
@@ -1174,7 +1210,7 @@ class QFrame(Extract):
             * fail: Raise a ValueError.
             * replace: Clean table before inserting new values.
             * append: Insert new values to the existing table.
-            
+
         char_size : int, optional
             Default size of the VARCHAR field in the database column, by default 500
 
@@ -1182,16 +1218,14 @@ class QFrame(Extract):
         -------
         QFrame
         """
-        self.create_sql_blocks()
-        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface)
-        sqldb.create_table(
+        self.sqldb.create_table(
             columns=self.get_fields(aliased=True),
             types=self.get_dtypes(),
             table=table,
             schema=schema,
             char_size=char_size,
         )
-        sqldb.write_to(
+        self.sqldb.write_to(
             table=table, columns=self.get_fields(aliased=True), sql=self.get_sql(), schema=schema, if_exists=if_exists,
         )
         return self
@@ -1201,10 +1235,9 @@ class QFrame(Extract):
 
         Examples
         --------
-        >>> engine_str = "mssql+pyodbc://redshift_acoe"
-        >>> qf = QFrame(engine=engine_str, db="redshift", interface="pyodbc")
-        >>> qf = qf.from_table(table="table_tutorial", schema="administration")
-        >>> qf.to_records()
+        >>> qf = QFrame(dsn="redshift_acoe")
+        >>> qf = qf.from_table(table="table_tutorial", schema="grizly")
+        >>> qf.orderby("col1").to_records()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
 
         Returns
@@ -1214,14 +1247,13 @@ class QFrame(Extract):
         """
 
         sql = self.get_sql()
-        if self.db == "denodo":
+        if self.sqldb.db == "denodo":
             sql += (
                 " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est',"
                 " 'queryTimeout' = '9000000000', 'simplify' = 'on')"
             )
 
-        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface, logger=self.logger)
-        con = sqldb.get_connection()
+        con = self.sqldb.get_connection()
         cursor = con.cursor()
 
         cursor.execute(sql)
@@ -1232,79 +1264,59 @@ class QFrame(Extract):
 
         return records
 
-    def to_df(self, db="redshift", chunksize: int = None):
+    def to_dict(self):
+        _dict = {}
+        columns = self.get_fields(aliased=True)
+        records = self.to_records()
+        for i, column in enumerate(columns):
+            column_values = [float(line[i]) if type(line[i]) == decimal.Decimal else line[i] for line in records]
+            _dict[column] = column_values
+        return _dict
+
+    def to_df(self, chunksize: int = None, verbose=False):
         """Writes QFrame to DataFrame. Uses pandas.read_sql.
 
         TODO: DataFarme types should correspond to types defined in QFrame data.
 
-        Parameters
-        ---------
-        db : not really used but has to be provided
-        
         Returns
         -------
         DataFrame
             Data generated from sql.
         """
+        if self.debug:
+            verbose = True
+
         sql = self.get_sql()
-        if "denodo" in self.engine.lower():
+        if self.sqldb.db == "denodo":
             sql += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
-        # sqldb = SQLDB(db=db, engine_str=self.engine, interface=self.interface, logger=self.logger)
-        # con = sqldb.get_connection()
-        # offset = 0
-        # dfs = []
-        # if chunksize:
-        #     if not "limit" in sql.lower():  # respect existing LIMIT
-        #         while True:
-        #             chunk_sql = sql + f"\nOFFSET {offset} LIMIT {self.chunksize}"
-        #             chunk_df = pd.read_sql(chunk_sql, con)
-        #             dfs.append(chunk_df)
-        #             offset += chunksize
-        #             if len(dfs[-1]) < chunksize:
-        #                 break
-        #         df = pd.concat(dfs)
-        #     else:
-        #         self.logger.warning(f"LIMIT already exists in query. Chunksize will not be applied")
-        con = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface).get_connection()
+        con = self.sqldb.get_connection()
+        if verbose:
+            process = psutil.Process(os.getpid())
+            self.logger.info("Executing pd.read_sql()...")
+            self.logger.info(f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB")
         try:
             df = pd.read_sql(sql, con)
+            if verbose:
+                self.logger.info(df.memory_usage(deep=True))
         except:
-            self.logger.warning("Query returned no results")
+            self.logger.exception("There was an error when running the query")
             df = pd.DataFrame()
-        # df = read_sql(sql=sql, con=con)
-        # import io
-        # from sqlalchemy import create_engine
-        # copy_sql = f"COPY ({sql}) TO STDOUT WITH CSV HEADER"
-        # engine_str = "mssql+pyodbc://DenodoPROD"
-        # engine = create_engine(engine_str)
-        # conn = engine.raw_connection()
-        # cur = conn.cursor()
-        # store = io.StringIO()
-        # cur.copy_expert(copy_sql, store)
-        # store.seek(0)
-        # df = read_csv(store)
-        # self.df = df
         finally:
             con.close()
             # engine.dispose()
+        if verbose:
+            self.logger.info("Successfully executed pd.read_sql()")
+            self.logger.info(f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB")
         return df
 
-    def to_arrow(self, db="redshift", debug=False):
+    def to_arrow(self):
         """Writes QFrame to pyarrow.Table"""
-
-        sql = self.get_sql()
-        sqldb = SQLDB(db=db, engine_str=self.engine, interface="turbodbc", logger=self.logger)
-        con = sqldb.get_connection()
-        cursor = con.cursor()
-        cursor.execute(sql)
-        rowcount = cursor.rowcount
-        batches = cursor.fetcharrowbatches(strings_as_dictionary=True)  # string_as.. - similar to pd.Categorical
-        arrow_table = pa.concat_tables(batches)
-        cursor.close()
-        con.close()
-        if debug:
-            return arrow_table, rowcount
-        return arrow_table
+        colnames = self.get_fields(aliased=True)
+        coltypes = [rds_to_pyarrow_type(dtype) for dtype in self.get_dtypes()]
+        schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(colnames, coltypes)])
+        _dict = self.to_dict()
+        table = pa.Table.from_pydict(_dict, schema=schema)
+        return table
 
     @deprecation.deprecated(details="Use QFrame.to_csv or QFrame.to_df and then use SQLDB or S3 class instead",)
     def to_sql(
@@ -1320,8 +1332,7 @@ class QFrame(Extract):
         method=None,
     ):
         df = self.to_df()
-        sqldb = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface)
-        con = sqldb.get_connection()
+        con = self.sqldb.get_connection()
 
         df.to_sql(
             name=table,
@@ -1366,20 +1377,18 @@ class QFrame(Extract):
         QFrame
         """
         data = deepcopy(self.data)
-        engine = self.engine
-        db = self.db
         sql = self.sql
         getfields = deepcopy(self.getfields)
+        sqldb = self.sqldb
         logger = self.logger
-        interface = self.interface
-        return QFrame(data=data, engine=engine, db=db, sql=sql, getfields=getfields, logger=logger, interface=interface)
+        return QFrame(data=data, sql=sql, getfields=getfields, sqldb=sqldb, logger=logger,)
 
     def __str__(self):
         sql = self.get_sql()
         return sql
 
     def __len__(self):
-        con = SQLDB(db=self.db, engine_str=self.engine, interface=self.interface).get_connection()
+        con = self.sqldb.get_connection()
         query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
         try:
             no_rows = con.execute(query).fetchval()
@@ -1396,12 +1405,14 @@ class QFrame(Extract):
             self.getfields = getfields
         return self
 
-    def _get_fields_names(self, fields, aliased=False):
+    def _get_fields_names(self, fields, aliased=False, not_found=False):
         """Returns a list of fields keys or fields aliases.
-        Input parameters 'fields' can contain both aliased and not aliased fields"""
+        Input parameters 'fields' can contain both aliased and not aliased fields
 
-        not_aliased_fields = self._get_fields(aliased=False)
-        aliased_fields = self._get_fields(aliased=True)
+        not_found - whether to return not found fields"""
+
+        not_aliased_fields = self._get_fields(aliased=False, not_selected=True)
+        aliased_fields = self._get_fields(aliased=True, not_selected=True)
 
         not_found_fields = []
         output_fields = []
@@ -1426,25 +1437,115 @@ class QFrame(Extract):
         if not_found_fields != []:
             self.logger.warning(f"Fields {not_found_fields} not found.")
 
-        return output_fields
+        return output_fields if not not_found else (output_fields, not_found_fields)
 
-    def _get_fields(self, aliased=False):
+    def _get_fields(self, aliased=False, not_selected=False):
         fields_data = self.data["select"]["fields"]
         fields_out = []
 
         if aliased:
             for field in fields_data:
-                alias = (
-                    field
-                    if "as" not in fields_data[field] or fields_data[field]["as"] == ""
-                    else fields_data[field]["as"]
-                )
-                fields_out.append(alias)
+                if not not_selected and "select" in fields_data[field] and fields_data[field]["select"] == 0:
+                    continue
+                else:
+                    alias = (
+                        field
+                        if "as" not in fields_data[field] or fields_data[field]["as"] == ""
+                        else fields_data[field]["as"]
+                    )
+                    fields_out.append(alias)
         else:
             for field in fields_data:
-                fields_out.append(field)
+                if not not_selected and "select" in fields_data[field] and fields_data[field]["select"] == 0:
+                    continue
+                else:
+                    fields_out.append(field)
 
         return fields_out
+
+    def _build_column_strings(self):
+        if self.data == {}:
+            return {}
+
+        duplicates = _get_duplicated_columns(self.data)
+        assert (
+            duplicates == {}
+        ), f"""Some of your fields have the same aliases {duplicates}. Use your_qframe.remove() to remove or your_qframe.rename() to rename columns."""
+        select_names = []
+        select_aliases = []
+        group_dimensions = []
+        group_values = []
+        order_by = []
+        types = []
+
+        fields = self.data["select"]["fields"]
+        selected_fields = self._get_fields(aliased=False, not_selected=False)
+
+        for field in fields:
+            if "expression" in fields[field] and fields[field]["expression"] != "":
+                expr = fields[field]["expression"]
+            else:
+                prefix = re.search(r"^sq\d*[.]", field)
+                if prefix is not None:
+                    expr = f'{prefix.group(0)}"{field[len(prefix.group(0)):]}"'
+                else:
+                    expr = f'"{field}"'
+
+            alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
+            alias = alias.replace('"', "")
+
+            # we take either position or expression - depends if field in select
+            if field in selected_fields:
+                pos_nm = str(selected_fields.index(field) + 1)
+            else:
+                pos_nm = expr
+
+            if "group_by" in fields[field]:
+                if fields[field]["group_by"].upper() == "GROUP":
+                    group_dimensions.append(pos_nm)
+
+                elif fields[field]["group_by"].upper() in [
+                    "SUM",
+                    "COUNT",
+                    "MAX",
+                    "MIN",
+                    "AVG",
+                ]:
+                    agg = fields[field]["group_by"]
+                    expr = f"{agg}({expr})"
+                    group_values.append(alias)
+
+            if "order_by" in fields[field] and fields[field]["order_by"] != "":
+                if fields[field]["order_by"].upper() == "DESC":
+                    order = " DESC"
+                else:
+                    order = ""
+                order_by.append(f"{pos_nm}{order}")
+
+            if field in selected_fields:
+                select_name = expr if expr == f'"{alias}"' else f'{expr} as "{alias}"'
+
+                if "custom_type" in fields[field] and fields[field]["custom_type"] != "":
+                    type = fields[field]["custom_type"].upper()
+                elif fields[field]["type"] == "dim":
+                    type = "VARCHAR(500)"
+                elif fields[field]["type"] == "num":
+                    type = "FLOAT(53)"
+
+                select_names.append(select_name)
+                select_aliases.append(alias)
+                types.append(type)
+
+        sql_blocks = {
+            "select_names": select_names,
+            "select_aliases": select_aliases,
+            "group_dimensions": group_dimensions,
+            "group_values": group_values,
+            "order_by": order_by,
+            "types": types,
+        }
+
+        return sql_blocks
 
 
 def join(qframes=[], join_type=None, on=None, unique_col=True):
@@ -1474,35 +1575,32 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
 
     NOTE: Order of the elements in join_type and on list is important.
 
-    TODO: Add validations on engines. QFarmes engines have to be the same.
-
     Examples
     --------
     >>> playlist_track = {"select": {"fields":{"PlaylistId": {"type" : "dim"}, "TrackId": {"type" : "dim"}}, "table" : "PlaylistTrack"}}
-    >>> playlist_track_qf = QFrame().from_dict(playlist_track)
+    >>> playlist_track_qf = QFrame(dsn="redshift_acoe").from_dict(playlist_track)
     >>> print(playlist_track_qf)
-    SELECT PlaylistId,
-           TrackId
+    SELECT "PlaylistId",
+           "TrackId"
     FROM PlaylistTrack
     >>> playlists = {"select": {"fields": {"PlaylistId": {"type" : "dim"}, "Name": {"type" : "dim"}}, "table" : "Playlist"}}
-    >>> playlists_qf = QFrame().from_dict(playlists)
+    >>> playlists_qf = QFrame(dsn="redshift_acoe").from_dict(playlists)
     >>> print(playlists_qf)
-    SELECT PlaylistId,
-           Name
+    SELECT "PlaylistId",
+           "Name"
     FROM Playlist
     >>> joined_qf = join(qframes=[playlist_track_qf, playlists_qf], join_type='left join', on='sq1.PlaylistId=sq2.PlaylistId')
-    Data joined successfully.
     >>> print(joined_qf)
-    SELECT sq1.PlaylistId AS "PlaylistId",
-           sq1.TrackId AS "TrackId",
-           sq2.Name AS "Name"
+    SELECT sq1."PlaylistId" AS "PlaylistId",
+           sq1."TrackId" AS "TrackId",
+           sq2."Name" AS "Name"
     FROM
-      (SELECT PlaylistId,
-              TrackId
+      (SELECT "PlaylistId",
+              "TrackId"
        FROM PlaylistTrack) sq1
     LEFT JOIN
-      (SELECT PlaylistId,
-              Name
+      (SELECT "PlaylistId",
+              "Name"
        FROM Playlist) sq2 ON sq1.PlaylistId=sq2.PlaylistId
 
     Returns
@@ -1520,11 +1618,9 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     iterator = 0
     for q in qframes:
         if iterator == 0:
-            first_engine = q.engine
-            first_db = q.db
+            first_sqldb = q.sqldb
         else:
-            assert first_engine == q.engine, "QFrames have different engine strings."
-            assert first_db == q.db, "QFrames have different db parameters."
+            assert first_sqldb == q.sqldb, "QFrames have different datasources."
         q.create_sql_blocks()
         iterator += 1
         data[f"sq{iterator}"] = deepcopy(q.data)
@@ -1554,12 +1650,14 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
 
     data["select"]["join"] = {"join_type": join_type, "on": on}
 
-    print("Data joined successfully.")
+    out_qf = QFrame(data=data, sqldb=qframes[0].sqldb, logger=qframes[0].logger)
+
+    out_qf.logger.info("Data joined successfully.")
     if not unique_col:
-        print(
+        out_qf.logger.warning(
             "Please remove or rename duplicated columns. Use your_qframe.show_duplicated_columns() to check duplicates."
         )
-    return QFrame(data=data, engine=qframes[0].engine, db=qframes[0].db)
+    return out_qf
 
 
 def union(qframes=[], union_type=None, union_by="position"):
@@ -1579,23 +1677,22 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     Examples
     --------
-    >>> qf = QFrame().from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
+    >>> qf = QFrame(dsn="redshift_acoe").from_dict(data = {'select': {'fields': {'CustomerId': {'type': 'dim'}, 'Sales': {'type': 'num'}}, 'schema': 'schema', 'table': 'table'}})
     >>> qf1 = qf.copy()
     >>> qf2 = qf.copy()
     >>> qf3 = qf.copy()
     >>> q_unioned = union(qframes=[qf1, qf2, qf3], union_type=["UNION ALL", "UNION"])
-    Data unioned successfully.
     >>> print(q_unioned)
-    SELECT CustomerId,
-           Sales
+    SELECT "CustomerId",
+           "Sales"
     FROM schema.table
     UNION ALL
-    SELECT CustomerId,
-           Sales
+    SELECT "CustomerId",
+           "Sales"
     FROM schema.table
     UNION
-    SELECT CustomerId,
-           Sales
+    SELECT "CustomerId",
+           "Sales"
     FROM schema.table
 
     Returns
@@ -1626,8 +1723,7 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     iterator = 2
     for qf in qframes:
-        assert main_qf.engine == qf.engine, "QFrames have different engine strings."
-        assert main_qf.db == qf.db, "QFrames have different db parameters."
+        assert main_qf.sqldb == qf.sqldb, "QFrames have different datasources."
         qf.create_sql_blocks()
         qf_aliases = qf.data["select"]["sql_blocks"]["select_aliases"]
         assert len(new_fields) == len(
@@ -1677,8 +1773,10 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     data["select"]["union"] = {"union_type": union_type}
 
-    print("Data unioned successfully.")
-    return QFrame(data=data, engine=qframes[0].engine, db=qframes[0].db)
+    out_qf = QFrame(data=data, sqldb=qframes[0].sqldb, logger=qframes[0].logger)
+    out_qf.logger.info("Data unioned successfully.")
+
+    return out_qf
 
 
 def _validate_data(data):
@@ -1699,6 +1797,7 @@ def _validate_data(data):
     fields = select["fields"]
 
     for field in fields:
+        field_custom_type = ""
         for key_attr in fields[field]:
             if key_attr not in {
                 "type",
@@ -1740,19 +1839,24 @@ def _validate_data(data):
 
         if "group_by" in fields[field] and fields[field]["group_by"] != "":
             group_by = fields[field]["group_by"]
-            if group_by.upper() not in [
-                "GROUP",
-                "SUM",
-                "COUNT",
-                "MAX",
-                "MIN",
-                "AVG",
-                "STDDEV",
-            ]:
+            group_by_all_aggs = ["GROUP", "SUM", "COUNT", "MAX", "MIN", "AVG", "STDDEV"]
+            group_by_numeric_aggs = group_by_all_aggs[1:]
+            numeric_types = ["DOUBLE PRECISION", "INTEGER", "NUMERIC"]
+            field_custom_type_has_parameter = field_custom_type.find("(") != -1
+            field_custom_type_trimmed = (
+                field_custom_type[: field_custom_type.find("(")]
+                if field_custom_type_has_parameter
+                else field_custom_type
+            )
+
+            if group_by.upper() not in group_by_all_aggs:
                 raise ValueError(
                     f"""Field '{field}' has invalid value in  group_by: '{group_by}'. Valid values: '', 'group', 'sum', 'count', 'max', 'min', 'avg','stddev' """
                 )
-            elif group_by.upper() in ["SUM", "COUNT", "MAX", "MIN", "AVG", "STDDEV"] and field_type != "num":
+
+            if group_by.upper() in group_by_numeric_aggs and (
+                field_type != "num" and field_custom_type_trimmed not in numeric_types
+            ):
                 raise ValueError(
                     f"Field '{field}' has value '{field_type}' in type and value '{group_by}' in group_by. In case of aggregation type should be 'num'."
                 )
@@ -1793,7 +1897,7 @@ def _validate_data(data):
     return data
 
 
-def initiate(columns, schema, table, json_path=None, engine_str="", subquery="", col_types=None):
+def initiate(columns, schema, table, json_path=None, engine_str="", subquery="", col_types=None, logger=None):
     """Creates a dictionary with fields information for a Qframe and saves the data in json file.
 
     Parameters
@@ -1900,117 +2004,22 @@ def _get_duplicated_columns(data):
     return duplicates
 
 
-def _build_column_strings(data):
-    if data == {}:
-        return {}
-
-    duplicates = _get_duplicated_columns(data)
-    assert (
-        duplicates == {}
-    ), f"""Some of your fields have the same aliases {duplicates}. Use your_qframe.remove() to remove or your_qframe.rename() to rename columns."""
-    select_names = []
-    select_aliases = []
-    group_dimensions = []
-    group_values = []
-    order_by = []
-    types = []
-
-    fields = data["select"]["fields"]
-
-    for field in fields:
-        if "expression" in fields[field] and fields[field]["expression"] != "":
-            expr = fields[field]["expression"]
-        else:
-            prefix = re.search(r"^sq\d*[.]", field)
-            if prefix is not None:
-                suffix = field[len(prefix.group(0)) :]
-                if not re.match("^[a-zA-Z0-9_]*$", suffix):
-                    expr = f'{prefix.group(0)}"{field[len(prefix.group(0)):]}"'
-                else:
-                    expr = field
-            else:
-                expr = field
-        # expr = (
-        #     field
-        #     if "expression" not in fields[field] or fields[field]["expression"] == ""
-        #     else fields[field]["expression"]
-        # )
-        alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
-        alias = alias.replace('"', "")
-
-        if "group_by" in fields[field]:
-            if fields[field]["group_by"].upper() == "GROUP":
-                prefix = re.search(r"^sq\d*[.]", field)
-                if prefix is not None:
-                    group_dimensions.append(field[len(prefix.group(0)) :])
-                else:
-                    group_dimensions.append(field)
-
-            elif fields[field]["group_by"] == "":
-                pass
-
-            elif fields[field]["group_by"].upper() in [
-                "SUM",
-                "COUNT",
-                "MAX",
-                "MIN",
-                "AVG",
-            ]:
-                agg = fields[field]["group_by"]
-                expr = f"{agg}({expr})"
-                group_values.append(alias)
-
-        if "select" not in fields[field] or "select" in fields[field] and fields[field]["select"] == "":
-            select_name = field if expr == alias else f'{expr} as "{alias}"'
-
-            if "custom_type" in fields[field] and fields[field]["custom_type"] != "":
-                type = fields[field]["custom_type"].upper()
-            elif fields[field]["type"] == "dim":
-                type = "VARCHAR(500)"
-            elif fields[field]["type"] == "num":
-                type = "FLOAT(53)"
-
-            if "order_by" in fields[field] and fields[field]["order_by"] != "":
-                if fields[field]["order_by"].upper() == "DESC":
-                    order = fields[field]["order_by"]
-                elif fields[field]["order_by"].upper() == "ASC":
-                    order = ""
-                order_by.append(f"{alias} {order}")
-
-            select_names.append(select_name)
-            select_aliases.append(alias)
-            types.append(type)
-        else:
-            pass
-
-    sql_blocks = {
-        "select_names": select_names,
-        "select_aliases": select_aliases,
-        "group_dimensions": group_dimensions,
-        "group_values": group_values,
-        "order_by": order_by,
-        "types": types,
-    }
-
-    return sql_blocks
-
-
-def _get_sql(data, db):
+def _get_sql(data, sqldb):
     if data == {}:
         return ""
 
-    data["select"]["sql_blocks"] = _build_column_strings(data)
+    data["select"]["sql_blocks"] = QFrame(sqldb=sqldb).from_dict(data)._build_column_strings()
     sql = ""
 
     if "union" in data["select"]:
         iterator = 1
         sq_data = deepcopy(data[f"sq{iterator}"])
-        sql += _get_sql(sq_data, db)
+        sql += _get_sql(sq_data, sqldb)
 
-        for union in data["select"]["union"]["union_type"]:
+        for _ in data["select"]["union"]["union_type"]:
             union_type = data["select"]["union"]["union_type"][iterator - 1]
             sq_data = deepcopy(data[f"sq{iterator+1}"])
-            right_table = _get_sql(sq_data, db)
+            right_table = _get_sql(sq_data, sqldb)
 
             sql += f" {union_type} {right_table}"
             iterator += 1
@@ -2033,13 +2042,13 @@ def _get_sql(data, db):
         elif "join" in data["select"]:
             iterator = 1
             sq_data = deepcopy(data[f"sq{iterator}"])
-            left_table = _get_sql(sq_data, db)
+            left_table = _get_sql(sq_data, sqldb)
             sql += f" FROM ({left_table}) sq{iterator}"
 
-            for join in data["select"]["join"]["join_type"]:
+            for _ in data["select"]["join"]["join_type"]:
                 join_type = data["select"]["join"]["join_type"][iterator - 1]
                 sq_data = deepcopy(data[f"sq{iterator+1}"])
-                right_table = _get_sql(sq_data, db)
+                right_table = _get_sql(sq_data, sqldb)
                 on = data["select"]["join"]["on"][iterator - 1]
 
                 sql += f" {join_type} ({right_table}) sq{iterator+1}"
@@ -2049,7 +2058,7 @@ def _get_sql(data, db):
 
         elif "table" not in data["select"] and "join" not in data["select"] and "sq" in data:
             sq_data = deepcopy(data["sq"])
-            sq = _get_sql(sq_data, db)
+            sq = _get_sql(sq_data, sqldb)
             sql += f" FROM ({sq}) sq"
 
         if "where" in data["select"] and data["select"]["where"] != "":
@@ -2066,7 +2075,7 @@ def _get_sql(data, db):
         order_by = ", ".join(data["select"]["sql_blocks"]["order_by"])
         sql += f" ORDER BY {order_by}"
 
-    if db in ["sqlite", "mariadb"]:
+    if sqldb.dialect == "mysql":
         if "limit" in data["select"] and data["select"]["limit"] != "":
             sql += " LIMIT {}".format(data["select"]["limit"])
 
@@ -2081,9 +2090,3 @@ def _get_sql(data, db):
 
     sql = sqlparse.format(sql, reindent=True, keyword_case="upper")
     return sql
-
-
-if __name__ == "__main__":
-    import doctest
-
-    doctest.testmod()

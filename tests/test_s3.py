@@ -2,7 +2,11 @@ from pandas import DataFrame
 import os
 from time import sleep
 from filecmp import cmp
+import re
 from ..grizly.tools.s3 import S3
+from ..grizly.utils import get_path
+from ..grizly.tools.qframe import QFrame
+from ..grizly.tools.sqldb import SQLDB
 
 
 def test_df_to_s3_and_s3_to_file():
@@ -30,3 +34,141 @@ def test_can_upload():
     assert not s3._can_upload()
     sleep(3)
     assert s3._can_upload()
+
+
+def test_to_rds():
+
+    dsn = get_path("grizly_dev", "tests", "Chinook.sqlite")
+    qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(table="Track")
+
+    qf.window(offset=100, limit=30, order_by=["TrackId"])
+
+    qf.assign(LikeIt="CASE WHEN GenreId = 5 THEN 1 ELSE 0 END", custom_type="BOOL")
+    qf.assign(SpareColumn="NULL")
+
+    qf.rename(
+        {
+            field: "_".join(re.findall("[A-Z][^A-Z]*", alias)).lower()
+            for field, alias in zip(qf.get_fields(aliased=False), qf.get_fields(aliased=True))
+        }
+    )
+
+    s3_key = "test/"
+    bucket = "acoe-s3"
+    table_parquet = "grizly_test_parquet"
+    table_csv = "grizly_test_csv"
+    schema = "sandbox"
+    path_csv = get_path("grizly_test.csv")
+    path_parquet = get_path("grizly_test.parquet")
+
+    s3_parquet = S3(
+        file_name=os.path.basename(path_parquet), file_dir=os.path.dirname(path_parquet), s3_key=s3_key, bucket=bucket
+    )
+    s3_csv = S3(file_name=os.path.basename(path_csv), file_dir=os.path.dirname(path_csv), s3_key=s3_key, bucket=bucket)
+
+    qf.to_parquet(path_parquet)
+    s3_parquet.from_file(keep_file=False)
+    s3_parquet.to_rds(table=table_parquet, schema=schema, if_exists="replace")
+    qf_parquet = QFrame(dsn="redshift_acoe").from_table(table=table_parquet, schema=schema)
+    assert len(qf_parquet) == 30
+
+    qf.to_csv(path_csv)
+    s3_csv.from_file(keep_file=False)
+    s3_csv.to_rds(table=table_csv, schema=schema, if_exists="replace")
+    qf_csv = QFrame(dsn="redshift_acoe").from_table(table=table_csv, schema=schema)
+    assert len(qf_csv) == 30
+
+    qf.to_parquet(path_parquet)
+    s3_parquet.from_file(keep_file=False)
+    s3_parquet.to_rds(table=table_parquet, schema=schema, if_exists="append")
+    assert len(qf_parquet) == 60
+
+    qf.rearrange(
+        [
+            "composer",
+            "milliseconds",
+            "bytes",
+            "unit_price",
+            "like_it",
+            "spare_column",
+            "track_id",
+            "name",
+            "album_id",
+            "media_type_id",
+            "genre_id",
+        ]
+    )
+    qf.to_csv(path_csv)
+    s3_csv.from_file(keep_file=False)
+    s3_csv.to_rds(table=table_csv, schema=schema, if_exists="append")
+    assert len(qf_csv) == 60
+
+    qf_csv.distinct()
+    assert len(qf_csv) == 30
+
+    sqldb = SQLDB(dsn="redshift_acoe")
+    sqldb.drop_table(table=table_parquet, schema=schema)
+    sqldb.drop_table(table=table_csv, schema=schema)
+
+
+def test_to_aurora():
+
+    dsn = get_path("grizly_dev", "tests", "Chinook.sqlite")
+    qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(table="Track")
+
+    qf.window(offset=100, limit=30, order_by=["TrackId"])
+
+    qf.assign(LikeIt="CASE WHEN GenreId = 5 THEN 1 ELSE 0 END", custom_type="BOOL")
+    qf.assign(SpareColumn="NULL")
+
+    qf.rename(
+        {
+            field: "_".join(re.findall("[A-Z][^A-Z]*", alias)).lower()
+            for field, alias in zip(qf.get_fields(aliased=False), qf.get_fields(aliased=True))
+        }
+    )
+
+    s3_key = "test/"
+    bucket = "acoe-s3"
+    table_csv = "grizly_test_csv"
+    schema = "sandbox"
+    path_csv = get_path("grizly_test.csv")
+
+    s3_csv = S3(file_name=os.path.basename(path_csv), file_dir=os.path.dirname(path_csv), s3_key=s3_key, bucket=bucket)
+
+    qf.to_csv(path_csv)
+    s3_csv.from_file(keep_file=False)
+    s3_csv.to_aurora(table=table_csv, schema=schema, dsn="aurora_db", if_exists="replace")
+    qf_csv = QFrame(dsn="aurora_db").from_table(table=table_csv, schema=schema)
+    assert len(qf_csv) == 30
+
+    qf.rearrange(
+        [
+            "composer",
+            "milliseconds",
+            "bytes",
+            "unit_price",
+            "like_it",
+            "spare_column",
+            "track_id",
+            "name",
+            "album_id",
+            "media_type_id",
+            "genre_id",
+        ]
+    )
+    qf.to_csv(path_csv)
+    s3_csv.from_file(keep_file=False)
+    s3_csv.to_aurora(table=table_csv, schema=schema, dsn="aurora_db", if_exists="append")
+    assert len(qf_csv) == 60
+
+    qf_csv.distinct()
+    assert len(qf_csv) == 30
+
+    SQLDB(dsn="aurora_db").drop_table(table=table_csv, schema=schema)
+
+
+def test_to_serializable():
+    s3 = S3(bucket="acoe-s3", s3_key="test/", file_name="test_s3.json")
+    serializable = s3.to_serializable()
+    assert serializable == {"a": 42}

@@ -22,21 +22,18 @@ from dask.core import get_dependencies
 from dask.distributed import fire_and_forget
 from dask.dot import _get_display_cls
 from dask.optimization import key_split
-from sqlalchemy import create_engine
-from sqlalchemy.pool import NullPool
 from exchangelib.errors import ErrorFolderNotFound
 
 from ..config import Config
 from ..tools.email import Email, EmailAccount
-from ..tools.s3 import df_to_s3, s3_to_rds
 from ..utils import get_path
 from ..tools.sqldb import SQLDB
 
 
-workflows_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows"
+workflows_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows/workflows"
 if sys.platform.startswith("win"):
-    workflows_dir = get_path("acoe_projects")
-LISTENER_STORE = os.path.join(workflows_dir, "workflows", "etc", "listener_store.json")
+    workflows_dir = get_path("acoe_projects", "workflows")
+LISTENER_STORE = os.path.join(workflows_dir, "etc", "listener_store.json")
 
 
 def cast_to_date(maybe_date: Any) -> dt.date:
@@ -165,9 +162,8 @@ class Listener:
 
     Paramaters
     ----------
-    engine_str : str, optional
-        Use to overwrite the defaults. By default if db="denodo" then "mssql+pyodbc://DenodoPROD",
-        if db="redshift" then "mssql+pyodbc://redshift_acoe"
+    dsn : str, optional
+        The Data Source Name for the database connection.
     """
 
     def __init__(
@@ -177,31 +173,29 @@ class Listener:
         table=None,
         field=None,
         query=None,
-        db="denodo",
-        engine_str=None,
+        dsn="DenodoPROD",
         trigger=None,
         delay=0,
     ):
 
         self.workflow = workflow
         self.name = workflow.name
-        self.db = db
-        self.engine_str = engine_str
         self.schema = trigger.schema if trigger else schema
         self.table = table or trigger.table
         self.field = field
         self.query = query
-        self.logger = logging.getLogger(__name__)
+        self.dsn = dsn
         self.trigger = trigger
+        self.delay = delay
+        self.logger = logging.getLogger(__name__)
         self.last_data_refresh = self.get_last_json_refresh(key="last_data_refresh")
         self.last_trigger_run = self.get_last_json_refresh(key="last_trigger_run")
-        self.delay = delay
         self.config_key = "standard"
 
     def __repr__(self):
         if self.query:
             return f'{type(self).__name__}(query="""{self.query}""")'
-        return f"{type(self).__name__}(db={self.db}, schema={self.schema}, table={self.table}, field={self.field})"
+        return f"{type(self).__name__}(dsn={self.dsn}, schema={self.schema}, table={self.table}, field={self.field})"
 
     def retry_task(exceptions, tries=4, delay=3, backoff=2, logger=None):
         """
@@ -243,9 +237,6 @@ class Listener:
             return f_retry  # true decorator
 
         return deco_retry
-
-    def get_connection(self):
-        return SQLDB(db=self.db, engine_str=self.engine_str).get_connection()
 
     def get_last_json_refresh(self, key):
         if os.path.exists(LISTENER_STORE):
@@ -314,7 +305,7 @@ class Listener:
         else:
             sql = f"SELECT {self.field} FROM {self.schema}.{self.table} ORDER BY {self.field} DESC LIMIT 1;"
 
-        con = self.get_connection()
+        con = SQLDB(dsn=self.dsn).get_connection()
         cursor = con.cursor()
         cursor.execute(sql)
 
@@ -390,7 +381,7 @@ class Listener:
                 )
             else:
                 self.logger.exception(
-                    f"Connection or query error when connecting to {self.db}"
+                    f"Connection or query error when connecting to {self.dsn}"
                 )
             table_refresh_date = None
 
@@ -411,7 +402,6 @@ class EmailListener(Listener):
         table=None,
         field=None,
         query=None,
-        db=None,
         trigger=None,
         delay=0,
         notification_title=None,
@@ -425,9 +415,7 @@ class EmailListener(Listener):
         self.notification_title = notification_title or workflow.name.lower().replace(
             " ", "_"
         )
-        self.db = db
         self.logger = logging.getLogger(__name__)
-        self.engine = None
         self.last_trigger_run = self.get_last_json_refresh(key="last_trigger_run")
         self.delay = delay
         self.config_key = "standard"
@@ -506,6 +494,9 @@ class EmailListener(Listener):
 
         return last_received_date
 
+class S3Listener(Listener):
+    pass
+
 
 class TriggerListener(Listener):
     pass
@@ -534,7 +525,6 @@ class Workflow:
         priority=1,
         trigger=None,
         trigger_type="manual",
-        execution_options: dict = None,
         resources: Dict[str, Any] = None,
         scheduler_address: str = None,
     ):
@@ -543,24 +533,34 @@ class Workflow:
         self.backup_email = backup_email
         self.tasks = [tasks]
         self.children = children
-        self.execution_options = execution_options
         self.graph = dask.delayed()(self.tasks, name=self.name + "_graph")
         self.is_scheduled = False
         self.is_triggered = False
         self.is_manual = False
         self.env = "prod"
-        self.status = "idle"
         self.logger = logging.getLogger(__name__)
-        self.error_value = None
-        self.error_type = None
         self.priority = priority
         self.trigger = trigger
         self.trigger_type = trigger_type
-        self.num_workers = 8
         self.resources = resources
         self.scheduler_address = scheduler_address
 
         self.logger.info(f"Workflow {self.name} initiated successfully")
+    
+    def register(self, name, notification, dsn, schema, table):
+        """Registers the job in specified registry"""
+        # read args from config, eg. registry_table {dsn: a, table: b}
+        # default args can be taken from registry_table key in config:
+        # scheduling{
+        #     registry_table: {
+        #         schema: x
+        #     }
+        #     status_table: {
+        #         schema: y
+        #     }
+        # }
+        pass
+        
 
     def retry_task(exceptions, tries=4, delay=3, backoff=2, logger=None):
         """
@@ -606,8 +606,8 @@ class Workflow:
     def __str__(self):
         return f"{self.tasks}"
 
-    def visualize(self):
-        return self.graph.visualize()
+    def visualize(self, **kwargs):
+        return self.graph.visualize(**kwargs)
 
     def add_trigger(self, trigger):
         self.trigger = trigger
@@ -642,176 +642,9 @@ class Workflow:
         
         computation = client.compute(self.graph, retries=3, priority=priority, resources=resources)
         fire_and_forget(computation)
-        self.status = "submitted"
-        if (
-            not client
-        ):  # if cient is provided, we assume the user will close it on their end
+        if not client:  # if cient is provided, we assume the user will close it
             client.close()
-
-        schema = "administration"
-        table = "workflow_queue"
-        engine = os.getenv("QUEUE_ENGINE") or "mssql+pyodbc://redshift_acoe"
-        self.submit_to_queue(engine, schema, table, priority)
         return None
-
-    @retry_task(Exception, tries=3, delay=10)
-    def submit_to_queue(self, engine: str, schema: str, table: str, priority: int):
-
-        now_utc = datetime.now(timezone.utc).replace(microsecond=0)
-
-        sql = f"""INSERT INTO {schema}.{table} (workflow_name, priority, submitted) VALUES (
-        '{self.name}',
-        {priority},
-        '{now_utc}'
-        )"""
-        sqla_engine = create_engine(engine)
-        execute_query(sqla_engine, sql)
-
-        self.logger.info(f"{self.name} has been uploaded to workflow_queue")
-
-        return None
-
-    @retry_task(Exception, tries=3, delay=300)
-    def write_status_to_rds(self, name, owner_email, backup_email, status, run_time, env, error_value=None, error_type=None):
-
-        schema = "administration"
-        table = "status"
-
-        last_run_date = pd.datetime.utcnow()
-
-        status_data = {
-            "workflow_name": [name],
-            "owner_email": [owner_email],
-            "backup_email": [backup_email],
-            "run_date": [last_run_date],
-            "workflow_status": [status],
-            "run_time": [run_time],
-            "env": [env],
-            "error_value": [error_value],
-            "error_type": [error_type],
-        }
-
-        status_data = pd.DataFrame(status_data)
-
-        try:
-            df_to_s3(
-                status_data,
-                table,
-                schema,
-                if_exists="append",
-                redshift_str="mssql+pyodbc://redshift_acoe",
-                s3_key="bulk",
-                bucket="acoe-s3",
-            )
-        except:
-            self.logger.exception(f"{self.name} status could not be uploaded to S3")
-            return None
-
-        s3_to_rds(
-            file_name=table + ".csv",
-            schema=schema,
-            if_exists="append",
-            redshift_str="mssql+pyodbc://redshift_acoe",
-            s3_key="bulk",
-            bucket="acoe-s3",
-        )
-
-        self.logger.info(f"{self.name} status successfully uploaded to Redshift")
-
-        return None
-    
-    def gen_scheduled_wf_email_body(self):
-        run_time_str = str(timedelta(seconds=self.run_time))
-        email_body = f"Scheduled workflow {self.name} has finished in {run_time_str} with the status {self.status}"
-        return email_body
-
-    def gen_triggered_wf_email_body(self):
-        run_time_str = str(timedelta(seconds=self.run_time))
-        l = self.listener
-        if not isinstance(self.listener, EmailListener):
-            if l.trigger:
-                email_body = f"""Dependent workflow {self.name} has finished in {run_time_str} with the status {self.status}.
-                    \nTrigger: {l.table} {l.field}'s latest value has changed to {l.trigger.last_data_refresh}"""
-            else:
-                email_body = f"""Dependent workflow {self.name} has finished in {run_time_str} with the status {self.status}.
-                \nTrigger: {l.table} {l.field}'s latest value has changed to
-                    {l.last_data_refresh}"""
-        else:
-            email_body = f"""Dependent workflow {self.name} has finished in {run_time_str} with the status {self.status}.
-            \nTrigger:
-            Received notification in {l.search_email_address}'s {l.email_folder} folder for
-            {l.notification_title}'s update on {l.last_data_refresh}"""
-        return email_body
-
-    def gen_manual_wf_email_body(self):
-        run_time_str = str(timedelta(seconds=self.run_time))
-        email_body = f"Manual workflow {self.name} has finished in {run_time_str} with the status {self.status}"
-        return email_body
-
-    def add_stacktrace(self, email_body):
-        email_body += f"\n\nError message: \n\n{self.error_message}"
-        return email_body
-
-    def generate_notification(self):
-        # prepare email body; to be refactored into a function
-        subject = f"Workflow {self.status}"
-        if self.is_scheduled:
-            email_body = self.gen_scheduled_wf_email_body()
-        elif self.is_triggered:
-            email_body = self.gen_triggered_wf_email_body()
-        else:
-            email_body = self.gen_manual_wf_email_body()
-        if self.status == "fail":
-            email_body += self.add_stacktrace(email_body)
-
-        notification = Email(subject=subject, body=email_body, logger=self.logger)
-
-        return notification
-
-    def run(self, env="local"):
-        self.env = env
-        start = time()
-        # self.persist_start_time(start)
-        try:
-            graph = dask.delayed()(self.tasks)
-            if self.execution_options:
-                scheduler = self.execution_options.get("scheduler") or self.scheduler
-                num_workers = self.execution_options.get("num_workers") or self.num_workers
-            else:
-                scheduler = "threads"
-                num_workers = self.num_workers
-            graph.compute(scheduler=scheduler, num_workers=num_workers)
-            self.status = "success"
-        except:
-            exc_type, exc_value, exc_tb = sys.exc_info()
-            self.error_value = str(exc_value).replace("'", r"\'").replace('"', r"\"")[:250]  # escape unintended delimiters
-            self.error_type = str(exc_type).split("'")[1]  # <class 'ZeroDivisionError'> -> ZeroDivisionError
-            self.error_message = traceback.format_exc()
-            self.logger.exception(f"{self.name} failed")
-            self.status = "fail"
-        end = time()
-        self.run_time = int(end - start)
-
-        notification = self.generate_notification()
-        cc = self.backup_email if isinstance(self.backup_email, list) else [self.backup_email]
-        to = self.owner_email if isinstance(self.owner_email, list) else [self.owner_email]
-        send_as = ""
-
-        notification.send(to=to, cc=cc, send_as=send_as)
-        # when ran on server, the status is handled by Runner
-        if env == "local":
-            self.write_status_to_rds(
-                self.name,
-                self.owner_email,
-                self.backup_email,
-                self.status,
-                self.run_time,
-                env=self.env,
-                error_value=self.error_value,
-                error_type=self.error_type,
-            )
-
-        return self.status
 
     def cancel(self, scheduler_address=None):
         if not scheduler_address:
@@ -1054,19 +887,3 @@ def retry(exceptions, tries=4, delay=3, backoff=2, logger=None):
         return f_retry  # true decorator
 
     return deco_retry
-
-
-@retry(Exception, tries=5, delay=5)
-def get_con(engine):
-    con = engine.connect().connection
-    return con
-
-
-def execute_query(engine, query):
-    conn = engine.connect().connection
-    cursor = conn.cursor()
-    cursor.execute(query)
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return None

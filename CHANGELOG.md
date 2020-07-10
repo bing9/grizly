@@ -5,28 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) 
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [0.3.6] - 10-07-2020
+
+### Overall changes
+
+- Removed package PageLayout
+- Added the possibility to run and cancel control checks (eg. `grizly workflow run "sales daily news control check" --local`). To cancel checks running on prod, run eg. `grizly workflow cancel "sales daily news control check"`
+- **IMPORTANT**: Engine strings (`engine` or `engine_str` parameters) are deprecated since version `0.3.6`. They are replaced with suitable datasource names (`dsn` parameter) [#455](https://github.com/kfk/grizly/issues/455)
+- Added experimental.py with the experimental Extract class
+- Removed SQLAlchemy from requirements 
+
+### Orchestrate
+
+- Changed `worklows_dir` to use the current `GRIZLY_WORKFLOWS_HOME`
+
+### SQLDB
+
+- Changed configuration. Now the main parameter is `dsn` not `db` [#459](https://github.com/kfk/grizly/issues/459)
+- Added `get_tables()` method
+- Added option `type='external'` to `create_table()` method [#451](https://github.com/kfk/grizly/issues/451)
+
+### S3
+
+- Added `to_aurora()` method [#404](https://github.com/kfk/grizly/issues/404)
+- Added `to_json()` method
+- Added `from_serializable()` method
+
+### QFrame
+
+- Improved SQL generation [#462](https://github.com/kfk/grizly/issues/462), [#430](https://github.com/kfk/grizly/issues/430)
+- Added option to use fields aliases in methods: `rename()`, `agg()` [#445](https://github.com/kfk/grizly/issues/445)
+- Improved `from_table()` method to work with external tables [#442](https://github.com/kfk/grizly/issues/442)
+
 
 ## [0.3.5] - 02-06-2020
+
 ### Overall changes
+
 - Added a basic CLI from submitting and cancelling workflows: `grizly workflow run wf_name` and `grizly workflow cancel wf_name`
 
 ### QFrame
+
 - Added `to_records()` method [#417](https://github.com/kfk/grizly/issues/417)
 - Added `pivot()` method [#420](https://github.com/kfk/grizly/issues/420)
 - Added option to use fields aliases in methods: `rearrange()`, `select()`, `orderby()`, `groupby()`, `remove()` [#205](https://github.com/kfk/grizly/issues/205)
+- Changed all prints (except the few necessary ones) to logs
 
 ### Crosstab
+
 - Added method `hide_columns()` (works for now only for dimensions)
 
 ## [0.3.4] - 21-05-2020
+
 ### S3
+
 - Fixed automatic column order in `to_rds()` method. [#377](https://github.com/kfk/grizly/issues/377)
 - Added `redshift_str` parameter to `to_rds()` method - it shouldn't be specified on initiating `S3` class.
 
 ### Orchestrate
+
 - Added wf.cancel() for convenient workflow cleanup from the scheduler
 
 ### QFrame
+
 - Added `order_by` parameter to `window()` and `cut()` methods
 - Added `from_table()` method [#416](https://github.com/kfk/grizly/issues/416)
 - Deprecated `read_dict()` method
@@ -35,26 +76,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `create_table()` method is not deprecated now [#411](https://github.com/kfk/grizly/issues/411) 
 
 ### Crosstab
+
 - Added indented view [#422](https://github.com/kfk/grizly/issues/422)
 
-
 ## [0.3.3] - 08-05-2020
+
 ### Overall changes
+
 - Requirements are not installed now automatically because this process was breaking in Linux environment. After pulling the latest version you have to install requirements and then install grizly.
 - Added option `pip install grizly` but it works only if you have pulled grizly - it WON'T do it for you.
 - For more info about these changes check `README.md`
 
 ### QFrame
+
 - `cut()` - fixed bug with omitting first row [#408](https://github.com/kfk/grizly/issues/408)
 - `copy()` - interface is now copied as well
 - `to_csv()` - interface parameter is now used if specified
 - Added possibility to check what is row count of generated SQL by doing `len(qf)`
 
 ### SQLDB
+
 - `get_columns()` - added char and numeric precision while retriving types from redshift
 
-
 ### New classes and functions
+
 - `Page`
 - `Layout`
 - `FinanceLayout`
@@ -64,15 +109,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Row`
 - `Column`
 
-
 ## [0.3.2] - 24-04-2020
 
 ### SQLDB:
+
 - Added parameter `logger` 
 - Added parameter `interface` with options: "sqlalchemy", "turbodbc", "pyodbc"
 - `check_if_exists()` - added option `column`
 
 ### S3:
+
 - Added parameter `interface`
 - `to_rds()` - works now with `.parquet` files
 - Changed - when skipping upload, `s3.status` is now 'skipped' rather than 'failed'
@@ -80,10 +126,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `execute_on_skip` parameter to `to_rds()` to allow overriding above behavior
 
 ### QFrame:
+
 - Added parameter `interface`
 - `to_parquet()` - fixed bugs
 - `copy()` - logger is now copied as well
+
 #### new methods
+
 - `to_arrow()` - writes QFrame records to pyarrow table
 - `offset()` - adds OFFSET statement
 - `cut()` - divides a QFrame into multiple smaller QFrames, each containing chunksize rows
@@ -93,9 +142,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.1] - 31-03-2020
 
 ### Overall changes:
+
 This release contains mostly some bug fixes like hard-coded paths.
 
 ### Github:
+
 - from_issues() - remove `org_name` parameter, added `url` parameter
 
 ## [0.3] - 27-03-2020
@@ -172,7 +223,7 @@ For the S3 we use AWS configuration so if you don't have it in `.aws` folder ple
 - **PROXY**
 You can get some connection errors if you don't have at least one of `HTTPS_PROXY` or `HTTP_PROXY` specified in env variables. Some libraries may not be installed if you don't have `HTTPS_PROXY` specified.
 
-
+[0.3.6]: https://github.com/kfk/grizly/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/kfk/grizly/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/kfk/grizly/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/kfk/grizly/compare/v0.3.2...v0.3.3
