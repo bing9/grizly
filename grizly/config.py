@@ -78,7 +78,6 @@ class Config:
 
             for key in data["config"].keys():
                 # _validate_config(data["config"][key], services=list(data["config"][key]))
-                pass
 
             Config.data = data["config"]
             self.logger.debug("Config data has been saved.")
