@@ -56,15 +56,12 @@ class Extract:
                     f"Attempting to load {self.store_file_name} from {self.s3_key}..."
                 )
             s3 = S3(s3_key=self.s3_key, file_name=self.store_file_name)
-            store = s3.to_json()
+            store = s3.to_serializable()
         else:
             raise NotImplementedError
 
         self._validate_store(store)
-        if len(store["partition_cols"]) == 1:
-            self.partition_cols = store["partition_cols"][0]
-        else:
-            self.partition_cols = store["partition_cols"]
+        self.partition_cols = store["partition_cols"]
         self.input_dsn = store["input"].get("dsn") or self.qf.dsn
         self.output_dsn = store["output"].get("dsn") or self.input_dsn
         self.output_schema = store["output"].get("schema")
@@ -86,7 +83,7 @@ class Extract:
                         raise ValueError(f"QFrame does not contain {column}")
 
         columns = self.partition_cols
-        existing_columns = self.qf.get_fields()
+        existing_columns = self.qf.get_fields(aliased=False)
         _validate_columns(columns, existing_columns)
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
@@ -114,7 +111,7 @@ class Extract:
 
         self.logger.info("Starting the extract process...")
 
-        s3 = S3(s3_key=self.s3_key)
+        s3 = S3(s3_key=self.s3_key+"data/")
         existing_partitions = []
         for file_name in s3.list():
             extension = file_name.split(".")[-1]
@@ -158,7 +155,7 @@ class Extract:
 
     @dask.delayed
     def query_qf(self, query):
-        queried  = self.qf.copy().query(query)
+        queried  = self.qf.copy().query(query, if_exists="append")
         return queried
 
     @dask.delayed
@@ -230,15 +227,19 @@ class Extract:
         if not partitions:
             self.logger.warning("No partitions to download")
 
-        if isinstance(self.partition_cols, list):
+        if len(self.partition_cols) > 1:
             partition_cols_casted = [f"CAST({partition_col} AS VARCHAR)" for partition_col in self.partition_cols]
             partition_cols = "CONCAT(" + ", ".join(partition_cols_casted) + ")"
+        else:
+            partition_cols = self.partition_cols[0]
 
         # create the workflow
         uploads = []
         for partition in partitions:
-            s3_key = self.s3_key + f"{partition}.parquet"
+            s3_key = self.s3_key + "data/" + f"{partition}.parquet"
             where = f"{partition_cols}='{partition}'"
+            # where_with_null = f"{partition_cols} IS NULL"
+            # where = regular_where if partition_cols is not None else where_with_null
             processed_qf = self.query_qf(query=where)
             arrow_table = self.to_arrow(processed_qf)
             push_to_backend = self.arrow_to_backend(arrow_table, s3_key=s3_key)
