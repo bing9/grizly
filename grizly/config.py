@@ -77,7 +77,8 @@ class Config:
                 raise ValueError("config is empty")
 
             for key in data["config"].keys():
-                _validate_config(data["config"][key], services=list(data["config"][key]))
+                # _validate_config(data["config"][key], services=list(data["config"][key]))
+                pass
 
             Config.data = data["config"]
             self.logger.debug("Config data has been saved.")
@@ -139,7 +140,7 @@ class Config:
                         "Old configuration for 'github' has been replaced with new compatible with grizly 0.3.6."
                     )
 
-                _validate_config(data["config"][key], services=list(data["config"][key]))
+                # _validate_config(data["config"][key], services=list(data["config"][key]))
 
             Config.data = data["config"]
             self.logger.debug(f"Config data loaded from {json_path}.")
@@ -188,11 +189,11 @@ class Config:
                         f"Key '{key}' already exists and has been skipped. If you want to overwrite it please use if_exists='replace'"
                     )
                 elif if_exists == "replace":
-                    _validate_config(data[key], services=list(data[key]))
+                    # _validate_config(data[key], services=list(data[key]))
                     Config.data.update({key: data[key]})
                     print(f"Key '{key}' has been overwritten.")
             else:
-                _validate_config(data[key], services=list(data[key]))
+                # _validate_config(data[key], services=list(data[key]))
                 Config.data[key] = data[key]
                 self.logger.debug(f"Key '{key}' has been added.")
         return Config()
@@ -254,7 +255,7 @@ class Config:
             print(Config.data)
             raise KeyError(f"Key {config_key} not found in config. Please check Config class documentation.")
 
-        _validate_config(self.data[config_key], services=service, env=env)
+        # _validate_config(self.data[config_key], services=service, env=env)
         if service == "sfdc":
             return Config.data[config_key][service][env]
         else:
