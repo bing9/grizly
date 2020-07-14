@@ -98,14 +98,14 @@ def cancel(job_name, local, dev):
 
 @job.command(hidden=True)
 @click.argument("job_name", type=str)
+@click.argument("job_name", type=str)
 @click.argument("source", type=str)
 @click.argument("cron", type=str)
-@click.option("--notification", "-n")
 def schedule(job_name, source, cron):
     """Schedule a job"""
 
     wf = get_job(job_name)
-    wf.register(name=job_name, schedule_type="schedule", notification=notification, cron=cron)
+    wf.register(name=job_name, schedule_type="schedule", cron=cron)
     # notification: recipients, cc
 
     print(f"Job {job_name} has been successfully scheduled")

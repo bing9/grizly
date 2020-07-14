@@ -77,8 +77,7 @@ class Config:
                 raise ValueError("config is empty")
 
             for key in data["config"].keys():
-                # _validate_config(data["config"][key], services=list(data["config"][key]))
-                pass
+                _validate_config(data["config"][key], services=None)
 
             Config.data = data["config"]
             self.logger.debug("Config data has been saved.")
@@ -140,7 +139,7 @@ class Config:
                         "Old configuration for 'github' has been replaced with new compatible with grizly 0.3.6."
                     )
 
-                # _validate_config(data["config"][key], services=list(data["config"][key]))
+                _validate_config(data["config"][key], services=None)
 
             Config.data = data["config"]
             self.logger.debug(f"Config data loaded from {json_path}.")
@@ -189,11 +188,11 @@ class Config:
                         f"Key '{key}' already exists and has been skipped. If you want to overwrite it please use if_exists='replace'"
                     )
                 elif if_exists == "replace":
-                    # _validate_config(data[key], services=list(data[key]))
+                    _validate_config(data[key], services=None)
                     Config.data.update({key: data[key]})
                     print(f"Key '{key}' has been overwritten.")
             else:
-                # _validate_config(data[key], services=list(data[key]))
+                _validate_config(data[key], services=None)
                 Config.data[key] = data[key]
                 self.logger.debug(f"Key '{key}' has been added.")
         return Config()
@@ -255,7 +254,7 @@ class Config:
             print(Config.data)
             raise KeyError(f"Key {config_key} not found in config. Please check Config class documentation.")
 
-        # _validate_config(self.data[config_key], services=service, env=env)
+        _validate_config(self.data[config_key], services=service, env=env)
         if service == "sfdc":
             return Config.data[config_key][service][env]
         else:
@@ -350,7 +349,7 @@ def _validate_config(config: dict, services: list = None, env: str = None):
             return config
 
         elif service == "schedule":
-            return config
+            valid_keys = {"dsn", "schema", "job_registry_table", "job_status_table"}
 
         invalid_keys = set(config[service].keys()) - valid_keys
         if invalid_keys != set():

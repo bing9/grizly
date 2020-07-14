@@ -189,47 +189,6 @@ class Listener:
             return f'{type(self).__name__}(query="""{self.query}""")'
         return f"{type(self).__name__}(dsn={self.dsn}, schema={self.schema}, table={self.table}, field={self.field})"
 
-    def retry_task(exceptions, tries=4, delay=3, backoff=2, logger=None):
-        """
-        Retry calling the decorated function using an exponential backoff.
-
-        Args:
-            exceptions: The exception to check. may be a tuple of
-                exceptions to check.
-            tries: Number of times to try (not retry) before giving up.
-            delay: Initial delay between retries in seconds.
-            backoff: Backoff multiplier (e.g. value of 2 will double the delay
-                each retry).
-            logger: Logger to use. If None, print.
-        """
-
-        if not logger:
-            logger = logging.getLogger(__name__)
-
-        def deco_retry(f):
-            @wraps(f)
-            def f_retry(*args, **kwargs):
-
-                mtries, mdelay = tries, delay
-
-                while mtries > 1:
-
-                    try:
-                        return f(*args, **kwargs)
-
-                    except exceptions as e:
-                        msg = f"{e}, \nRetrying in {mdelay} seconds..."
-                        logger.warning(msg)
-                        sleep(mdelay)
-                        mtries -= 1
-                        mdelay *= backoff
-
-                return f(*args, **kwargs)
-
-            return f_retry  # true decorator
-
-        return deco_retry
-
     def get_last_json_refresh(self, key):
         if os.path.exists(LISTENER_STORE):
             with open(LISTENER_STORE) as f:
@@ -271,7 +230,7 @@ class Listener:
         with open(LISTENER_STORE, "w") as f_write:
             json.dump(listener_store, f_write, indent=4)
 
-    @retry_task(TypeError, tries=3, delay=5)
+    @retry(TypeError, tries=3, delay=5)
     def get_table_refresh_date(self):
 
         table_refresh_date = None
@@ -509,60 +468,115 @@ class Workflow:
 
         self.logger.info(f"Workflow {self.name} initiated successfully")
 
-    def register(self, name, notification, dsn, schema, table):
+    def register(
+        self,
+        name: str,
+        owner: str,
+        trigger: dict,
+        notification: dict = None,
+        schedule_type: str = None,
+        source: str = None,
+        source_type: str = None,
+        dsn: str = None,
+        schema: str = None,
+        job_registry_table: str = None,
+        job_status_table: str = None,
+        **kwargs,
+    ):
         """Registers the job in specified registry"""
-        # read args from config, eg. registry_table {dsn: a, table: b}
-        # default args can be taken from registry_table key in config:
-        # scheduling{
-        #     registry_table: {
-        #         schema: x
-        #     }
-        #     status_table: {
-        #         schema: y
-        #     }
-        # }
-        pass
+        config = Config().get_service(config_key=kwargs.get("config_key"), service="schedule")
+        dsn = dsn or config.get("dsn")
+        schema = schema or config.get("schema")
+        job_registry_table = job_registry_table or config.get("job_registry_table")
+        job_status_table = job_status_table or config.get("job_status_table")
+        job_status_table_name = job_status_table if schema is None else f"{schema}.{job_status_table}"
+        job_registry_table_name = job_registry_table if schema is None else f"{schema}.{job_registry_table}"
 
-    def retry_task(exceptions, tries=4, delay=3, backoff=2, logger=None):
-        """
-        Retry calling the decorated function using an exponential backoff.
+        sqldb = SQLDB(dsn=dsn, **kwargs)
+        if sqldb.check_if_exists(table=job_registry_table, schema=schema):
+            self._create_job_registry_table(sqldb=sqldb, job_registry_table_name=job_registry_table_name)
 
-        Args:
-            exceptions: The exception to check. may be a tuple of
-                exceptions to check.
-            tries: Number of times to try (not retry) before giving up.
-            delay: Initial delay between retries in seconds.
-            backoff: Backoff multiplier (e.g. value of 2 will double the delay
-                each retry).
-            logger: Logger to use. If None, print.
-        """
+        self._insert_into_job_registry_table(
+            sqldb=sqldb,
+            job_registry_table_name=job_registry_table_name,
+            name=name,
+            owner=owner,
+            trigger=trigger,
+            notification=notification,
+            schedule_type=schedule_type,
+            source=source,
+            source_type=source_type,
+        )
 
-        if not logger:
-            logger = logging.getLogger(__name__)
+    def _create_job_registry_table(self, sqldb, job_registry_table_name):
+        con = sqldb.get_connection()
 
-        def deco_retry(f):
-            @wraps(f)
-            def f_retry(*args, **kwargs):
+        # below should be done with SQLDB.create_table but we need table options
+        sql = f"""CREATE TABLE {job_registry_table_name} (
+                id SERIAL NOT NULL
+                ,name VARCHAR(50) NOT NULL
+                ,owner VARCHAR(50) NOT NULL
+                ,notification JSONB
+                ,trigger JSONB NOT NULL
+                ,schedule_type VARCHAR(20)
+                ,source VARCHAR(100)
+                ,source_type VARCHAR(20)
+                ,created_at TIMESTAMP (6) NOT NULL
+                ,PRIMARY KEY (id)
+                );
+            """
+        try:
+            con.execute(sql).commit()
+            con.close()
+            self.logger.info(f"{job_registry_table_name} has been created successfully")
+        except:
+            self.logger.exception(f"Error occured during creating table {job_registry_table_name}")
+            raise
 
-                mtries, mdelay = tries, delay
+    def _create_job_status_table(self, sqldb, job_status_table_name, job_registry_table_name):
+        con = sqldb.get_connection()
+        # below should be done with SQLDB.create_table but we need table options
+        sql = f"""CREATE TABLE {job_status_table_name} (
+                id SERIAL NOT NULL,
+                name VARCHAR(50),
+                job_id INT NOT NULL ,
+                job_name VARCHAR(50) NOT NULL,
+                run_date TIMESTAMP (6) NOT NULL,
+                run_time INTEGER,
+                status VARCHAR(20) NOT NULL,
+                env VARCHAR(25),
+                PRIMARY KEY(id),
+                FOREIGN KEY (job_id) REFERENCES {job_registry_table_name}(id)
+            );
+            """
+        try:
+            con.execute(sql).commit()
+            con.close()
+            self.logger.info(f"{job_status_table_name} has been created successfully")
+        except:
+            self.logger.exception(f"Error occured during creating table {job_status_table_name}")
+            raise
 
-                while mtries > 1:
-
-                    try:
-                        return f(*args, **kwargs)
-
-                    except exceptions as e:
-                        msg = f"{e}, \nRetrying in {mdelay} seconds..."
-                        logger.warning(msg)
-                        sleep(mdelay)
-                        mtries -= 1
-                        mdelay *= backoff
-
-                return f(*args, **kwargs)
-
-            return f_retry  # true decorator
-
-        return deco_retry
+    def _insert_into_job_registry_table(self, sqldb, job_registry_table_name, **kwargs):
+        con = sqldb.get_connection()
+        columns = []
+        values = []
+        for key, value in kwargs.items():
+            if value is not None:
+                columns.append(key)
+                values.append(value)
+        columns.append("created_at")
+        values.append(datetime.today())
+        columns = ", ".join(columns)
+        sql = f"""INSERT INTO {job_registry_table_name} ({columns}) VALUES {tuple(values)};"""
+        name = kwargs.get("name")
+        try:
+            con.execute(sql).commit()
+            con.close()
+            self.logger.info(f"Successfully registered job {name} in {job_registry_table_name}")
+        except:
+            self.logger.exception(f"Error occured during registering job {name} in {job_registry_table_name}")
+            raise
 
     def __str__(self):
         return f"{self.tasks}"
