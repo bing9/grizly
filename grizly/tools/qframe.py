@@ -1854,12 +1854,12 @@ def _validate_data(data):
                     f"""Field '{field}' has invalid value in  group_by: '{group_by}'. Valid values: '', 'group', 'sum', 'count', 'max', 'min', 'avg','stddev' """
                 )
 
-            if group_by.upper() in group_by_numeric_aggs and (
-                field_type != "num" and field_custom_type_trimmed not in numeric_types
-            ):
-                raise ValueError(
-                    f"Field '{field}' has value '{field_type}' in type and value '{group_by}' in group_by. In case of aggregation type should be 'num'."
-                )
+            # if group_by.upper() in group_by_numeric_aggs and (
+            #     field_type != "num" and field_custom_type_trimmed not in numeric_types
+            # ):
+            #     raise ValueError(
+            #         f"Field '{field}' has value '{field_type}' in type and value '{group_by}' in group_by. In case of aggregation type should be 'num'."
+            #     )
 
         if "order_by" in fields[field] and fields[field]["order_by"] != "":
             order_by = fields[field]["order_by"]
