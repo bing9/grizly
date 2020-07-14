@@ -294,13 +294,13 @@ def _validate_config(config: dict, services: list = None, env: str = None):
     if config == {}:
         raise ValueError("config is empty")
 
-    valid_services = {"email", "github", "sfdc", "proxies", "sqldb"}
+    valid_services = {"email", "github", "sfdc", "proxies", "sqldb", "schedule"}
     # invalid_keys = set(config.keys()) - valid_services
     # if invalid_keys != set():
     #     raise KeyError(f"Root invalid keys {invalid_keys} in config. Valid keys: {valid_services}")
 
     if services is None:
-        services = list(valid_services)
+        services = list(set(config.keys()).intersection(valid_services))
     if isinstance(services, str):
         services = [services]
     if not isinstance(services, list):
@@ -346,6 +346,9 @@ def _validate_config(config: dict, services: list = None, env: str = None):
                 not_found_keys = valid_keys - set(config[service][key].keys())
                 if not_found_keys != set():
                     raise KeyError(f"Keys {not_found_keys} not found in config['{service}']['{key}']")
+            return config
+
+        elif service == "schedule":
             return config
 
         invalid_keys = set(config[service].keys()) - valid_keys
