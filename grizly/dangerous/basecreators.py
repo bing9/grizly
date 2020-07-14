@@ -6,7 +6,7 @@ from copy import deepcopy
 import pandas
 from abc import ABC, abstractmethod
 
-class QFrameCreator(ABC):
+class QueryDriver(ABC):
     def __init__(
             self
             , driver_name: str = None
@@ -90,7 +90,7 @@ class QFrameCreator(ABC):
                 print(eval(f"self.{method}.__doc__"))
         return self
 
-   def select(self, fields: list or dict or str):
+    def select(self, fields: list or dict or str):
         """TO Review: if select is dict create fields
         maybe this is not good workflow though might
         be confusing

@@ -4,7 +4,7 @@ import pandas
 import requests
 import os
 import base64
-from ..basecreators import QFrameCreator
+from ..basecreators import QueryDriver
 from ...config import Config, _validate_config
 from ...tools.s3 import S3
 
@@ -18,7 +18,7 @@ def get_final(d, keys, lastkey):
     elif isinstance(d, list):
         return ", ".join([item[lastkey] for item in d])
 
-class GitHub(QFrameCreator):
+class GitHub(QueryDriver):
     def __init__(
         self,
         logger: Logger = None
