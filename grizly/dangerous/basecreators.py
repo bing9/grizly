@@ -4,28 +4,9 @@ import logging
 from logging import Logger
 from copy import deepcopy
 import pandas
-from .drivers.github import GitHub
+from abc import ABC, abstractmethod
 
-
-"""
-- to_arrow
-- get_dtypes
-- get_extract (should be to_extract and implemented in parent, subclass should implement get_partitions)
-- submit -> to_cluster or to_dask
-done in subclass
-- select
-- get_fields
-- from_json (renamed to read)
-- save_json (renamed to save)
-- get_query
-- where -> add_where
-- limit -> add_limit
-done in parent class
-- copy (done in QFlow not subclass)
-- rename
-"""
-
-class QFlow():
+class QFrameCreator(ABC):
     def __init__(
             self
             , driver_name: str = None
@@ -35,22 +16,23 @@ class QFlow():
             ):
         self.logger = logger or logging.getLogger(__name__)
         self.driver_name = driver_name
-        if driver_name == "github":
-            self.driver = GitHub()
-        if flow:
-            self.driver.flow = flow
-        try:
-            self.connect = self.driver.connect
-        except:
-            pass
-        self.select = self.driver.select
-        self.where = self.driver.where
-        self.limit = self.driver.limit
-        self.get_query = self.driver.get_query
-        self.get_fields = self.driver.get_fields #can be moved to parent
-        self.from_source = self.driver.from_source
-        self.to_records = self.driver.to_records
-        self.to_file = self.driver.to_file
+        self.flow = flow
+
+    @abstractmethod
+    def connect(self):
+        pass
+
+    @abstractmethod
+    def from_source(self):
+        pass
+
+    @abstractmethod
+    def to_records(self):
+        pass
+
+    @abstractmethod
+    def to_file(self):
+        pass
 
     def save(self, json_path: str, key: str = None):
         """Saves flow in text file format
@@ -64,9 +46,9 @@ class QFlow():
             json_data = {}
 
         if key != None:
-            json_data[key] = self.driver.flow
+            json_data[key] = self.flow
         else:
-            json_data = self.driver.flow
+            json_data = self.flow
 
         with open(json_path, "w") as f:
             json.dump(json_data, f, indent=4)
@@ -80,36 +62,86 @@ class QFlow():
         -------
         QFlow
         """
-        flow = deepcopy(self.driver.flow)
+        flow = deepcopy(self.flow)
         driver = deepcopy(self.driver)
         return QFlow(driver_name=self.driver_name, driver=driver, flow=flow)
     
     def rename(self, fields: dict):
         if not isinstance(fields, dict):
             raise ValueError("Fields parameter should be of type dict.")
-        if "fields" not in self.driver.flow:
+        if "fields" not in self.flow:
             raise ValueError("Fields are not in your flow. Try doing select() first")
         
         for field in fields:
-            self.driver.flow["fields"][field]["as"] = fields[field]
+            self.flow["fields"][field]["as"] = fields[field]
         return self
 
     def help(self):
         methods = [ m for m in dir(self) if not m.startswith('__')]
-        print(self.driver.__init__.__doc__)
+        print(self.__init__.__doc__)
         for method in methods:
             header = f"""{method}
                         =========
                      """
             print(header)
             try:
-                print(eval(f"self.driver.{method}.__doc__"))
+                print(eval(f"self.{method}.__doc__"))
             except AttributeError:
                 print(eval(f"self.{method}.__doc__"))
         return self
 
+   def select(self, fields: list or dict or str):
+        """TO Review: if select is dict create fields
+        maybe this is not good workflow though might
+        be confusing
+
+        Parameters
+        ----------
+        fields : listordictorstr
+            [description]
+
+        Returns
+        -------
+        [type]
+            [description]
+        """
+        if isinstance(fields, dict):
+            self.flow["fields"] = fields
+        return self
+
+    def where(self, where):
+        """Implements API filters (SQL where)
+
+        Parameters
+        ----------
+        where : str
+            URL API filter parameters
+        
+        Examples
+        --------
+        Get All
+        >>> qf.where("filter=all")
+        Combine where parameters with &
+        >>> qf.where("filter=all&state=open")
+        """
+        self.flow["where"] = where
+        return self
+
+    def limit(self, limit):
+        self.flow["limit"] = limit
+        return self
+
+    def get_fields(self):
+        return self.flow["fields"].keys()
+
+    def get_query(self):
+        """Returns the final API url REST query string
+        """
+        url = self.flow["url"] + "?" + self.flow["url_params"]
+        return url
+
     def get_flow(self):
-        return self.driver.flow
+        return self.flow
 
     def from_json(self, json_path: str, key: str = None):
         """Reads from a json file
@@ -125,9 +157,9 @@ class QFlow():
             data = json.load(f)
             if data != {}:
                 if key == "":
-                    self.driver.flow = data
+                    self.flow = data
                 else:
-                    self.driver.flow = data[key]
+                    self.flow = data[key]
             else:
                 self.flow = data
         return self
@@ -153,11 +185,11 @@ class QFlow():
         pass
     
     def to_df(self):
-        dicts = self.to_memory()
+        dicts = self.to_records()
         return pandas.DataFrame.from_records(dicts)
 
     def from_dict(self, flow: dict):
-        self.driver.flow = flow
+        self.flow = flow
         return self
 
     def __str__(self):

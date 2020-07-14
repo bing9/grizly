@@ -4,6 +4,7 @@ import pandas
 import requests
 import os
 import base64
+from ..basecreators import QFrameCreator
 from ...config import Config, _validate_config
 from ...tools.s3 import S3
 
@@ -17,7 +18,7 @@ def get_final(d, keys, lastkey):
     elif isinstance(d, list):
         return ", ".join([item[lastkey] for item in d])
 
-class GitHub():
+class GitHub(QFrameCreator):
     def __init__(
         self,
         logger: Logger = None
@@ -34,7 +35,6 @@ class GitHub():
             [description], by default 100
         """
         self.logger = logger or logging.getLogger(__name__)
-        self.flow = {}
 
     def connect(
         self,
@@ -49,56 +49,6 @@ class GitHub():
         self.flow["config"] = None
         self.flow["proxies"] = proxies
         return self
-
-    def limit(self, limit):
-        self.flow["pages"] = limit
-        return self
-
-    def where(self, where):
-        """Implements API filters (SQL where)
-
-        Parameters
-        ----------
-        where : str
-            URL API filter parameters
-        
-        Examples
-        --------
-        Get All
-        >>> qf.where("filter=all")
-        Combine where parameters with &
-        >>> qf.where("filter=all&state=open")
-        """
-        self.flow["url_params"] = where
-        return self
-
-    def select(self, fields: list or dict or str):
-        """TO Review: if select is dict create fields
-        maybe this is not good workflow though might
-        be confusing
-
-        Parameters
-        ----------
-        fields : listordictorstr
-            [description]
-
-        Returns
-        -------
-        [type]
-            [description]
-        """
-        if isinstance(fields, dict):
-            self.flow["fields"] = fields
-        return self
-
-    def get_fields(self):
-        return self.flow["fields"].keys()
-
-    def get_query(self):
-        """Returns the final API url REST query string
-        """
-        url = self.flow["url"] + "?" + self.flow["url_params"]
-        return url
 
     def from_source(self, path: str, owner: str, repo: str = None):
         """API url from where to pull the github data
@@ -120,7 +70,7 @@ class GitHub():
 
     def to_records(self, flatten=True, sep="_"):
         flow = self.flow
-        url = self.get_query() + "&page={page}"
+        url = self.get_query() + f"&page={flow['limit']}"
         data = requests.get(url
                     , auth=(flow["username"], flow["username_password"])
                     , proxies=flow["proxies"],
