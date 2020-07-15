@@ -18,7 +18,7 @@ class JobTable:
 
     @property
     def full_name(self):
-        if self.schema is None:
+        if self.schema is None or self.schema == "":
             return self.name
         else:
             return f"{self.schema}.{self.name}"
@@ -45,6 +45,7 @@ class JobTable:
             self.logger.info(f"Successfully registered job {name} in {self.full_name}")
         except:
             self.logger.exception(f"Error occured during registering job {name} in {self.full_name}")
+            self.logger.exception(sql)
             raise
 
 
@@ -87,13 +88,14 @@ class JobRegistryTable(JobTable):
             self.create()
 
         self.insert(
+            name=job.name,
             owner=job.owner,
             trigger=job.trigger,
             notification=job.notification,
             schedule_type=job.schedule_type,
             source=job.source,
             source_type=job.source_type,
-            created_at=datetime.today(),
+            created_at=datetime.today().__str__(),
         )
 
 
