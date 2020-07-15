@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Changed `worklows_dir` to use the current `GRIZLY_WORKFLOWS_HOME`
 
+### Workflow
+
+- **IMPORTANT** run() method has been removed 
+
 ### SQLDB
 
 - Changed configuration. Now the main parameter is `dsn` not `db` [#459](https://github.com/kfk/grizly/issues/459)
