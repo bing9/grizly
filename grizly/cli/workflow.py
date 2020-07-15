@@ -4,6 +4,9 @@ import click
 import sys
 import os
 import importlib
+from typing import Any, Dict, List
+
+from .job import Job
 
 DEV_SCHEDULER_ADDRESS = os.getenv("GRIZLY_DEV_DASK_SCHEDULER_ADDRESS")
 PROD_SCHEDULER_ADDRESS = os.getenv("GRIZLY_DASK_SCHEDULER_ADDRESS")
@@ -12,15 +15,15 @@ WORKFLOWS_HOME = os.getenv("GRIZLY_WORKFLOWS_HOME")
 sys.path.insert(0, WORKFLOWS_HOME)
 
 
-def get_job(job_name):
-    script_name = job_name.lower().replace(" ", "_")
-    folder_name = script_name
-    if "check" in script_name:
-        folder_name = script_name.replace("_control_check", "")
-    module_path = f"jobs.{folder_name}.{script_name}"
-    module = importlib.import_module(module_path)
-    wf = module.generate_job(logger_name=script_name)
-    return wf
+def get_tasks(source, source_type):
+    if source_type == "local":
+        module = importlib.import_module(source)
+        try:
+            return module.tasks
+        except AttributeError:
+            raise AttributeError("Please specify tasks in your script")
+    else:
+        raise NotImplementedError
 
 
 # def get_job(job_name, source):
@@ -97,18 +100,31 @@ def cancel(job_name, local, dev):
 
 
 @job.command(hidden=True)
-@click.argument("job_name", type=str)
-@click.argument("job_name", type=str)
+@click.argument("name", type=str)
+@click.argument("owner", type=str)
 @click.argument("source", type=str)
-@click.argument("cron", type=str)
-def schedule(job_name, source, cron):
+@click.argument("trigger", type=Dict[str, Any])
+@click.option("--source_type", "-st", is_flag=True, default=False)
+@click.option("--notification", "-n", is_flag=True, default=False)
+def schedule(name, owner, source, trigger, source_type=None, notification=None):
     """Schedule a job"""
 
-    wf = get_job(job_name)
-    wf.register(name=job_name, schedule_type="schedule", cron=cron)
-    # notification: recipients, cc
+    source_type = source_type or "local"
+    tasks = get_tasks(source=source, source_type=source_type)
+    job = Job(
+        name=name,
+        owner=owner,
+        source=source,
+        source_type=source_type,
+        tasks=tasks,
+        trigger=trigger,
+        notification=notification,
+        env="prod",
+    )
 
-    print(f"Job {job_name} has been successfully scheduled")
+    job.register()
+
+    print(f"Job {name} has been successfully scheduled")
 
 
 # grizly job schedule "My Job" "github.com/my_job" "* * * * *" --notification={recipients=[a, b]}
