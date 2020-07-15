@@ -111,7 +111,7 @@ class Extract:
 
         self.logger.info("Starting the extract process...")
 
-        s3 = S3(s3_key=self.s3_key+"data/")
+        s3 = S3(s3_key=self.s3_key+"data/staging/")
         existing_partitions = []
         for file_name in s3.list():
             extension = file_name.split(".")[-1]
@@ -194,7 +194,7 @@ class Extract:
             table=self.output_table,
             dsn=self.output_dsn,
             bucket=self.bucket,
-            s3_key=self.s3_key,
+            s3_key=self.s3_key + "data/",
             if_exists="skip"
         )
 
@@ -236,10 +236,8 @@ class Extract:
         # create the workflow
         uploads = []
         for partition in partitions:
-            s3_key = self.s3_key + "data/" + f"{partition}.parquet"
+            s3_key = self.s3_key + "data/staging/" + f"{partition}.parquet"
             where = f"{partition_cols}='{partition}'"
-            # where_with_null = f"{partition_cols} IS NULL"
-            # where = regular_where if partition_cols is not None else where_with_null
             processed_qf = self.query_qf(query=where)
             arrow_table = self.to_arrow(processed_qf)
             push_to_backend = self.arrow_to_backend(arrow_table, s3_key=s3_key)
