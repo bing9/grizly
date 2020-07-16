@@ -194,7 +194,7 @@ class Extract:
             table=self.output_table,
             dsn=self.output_dsn,
             bucket=self.bucket,
-            s3_key=self.s3_key + "data/",
+            s3_key=self.s3_key + "data/staging/",
             if_exists="skip"
         )
 
