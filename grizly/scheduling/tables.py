@@ -23,7 +23,8 @@ class JobTable:
         else:
             return f"{self.schema}.{self.name}"
 
-    def exists(self):
+    @property
+    def exists(self) -> bool:
         """Checks if table exists"""
         return self.sqldb.check_if_exists(table=self.name, schema=self.schema)
 
@@ -41,12 +42,13 @@ class JobTable:
         name = kwargs.get("name")
         try:
             con.execute(sql)
-            con.close()
             self.logger.info(f"Successfully registered job {name} in {self.full_name}")
         except:
             self.logger.exception(f"Error occured during registering job {name} in {self.full_name}")
             self.logger.exception(sql)
             raise
+        finally:
+            con.close()
 
 
 class JobRegistryTable(JobTable):
@@ -63,25 +65,28 @@ class JobRegistryTable(JobTable):
         # TODO: below should be done with SQLDB.create_table but we need table options
         sql = f"""CREATE TABLE {self.full_name} (
                 id SERIAL NOT NULL
-                ,name VARCHAR(50) NOT NULL
+                ,name VARCHAR(50) UNIQUE NOT NULL
                 ,owner VARCHAR(50) NOT NULL
+                ,type VARCHAR(20) DEFAULT NULL
                 ,notification JSONB
-                ,trigger JSONB NOT NULL
-                ,schedule_type VARCHAR(20)
+                ,trigger JSONB
                 ,source VARCHAR(100) NOT NULL
                 ,source_type VARCHAR(20) NOT NULL
                 ,created_at TIMESTAMP (6) NOT NULL
                 ,PRIMARY KEY (id)
+                ,CONSTRAINT check_type CHECK (owner != 'SYSTEM' OR type = 'SCHEDULE')
+                ,CONSTRAINT check_trigger CHECK (owner != 'SYSTEM' AND trigger IS NULL)
                 );
                 COMMIT;
             """
         try:
             con.execute(sql)
-            con.close()
             self.logger.info(f"{self.full_name} has been created successfully")
         except:
             self.logger.exception(f"Error occured during creating table {self.full_name}")
             raise
+        finally:
+            con.close()
 
     def register(self, job):
         if not self.exists:
@@ -127,8 +132,9 @@ class JobStatusTable(JobTable):
             """
         try:
             con.execute(sql)
-            con.close()
             self.logger.info(f"{self.full_name} has been created successfully")
         except:
             self.logger.exception(f"Error occured during creating table {self.full_name}")
             raise
+        finally:
+            con.close()

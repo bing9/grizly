@@ -14,7 +14,7 @@ class Job:
         owner: str,
         tasks: List[dask.delayed],
         source: str = None,
-        source_type: str = None,
+        type: str = None,
         schedule_type: str = None,
         trigger: Dict[str, Any] = None,
         notification: Dict[str, Any] = None,
@@ -26,7 +26,7 @@ class Job:
         self.owner = owner
         self.source = source
         self.source_type = source_type
-        self.schedule_type = schedule_type
+        self.type = type
         self.tasks = tasks
         self.graph = dask.delayed()(self.tasks, name=self.name + "_graph")
         self.trigger = trigger
