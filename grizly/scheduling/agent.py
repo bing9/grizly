@@ -44,11 +44,12 @@ qf = QFrame(dsn=dsn).from_table(table=job_registry_table, schema=schema)
 qf.query("trigger ->> 'class' = 'Schedule'")
 
 records = qf.to_records()
-for record in records:
+for _, name, owner, type, _, _, source, source_type, _ in records:
     if type == "SCHEDULE":
-        tasks = get_tasks()
-        result = Job(tasks).submit()
+        tasks = get_tasks(source=source, source_type=source_type)
+        job = Job(name=name, owner=owner, source=source, source_type=source_type, tasks=tasks, env="prod",)
+        result = job.submit()
         if result:
             jobs_to_run = map_trigger_to_jobs
-            queque.put(jobs_to_run)
+            queue.put(jobs_to_run)
 

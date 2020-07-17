@@ -64,19 +64,28 @@ class JobRegistryTable(JobTable):
 
         # TODO: below should be done with SQLDB.create_table but we need table options
         sql = f"""CREATE TABLE {self.full_name} (
-                id SERIAL NOT NULL
-                ,name VARCHAR(50) UNIQUE NOT NULL
-                ,owner VARCHAR(50) NOT NULL
-                ,type VARCHAR(20) DEFAULT NULL
-                ,notification JSONB
-                ,trigger JSONB
-                ,source VARCHAR(100) NOT NULL
-                ,source_type VARCHAR(20) NOT NULL
-                ,created_at TIMESTAMP (6) NOT NULL
-                ,PRIMARY KEY (id)
-                ,CONSTRAINT check_type CHECK (owner != 'SYSTEM' OR type = 'SCHEDULE')
-                ,CONSTRAINT check_trigger CHECK (owner != 'SYSTEM' AND trigger IS NULL)
-                );
+                    id SERIAL NOT NULL
+                    ,name VARCHAR(50) UNIQUE NOT NULL
+                    ,owner VARCHAR(50) NOT NULL
+                    ,type VARCHAR(20) DEFAULT NULL
+                    ,notification JSONB
+                    ,trigger JSONB
+                    ,source VARCHAR(100) NOT NULL
+                    ,source_type VARCHAR(20) NOT NULL
+                    ,created_at TIMESTAMP (6) NOT NULL
+                    ,PRIMARY KEY (id)
+                    ,CONSTRAINT check_system CHECK ((
+                        owner = 'SYSTEM'
+                        AND type = 'SCHEDULE'
+                        AND trigger IS NULL
+                        )
+                    OR (
+                        owner != 'SYSTEM'
+                        AND type != 'SCHEDULE'
+                        AND trigger IS NOT NULL
+                        )
+                    ));
+
                 COMMIT;
             """
         try:
@@ -88,6 +97,8 @@ class JobRegistryTable(JobTable):
         finally:
             con.close()
 
+        self.__register_system_jobs()
+
     def register(self, job):
         if not self.exists:
             self.create()
@@ -97,9 +108,19 @@ class JobRegistryTable(JobTable):
             owner=job.owner,
             trigger=job.trigger,
             notification=job.notification,
-            schedule_type=job.schedule_type,
+            type=job.type,
             source=job.source,
             source_type=job.source_type,
+            created_at=datetime.today().__str__(),
+        )
+
+    def __register_system_jobs(self):
+        self.insert(
+            name="System Scheduler",
+            owner="SYSTEM",
+            type="SCHEDULE",
+            source="https://github.com/kfk/grizly/tree/master/grizly/scheduling/script.py",
+            source_type="github",
             created_at=datetime.today().__str__(),
         )
 
