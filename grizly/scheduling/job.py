@@ -13,7 +13,7 @@ class Job:
         name: str,
         owner: str,
         tasks: List[dask.delayed],
-        source: str = None,
+        source: Dict[str, Any] = None,
         source_type: str = None,
         type: str = None,
         trigger: Dict[str, Any] = None,

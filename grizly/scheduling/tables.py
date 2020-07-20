@@ -7,12 +7,11 @@ from ..tools.sqldb import SQLDB
 
 class JobTable:
     def __init__(
-        self, dsn: str = None, schema: str = None, config_key: str = None, logger: logging.Logger = None, **kwargs,
+        self, logger: logging.Logger = None,
     ):
-        self.config = Config().get_service(config_key=config_key, service="schedule")
-        dsn = dsn or self.config.get("dsn")
-        self.sqldb = SQLDB(dsn=dsn, **kwargs)
-        self.schema = schema or self.config.get("schema")
+        self.config = Config().get_service(service="schedule")
+        self.sqldb = SQLDB(dsn=self.config.get("dsn"))
+        self.schema = self.config.get("schema")
         self.logger = logger or logging.getLogger(__name__)
         self.name = ""
 
@@ -35,7 +34,7 @@ class JobTable:
         for key, value in kwargs.items():
             if value is not None:
                 columns.append(key)
-                values.append(value)
+                values.append(str(value))
         columns = ", ".join(columns)
         sql = f"""INSERT INTO {self.full_name} ({columns})
                 VALUES {tuple(values)};COMMIT;"""
@@ -53,10 +52,10 @@ class JobTable:
 
 class JobRegistryTable(JobTable):
     def __init__(
-        self, name: str = None, **kwargs,
+        self, **kwargs,
     ):
         super().__init__(**kwargs)
-        self.name = name or self.config.get("job_registry_table")
+        self.name = self.config.get("job_registry_table")
 
     def create(self):
         """Creates registry table"""
@@ -70,7 +69,7 @@ class JobRegistryTable(JobTable):
                     ,type VARCHAR(20) DEFAULT NULL
                     ,notification JSONB
                     ,trigger JSONB
-                    ,source VARCHAR(100) NOT NULL
+                    ,source JSONB NOT NULL
                     ,source_type VARCHAR(20) NOT NULL
                     ,created_at TIMESTAMP (6) NOT NULL
                     ,PRIMARY KEY (id)
@@ -98,6 +97,7 @@ class JobRegistryTable(JobTable):
             con.close()
 
         self.__register_system_jobs()
+        JobStatusTable(logger=self.logger).create()
 
     def register(self, job):
         if not self.exists:
@@ -119,7 +119,7 @@ class JobRegistryTable(JobTable):
             name="System Scheduler",
             owner="SYSTEM",
             type="SCHEDULE",
-            source="https://github.com/kfk/grizly/tree/master/grizly/scheduling/script.py",
+            source='{"main": "https://github.com/kfk/grizly/tree/master/grizly/scheduling/script.py"}',
             source_type="github",
             created_at=datetime.today().__str__(),
         )
@@ -127,11 +127,11 @@ class JobRegistryTable(JobTable):
 
 class JobStatusTable(JobTable):
     def __init__(
-        self, name: str = None, registry_table_name: str = None, **kwargs,
+        self, **kwargs,
     ):
         super().__init__(**kwargs)
-        self.name = name or self.config.get("job_status_table")
-        self.registry_table_full_name = JobRegistryTable(name=registry_table_name, **kwargs).full_name
+        self.name = self.config.get("job_status_table")
+        self.registry_table_full_name = JobRegistryTable(**kwargs).full_name
 
     def create(self):
         """Creates status table"""
@@ -140,7 +140,6 @@ class JobStatusTable(JobTable):
         # TODO: below should be done with SQLDB.create_table but we need table options
         sql = f"""CREATE TABLE {self.full_name} (
                 id SERIAL NOT NULL,
-                name VARCHAR(50),
                 job_id INT NOT NULL ,
                 job_name VARCHAR(50) NOT NULL,
                 run_date TIMESTAMP (6) NOT NULL,
@@ -150,6 +149,8 @@ class JobStatusTable(JobTable):
                 PRIMARY KEY(id),
                 FOREIGN KEY (job_id) REFERENCES {self.registry_table_full_name}(id)
             );
+
+            COMMIT;
             """
         try:
             con.execute(sql)
