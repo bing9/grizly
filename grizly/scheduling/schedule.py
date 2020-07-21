@@ -31,7 +31,7 @@ def get_tasks(source, source_type):
         except AttributeError:
             raise AttributeError("Please specify tasks in your script")
 
-        os.remove(file_name)
+        # os.remove(file_name)
         return tasks
     else:
         raise NotImplementedError()
@@ -76,6 +76,5 @@ if __name__ == "__main__":
                 trigger=trigger,
                 notification=notification,
                 env="prod",
-                logger=logging.getLogger("distributed.worker.test"),
             )
             job.submit()
