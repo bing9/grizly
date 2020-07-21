@@ -17,9 +17,9 @@ def get_job(job_name):
     folder_name = script_name
     if "check" in script_name:
         folder_name = script_name.replace("_control_check", "")
-    module_path = f"jobs.{folder_name}.{script_name}"
+    module_path = f"workflows.{folder_name}.{script_name}"
     module = importlib.import_module(module_path)
-    wf = module.generate_job(logger_name=script_name)
+    wf = module.generate_workflow(logger_name=script_name)
     return wf
 
 
