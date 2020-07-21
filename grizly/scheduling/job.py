@@ -66,12 +66,20 @@ class Job:
 
         self.scheduler_address = client.scheduler.address
 
-        computation = client.compute(self.graph, retries=3, priority=priority, resources=resources)
+        # computation = client.compute(self.graph, retries=3, priority=priority, resources=resources)
+        # progress(computation)
+        # dask.distributed.fire_and_forget(computation)
+        self.logger.info(f"Submitting job {self.name}...") 
+        computation = client.compute(self.graph)
         progress(computation)
-        dask.distributed.fire_and_forget(computation)
+        try:
+            computation.result()
+            self.logger.info(f"Job {self.name} finished with status 'success'")
+        except:
+            self.logger.info(f"Job {self.name} finished with status 'fail'")
+        
         if not client:  # if cient is provided, we assume the user will close it
             client.close()
-        return None
 
     def cancel(self, scheduler_address=None):
         if not scheduler_address:

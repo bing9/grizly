@@ -1,3 +1,5 @@
+#!/usr/local/bin/python3
+
 import importlib
 import os
 from croniter import croniter
@@ -56,8 +58,14 @@ def get_scheduled_jobs():
 
 
 if __name__ == "__main__":
+    logger = logging.getLogger(__name__)
+    logger.info(datetime.today().__str__())
+    logger.info("Loading jobs...")
     records = get_scheduled_jobs()
-    print(records)
+    logger.info("Jobs loaded successfully")
+    logger.debug(records)
+    logger.info("Checking scheduled jobs...")
+    
     for _, name, owner, type, notification, trigger, source, source_type, _, _, last_run in records:
         cron_str = eval(trigger)["cron"]
         start_date = last_run or datetime.now()
@@ -66,7 +74,7 @@ if __name__ == "__main__":
 
         if next_run < start_date + timedelta(minutes=1):
             tasks = get_tasks(source=source, source_type=source_type)
-            print(name, tasks)
+            logger.info(f"Submitting job {name}...") 
             job = Job(
                 name=name,
                 owner=owner,
