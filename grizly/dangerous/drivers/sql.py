@@ -1,3 +1,5 @@
+from .base import BaseDriver
 
-class SQL():
+
+class SQL(BaseDriver):
     pass

@@ -5,15 +5,11 @@ from logging import Logger
 from copy import deepcopy
 import pandas
 from abc import ABC, abstractmethod
+from ..experimental import Extract
 
-class QueryDriver(ABC):
-    def __init__(
-            self
-            , driver_name: str = None
-            , driver=None
-            , flow=None
-            , logger: Logger = None
-            ):
+
+class BaseDriver(ABC):
+    def __init__(self, driver_name: str = None, driver=None, flow=None, logger: Logger = None):
         self.logger = logger or logging.getLogger(__name__)
         self.driver_name = driver_name
         self.flow = flow
@@ -45,7 +41,7 @@ class QueryDriver(ABC):
         else:
             json_data = {}
 
-        if key != None:
+        if key is not None:
             json_data[key] = self.flow
         else:
             json_data = self.flow
@@ -65,19 +61,19 @@ class QueryDriver(ABC):
         flow = deepcopy(self.flow)
         driver = deepcopy(self.driver)
         return QFlow(driver_name=self.driver_name, driver=driver, flow=flow)
-    
+
     def rename(self, fields: dict):
         if not isinstance(fields, dict):
             raise ValueError("Fields parameter should be of type dict.")
         if "fields" not in self.flow:
             raise ValueError("Fields are not in your flow. Try doing select() first")
-        
+
         for field in fields:
             self.flow["fields"][field]["as"] = fields[field]
         return self
 
     def help(self):
-        methods = [ m for m in dir(self) if not m.startswith('__')]
+        methods = [m for m in dir(self) if not m.startswith("__")]
         print(self.__init__.__doc__)
         for method in methods:
             header = f"""{method}
@@ -116,7 +112,7 @@ class QueryDriver(ABC):
         ----------
         where : str
             URL API filter parameters
-        
+
         Examples
         --------
         Get All
@@ -180,13 +176,20 @@ class QueryDriver(ABC):
         df = self.to_df()
         df.to_csv(path)
         return self
-    
+
     def to_arrow(self):
         pass
-    
+
     def to_df(self):
         dicts = self.to_records()
         return pandas.DataFrame.from_records(dicts)
+
+    def to_extract(self, name, *args, **kwargs):
+        return Extract(name=name, driver=self, *args, **kwargs)
+
+    def schedule(self, extract_name, *args, **kwargs):
+        """ Schedule an extract job described by the flow """
+        Extract(name=extract_name, driver=self, *args, **kwargs).register(**kwargs)
 
     def from_dict(self, flow: dict):
         self.flow = flow

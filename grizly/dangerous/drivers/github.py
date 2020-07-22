@@ -1,12 +1,8 @@
 import logging
 from logging import Logger
-import pandas
 import requests
-import os
 import base64
-from ..basecreators import QueryDriver
-from ...config import Config, _validate_config
-from ...tools.s3 import S3
+from .base import BaseDriver
 
 
 def get_final(d, keys, lastkey):
@@ -18,11 +14,9 @@ def get_final(d, keys, lastkey):
     elif isinstance(d, list):
         return ", ".join([item[lastkey] for item in d])
 
-class GitHub(QueryDriver):
-    def __init__(
-        self,
-        logger: Logger = None
-    ):
+
+class GitHub(BaseDriver):
+    def __init__(self, logger: Logger = None):
         """Pulls GitHub data
 
         Parameters
@@ -36,14 +30,8 @@ class GitHub(QueryDriver):
         """
         self.logger = logger or logging.getLogger(__name__)
 
-    def connect(
-        self,
-        username: str = None,
-        username_password: str = None,
-        pages: int = 100,
-        proxies: dict = None,
-    ):
-        self.flow["username"]  = username
+    def connect(self, username: str = None, username_password: str = None, pages: int = 100, proxies: dict = None):
+        self.flow["username"] = username
         self.flow["username_password"] = username_password
         self.flow["pages"] = pages
         self.flow["config"] = None
@@ -71,10 +59,7 @@ class GitHub(QueryDriver):
     def to_records(self, flatten=True, sep="_"):
         flow = self.flow
         url = self.get_query() + f"&page={flow['limit']}"
-        data = requests.get(url
-                    , auth=(flow["username"], flow["username_password"])
-                    , proxies=flow["proxies"],
-                )
+        data = requests.get(url, auth=(flow["username"], flow["username_password"]), proxies=flow["proxies"])
         if flatten:
             records = []
             fields = self.get_fields()
@@ -94,11 +79,12 @@ class GitHub(QueryDriver):
 
     def to_file(self, path):
         flow = self.flow
-        if flow["owner"]==None or flow["repo"] == None or flow["content_path"]==None:
+        if flow["owner"] == None or flow["repo"] == None or flow["content_path"] == None:
             msg = f"In from_source() you are missing owner or/and repo and or content_path"
             return self.logger.warning(msg)
-        data = requests.get(self.flow["base_url"], auth=(flow["username"]
-                    , flow["username_password"]), proxies=flow["proxies"],)
+        data = requests.get(
+            self.flow["base_url"], auth=(flow["username"], flow["username_password"]), proxies=flow["proxies"]
+        )
         decoded_content = str(base64.b64decode(data.json()["content"]), "utf-8")
         with open(path, "w") as f:
             f.write(decoded_content)
