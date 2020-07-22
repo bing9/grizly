@@ -254,7 +254,7 @@ class Config:
             print(Config.data)
             raise KeyError(f"Key {config_key} not found in config. Please check Config class documentation.")
 
-        _validate_config(self.data[config_key], services=service, env=env)
+        # _validate_config(self.data[config_key], services=service, env=env)
         if service == "sfdc":
             return Config.data[config_key][service][env]
         else:
