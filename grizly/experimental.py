@@ -17,14 +17,14 @@ class Extract:
     def __init__(
         self,
         name: str,
-        qf: QFrame,
+        driver: QFrame,  # BaseDriver?
         store_backend: str = "local",
         data_backend: str = "s3",
         logger: logging.Logger = None,
         **kwargs,
     ):
-        self.name = name or "Default Extract Name"
-        self.qf = qf
+        self.name = name or "X Æ A-12"
+        self.driver = driver
         self.store_backend = store_backend
         self.data_backend = data_backend
         self.priority = 0
@@ -68,8 +68,8 @@ class Extract:
                     "'s3_key' was not provided but backend is set to 's3'.\n"
                     f"Attempting to load {self.store_file_name} from {self.s3_key}..."
                 )
-            s3 = S3(s3_key=self.s3_key, file_name=self.store_file_name)
-            store = s3.to_serializable()
+                s3 = S3(s3_key=self.s3_key, file_name=self.store_file_name)
+                store = s3.to_serializable()
         else:
             raise NotImplementedError
 
@@ -77,10 +77,12 @@ class Extract:
         self.partition_cols = store["partition_cols"]
         self.input_dsn = store["input"].get("dsn") or self.qf.dsn
         self.output_dsn = store["output"].get("dsn") or self.input_dsn
-        self.output_schema_staging = store["output"].get("schema_staging")
-        self.output_schema_prod = store["output"].get("schema_prod")
-        self.output_table_staging = store["output"].get("table_staging") or self.module_name
-        self.output_table_prod = store["output"].get("table_prod") or self.module_name
+        self.output_external_schema = store["output"].get("external_schema") or os.getenv(
+            "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
+        )
+        self.output_schema_prod = store["output"].get("schema") or os.getenv("GRIZLY_EXTRACT_STAGING_SCHEMA")
+        self.output_table_staging = store["output"].get("external_table") or self.module_name
+        self.output_table_prod = store["output"].get("table") or self.module_name
 
         return store
 
@@ -165,10 +167,10 @@ class Extract:
 
     @dask.delayed
     def get_cached_distinct_values(self, file_name: str):
-        if self.backend == "s3":
+        if self.store_backend == "s3":
             s3 = S3(s3_key=self.s3_key, file_name=file_name)
             values = s3.to_serializable()
-        elif self.backend == "local":
+        elif self.store_backend == "local":
             with open(os.path.join(self.store_file_dir, file_name)) as f:
                 values = json.load(f)
         else:
