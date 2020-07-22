@@ -591,6 +591,7 @@ class Workflow:
         scheduler_address: str = None,
         priority: int = None,
         resources: Dict[str, Any] = None,
+        **kwargs,
     ) -> None:
 
         if not priority:
