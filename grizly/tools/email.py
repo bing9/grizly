@@ -5,6 +5,7 @@ from exchangelib import (
     Message,
     Configuration,
     DELEGATE,
+    IMPERSONATION,
     FaultTolerance,
     HTMLBody,
     FileAttachment,
@@ -48,7 +49,7 @@ class EmailAccount:
                 credentials=self.credentials,
                 config=self.config,
                 autodiscover=False,
-                access_type=DELEGATE,
+                access_type=DELEGATE  # IMPERSONATION
             )
         except:
             self.logger.exception(

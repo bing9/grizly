@@ -4,14 +4,17 @@ import dask
 from grizly import QFrame, S3, Workflow
 import s3fs
 import pyarrow.parquet as pq
+from pyarrow import Table
 import logging
 from distributed import Client
+from typing import List, Any
+from dask.delayed import Delayed
 
 
 class Extract:
     __allowed = ("store_file_dir", "store_file_name", "s3_key")
 
-    def __init__(self, name, qf, backend="local", logger=None, **kwargs):
+    def __init__(self, name: str, qf: QFrame, backend: str = "local", logger: logging.Logger = None, **kwargs):
         self.name = name or "Default Extract Name"
         self.qf = qf
         self.backend = backend
@@ -64,14 +67,16 @@ class Extract:
         self.partition_cols = store["partition_cols"]
         self.input_dsn = store["input"].get("dsn") or self.qf.dsn
         self.output_dsn = store["output"].get("dsn") or self.input_dsn
-        self.output_schema = store["output"].get("schema")
-        self.output_table = store["output"].get("table") or self.module_name
+        self.output_schema_staging = store["output"].get("schema_staging")
+        self.output_schema_prod = store["output"].get("schema_prod")
+        self.output_table_staging = store["output"].get("table_staging") or self.module_name
+        self.output_table_prod = store["output"].get("table_prod") or self.module_name
 
         return store
 
     @dask.delayed
     def get_distinct_values(self):
-        def _validate_columns(columns, existing_columns):
+        def _validate_columns(columns: List[str], existing_columns: List[str]):
             """ Check whether the provided columns exist within the table """
             if isinstance(columns, str):
                 column = columns
@@ -106,12 +111,12 @@ class Extract:
         return values
 
     @dask.delayed
-    def get_existing_partitions(self, upstream=None):
+    def get_existing_partitions(self, upstream: Delayed = None):
         """ Returns partitions already uploaded to S3 """
 
         self.logger.info("Starting the extract process...")
 
-        s3 = S3(s3_key=self.s3_key+"data/staging/")
+        s3 = S3(s3_key=self.s3_key + "data/staging/")
         existing_partitions = []
         for file_name in s3.list():
             extension = file_name.split(".")[-1]
@@ -124,7 +129,7 @@ class Extract:
         return existing_partitions
 
     @dask.delayed
-    def get_partitions_to_download(self, all_partitions, existing_partitions, upstream=None):
+    def get_partitions_to_download(self, all_partitions, existing_partitions, upstream: Delayed = None):
         existing_partitons_normalized = [partition.replace(".", "") for partition in existing_partitions]
         self.logger.debug(f"All partitions: {all_partitions}")
         self.logger.debug(f"Existing partitions: {existing_partitons_normalized}")
@@ -136,7 +141,7 @@ class Extract:
         return partitions_to_download
 
     @dask.delayed
-    def to_backend(self, serializable, file_name):
+    def to_backend(self, serializable: Any, file_name: str):
         if self.backend == "s3":
             s3 = S3(s3_key=self.s3_key, file_name=file_name)
             self.logger.info(f"Copying {file_name} from memory to {self.s3_key}...")
@@ -145,7 +150,7 @@ class Extract:
             raise NotImplementedError
 
     @dask.delayed
-    def get_cached_distinct_values(self, file_name):
+    def get_cached_distinct_values(self, file_name: str):
         if self.backend == "s3":
             s3 = S3(s3_key=self.s3_key, file_name=file_name)
             values = s3.to_serializable()
@@ -154,16 +159,16 @@ class Extract:
         return values
 
     @dask.delayed
-    def query_qf(self, query):
-        queried  = self.qf.copy().query(query, if_exists="append")
+    def query_qf(self, query: str):
+        queried = self.qf.copy().query(query, if_exists="append")
         return queried
 
     @dask.delayed
-    def to_arrow(self, processed_qf):
+    def to_arrow(self, processed_qf: QFrame):
         return processed_qf.to_arrow()  # qf.to_arrow(), sfdc.to_arrow()
 
     @dask.delayed
-    def arrow_to_backend(self, arrow_table, s3_key):
+    def arrow_to_backend(self, arrow_table: Table, s3_key: str):
         def arrow_to_s3(arrow_table):
             def give_name(_):
                 return file_name
@@ -188,18 +193,42 @@ class Extract:
             raise NotImplementedError
 
     @dask.delayed
-    def create_external_table(self, upstream=None):
+    def create_external_table(self, upstream: Delayed = None):
         self.qf.create_external_table(
-            schema=self.output_schema,
-            table=self.output_table,
+            schema=self.output_schema_staging,
+            table=self.output_table_staging,
             dsn=self.output_dsn,
             bucket=self.bucket,
             s3_key=self.s3_key + "data/staging/",
-            if_exists="skip"
+            if_exists="skip",
         )
 
+    @dask.delayed
+    def create_table(self, upstream: Delayed = None):
+        qf = QFrame(dsn=self.output_dsn, dialect="mysql").from_table(
+            schema=self.output_schema_staging, table=self.output_table_staging
+        )
+        qf.create_table(
+            dsn=self.output_dsn,
+            dialect="postgresql",
+            schema=self.output_schema_prod,
+            table=self.output_table_prod,
+            if_exists="skip",
+        )
+        qf.to_table(schema=self.output_schema_prod, table=self.output_table_prod, if_exists="replace")
+
+    @dask.delayed
+    def remove_table(self, schema, table):
+        pass
+
     def generate_workflow(
-        self, refresh_partitions_list=True, if_exists="append", download_if_older_than=0, cache_distinct_values=True
+        self,
+        refresh_partitions_list: bool = True,
+        if_exists: str = "append",
+        download_if_older_than: int = 0,
+        cache_distinct_values: bool = True,
+        output_table_type: str = "external",
+        **kwargs,
     ):
         client = self.client or Client(self.scheduler_address)
 
@@ -242,13 +271,19 @@ class Extract:
             arrow_table = self.to_arrow(processed_qf)
             push_to_backend = self.arrow_to_backend(arrow_table, s3_key=s3_key)
             uploads.append(push_to_backend)
-        create_table = self.create_external_table(upstream=uploads)
-        wf = Workflow(name=self.name, tasks=[create_table])
+        external_table = self.create_external_table(upstream=uploads)
+        if output_table_type == "base":
+            regular_table = self.create_table(upstream=external_table)
+            # clear_spectrum = self.remove_table(self.output_schema, self.output_table, upstream=regular_table)
+            final_task = regular_table
+        else:
+            final_task = external_table
+        wf = Workflow(name=self.name, tasks=[final_task])
         return wf
 
     def submit(self, **kwargs):
         """Submit to cluster
-        
+
         Parameters
         ----------
         kwargs: arguments to pass to Workflow.submit()
@@ -257,7 +292,7 @@ class Extract:
         --------
         Extract().submit(scheduler_address="grizly_scheduler:8786")
         """
-        wf = self.generate_workflow()
+        wf = self.generate_workflow(**kwargs)
         if not kwargs.get("schdeduler_address"):
             scheduler_address = self.schdeduler_address
         wf.submit(scheduler_address=scheduler_address, **kwargs)
