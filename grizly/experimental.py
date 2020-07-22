@@ -14,10 +14,19 @@ from dask.delayed import Delayed
 class Extract:
     __allowed = ("store_file_dir", "store_file_name", "s3_key")
 
-    def __init__(self, name: str, qf: QFrame, backend: str = "local", logger: logging.Logger = None, **kwargs):
+    def __init__(
+        self,
+        name: str,
+        qf: QFrame,
+        store_backend: str = "local",
+        data_backend: str = "s3",
+        logger: logging.Logger = None,
+        **kwargs,
+    ):
         self.name = name or "Default Extract Name"
         self.qf = qf
-        self.backend = backend
+        self.store_backend = store_backend
+        self.data_backend = data_backend
         self.priority = 0
         self.scheduler_address = "grizly_scheduler:8786"
         self.client = None
@@ -39,11 +48,13 @@ class Extract:
             self.logger.warning(
                 "'store_file_name' was not provided.\n" f"Attempting to load from {self.store_file_name}..."
             )
+        if getattr(self, "s3_key", None) is None:
+            self.s3_key = f"extracts/{self.module_name}/"
 
-        if self.backend == "local":
+        if self.store_backend == "local":
             if getattr(self, "store_file_dir", None) is None:
-                self.store_file_dir = os.path.join(os.getenv("GRIZLY_WORFKLOWS_HOME"), "workflows", self.module_name)
-                self.logger.warning(
+                self.store_file_dir = os.path.join(os.getenv("GRIZLY_WORKFLOWS_HOME"), "workflows", self.module_name)
+                self.logger.debug(
                     "'store_file_dir' was not provided but backend is set to 'local'.\n"
                     f"Attempting to load {self.store_file_name} from {self.store_file_dir or 'current directory'}..."
                 )
@@ -51,10 +62,9 @@ class Extract:
             with open(file_path) as f:
                 store = json.load(f)
 
-        elif self.backend == "s3":
+        elif self.store_backend == "s3":
             if getattr(self, "s3_key", None) is None:
-                self.s3_key = f"extracts/{self.module_name}/"
-                self.logger.warning(
+                self.logger.debug(
                     "'s3_key' was not provided but backend is set to 's3'.\n"
                     f"Attempting to load {self.store_file_name} from {self.s3_key}..."
                 )
@@ -141,11 +151,15 @@ class Extract:
         return partitions_to_download
 
     @dask.delayed
-    def to_backend(self, serializable: Any, file_name: str):
-        if self.backend == "s3":
+    def to_store_backend(self, serializable: Any, file_name: str):
+        if self.store_backend == "s3":
             s3 = S3(s3_key=self.s3_key, file_name=file_name)
             self.logger.info(f"Copying {file_name} from memory to {self.s3_key}...")
             s3.from_serializable(serializable)
+        elif self.store_backend == "local":
+            self.logger.info(f"Copying {file_name} from memory to {self.store_file_dir}...")
+            with open(os.path.join(self.store_file_dir, file_name), "w") as f:
+                json.dump(serializable, f)
         else:
             raise NotImplementedError
 
@@ -154,6 +168,9 @@ class Extract:
         if self.backend == "s3":
             s3 = S3(s3_key=self.s3_key, file_name=file_name)
             values = s3.to_serializable()
+        elif self.backend == "local":
+            with open(os.path.join(self.store_file_dir, file_name)) as f:
+                values = json.load(f)
         else:
             raise NotImplementedError
         return values
@@ -168,7 +185,7 @@ class Extract:
         return processed_qf.to_arrow()  # qf.to_arrow(), sfdc.to_arrow()
 
     @dask.delayed
-    def arrow_to_backend(self, arrow_table: Table, s3_key: str):
+    def arrow_to_data_backend(self, arrow_table: Table, s3_key: str = None, file_name: str = None):
         def arrow_to_s3(arrow_table):
             def give_name(_):
                 return file_name
@@ -187,35 +204,44 @@ class Extract:
             )
             self.logger.info(f"Successfully uploaded {file_name} to {s3_key}")
 
-        if self.backend == "s3":
+        if self.data_backend == "s3":
             arrow_to_s3(arrow_table)
+        elif self.data_backend == "local":
+            pq.write_table(arrow_table, os.path.join(self.store_file_dir, file_name))
         else:
             raise NotImplementedError
 
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
-        self.qf.create_external_table(
-            schema=self.output_schema_staging,
-            table=self.output_table_staging,
-            dsn=self.output_dsn,
-            bucket=self.bucket,
-            s3_key=self.s3_key + "data/staging/",
-            if_exists="skip",
-        )
+        if self.data_backend == "s3":
+            self.qf.create_external_table(
+                schema=self.output_schema_staging,
+                table=self.output_table_staging,
+                dsn=self.output_dsn,
+                bucket=self.bucket,
+                s3_key=self.s3_key + "data/staging/",
+                if_exists="skip",
+            )
+        else:
+            raise ValueError("Exteral tables are only supported for S3 backend")
 
     @dask.delayed
     def create_table(self, upstream: Delayed = None):
-        qf = QFrame(dsn=self.output_dsn, dialect="mysql").from_table(
-            schema=self.output_schema_staging, table=self.output_table_staging
-        )
-        qf.create_table(
-            dsn=self.output_dsn,
-            dialect="postgresql",
-            schema=self.output_schema_prod,
-            table=self.output_table_prod,
-            if_exists="skip",
-        )
-        qf.to_table(schema=self.output_schema_prod, table=self.output_table_prod, if_exists="replace")
+        if self.data_backend == "s3":
+            qf = QFrame(dsn=self.output_dsn, dialect="mysql").from_table(
+                schema=self.output_schema_staging, table=self.output_table_staging
+            )
+            qf.create_table(
+                dsn=self.output_dsn,
+                dialect="postgresql",
+                schema=self.output_schema_prod,
+                table=self.output_table_prod,
+                if_exists="skip",
+            )
+            qf.to_table(schema=self.output_schema_prod, table=self.output_table_prod, if_exists="replace")
+        else:
+            # qf.to_table()
+            raise NotImplementedError
 
     @dask.delayed
     def remove_table(self, schema, table):
@@ -239,7 +265,7 @@ class Extract:
 
         # by default, always cache the list of distinct values in backend for future use
         if cache_distinct_values:
-            cache_distinct_values_in_backend = self.to_backend(all_partitions, file_name="all_partitions.json")
+            cache_distinct_values_in_backend = self.to_store_backend(all_partitions, file_name="all_partitions.json")
         else:
             cache_distinct_values_in_backend = None
 
@@ -269,7 +295,7 @@ class Extract:
             where = f"{partition_cols}='{partition}'"
             processed_qf = self.query_qf(query=where)
             arrow_table = self.to_arrow(processed_qf)
-            push_to_backend = self.arrow_to_backend(arrow_table, s3_key=s3_key)
+            push_to_backend = self.arrow_to_data_backend(arrow_table, s3_key=s3_key)
             uploads.append(push_to_backend)
         external_table = self.create_external_table(upstream=uploads)
         if output_table_type == "base":
@@ -279,6 +305,7 @@ class Extract:
         else:
             final_task = external_table
         wf = Workflow(name=self.name, tasks=[final_task])
+        self.workflow = wf
         return wf
 
     def submit(self, **kwargs):
@@ -293,8 +320,8 @@ class Extract:
         Extract().submit(scheduler_address="grizly_scheduler:8786")
         """
         wf = self.generate_workflow(**kwargs)
-        if not kwargs.get("schdeduler_address"):
-            scheduler_address = self.schdeduler_address
+        if not kwargs.get("scheduler_address"):
+            scheduler_address = self.scheduler_address
         wf.submit(scheduler_address=scheduler_address, **kwargs)
 
 
