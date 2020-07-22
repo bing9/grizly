@@ -5,17 +5,19 @@ import os
 from croniter import croniter
 from datetime import datetime, timezone, timedelta
 import logging
+import sys
 
 from grizly.tools.qframe import QFrame, join
 from grizly.tools.s3 import S3
 from grizly.config import Config
 from grizly.scheduling.job import Job
+from grizly.utils import get_path
 
+GRIZLY_WORKFLOWS_HOME = os.getenv("GRIZLY_WORKFLOWS_HOME") or get_path()
 
 # TODO: get_tasks should be a part of Job class
 def get_tasks(source, source_type):
-    file_dir = os.getcwd()
-
+    file_dir = os.path.join(GRIZLY_WORKFLOWS_HOME, "tmp")
     def _download_script_from_s3(url, file_dir):
         bucket = url.split("/")[2]
         file_name = url.split("/")[-1]
@@ -60,7 +62,7 @@ def get_scheduled_jobs():
 if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     logger.info(datetime.today().__str__())
-    logger.info("Loading jobs...")
+    logger.warning("Loading jobs...")
     records = get_scheduled_jobs()
     logger.info("Jobs loaded successfully")
     logger.debug(records)
