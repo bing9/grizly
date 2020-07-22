@@ -1,10 +1,10 @@
 import logging
 from logging import Logger
-import pandas
 from copy import deepcopy
 from simple_salesforce import Salesforce
-from ..basecreators import QueryDriver
+from .base import BaseDriver
 from ...config import Config
+import os
 
 
 def build_query(flow):
@@ -18,18 +18,14 @@ def build_query(flow):
     return query
 
 
-class SF(QueryDriver):
+class SF(BaseDriver):
     def __init__(self, logger: Logger = None):
-        """Pulls GitHub data
+        """Pulls Salesforce data
 
         Parameters
         ----------
-        username : str
+        param1 : str
             [description]
-        username_password : str
-            [description]
-        pages : int, optional
-            [description], by default 100
         """
         self.logger = logger or logging.getLogger(__name__)
         self.flow = {}
