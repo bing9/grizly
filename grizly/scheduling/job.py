@@ -10,7 +10,7 @@ import traceback
 from ..tools.sqldb import SQLDB
 from ..tools.s3 import S3
 from ..utils import get_path
-from .tables import JobRegistryTable
+from .tables import JobRegistryTable, JobStatusTable
 
 
 class Job:
@@ -38,6 +38,10 @@ class Job:
         self.logger = logger or logging.getLogger(__name__)
 
     @property
+    def id(self):
+        return JobRegistryTable(logger=self.logger)._get_job_id(self)
+
+    @property
     def source_type(self):
         if self.source["main"].lower().startswith("https://github.com"):
             return "github"
@@ -49,8 +53,9 @@ class Job:
     def __repr__(self):
         pass
 
-    def register(self, **kwargs):
-        JobRegistryTable(logger=self.logger, **kwargs).register(job=self)
+    def register(self):
+        JobRegistryTable(logger=self.logger).register(job=self)
+        return self
 
     def visualize(self, **kwargs):
         return self.graph.visualize(**kwargs)
@@ -69,27 +74,26 @@ class Job:
 
         self.scheduler_address = client.scheduler.address
 
-        # computation = client.compute(self.graph, retries=3, priority=priority, resources=resources)
-        # progress(computation)
-        # dask.distributed.fire_and_forget(computation)
         self.logger.info(f"Submitting job {self.name}...")
-        # computation = client.compute(self.graph)
-        # progress(computation)
+        status = Status(job=self, status="submitted")
+        status.register()
         start = time()
-        # dask.diagnostics .ProgressBar()
         try:
             self.graph.compute()
-            self.logger.info(f"Job {self.name} finished with status 'success'")
+            _status = "success"
         except Exception as e:
-            exc_type, exc_value, exc_tb = sys.exc_info()
-            error_value = str(exc_value)
-            error_type = type(exc_value)
-            error_message = traceback.format_exc()
-            self.logger.exception(f"Job {self.name} finished with status 'fail'")
+            _status = "fail"
+            # exc_type, exc_value, exc_tb = sys.exc_info()
+            # error_value = str(exc_value)
+            # error_type = type(exc_value)
+            # error_message = traceback.format_exc()
+            # self.logger.exception(f"Job {self.name} finished with status 'fail'")
 
         end = time()
         run_time = int(end - start)
-        self.logger.info(f"Job {self.name} run time {str(run_time)}")
+        status.update(status=_status, run_time=run_time)
+
+        self.logger.info(f"Job {self.name} finished with status {status.status}")
 
         if not client:  # if cient is provided, we assume the user will close it
             client.close()
@@ -128,3 +132,23 @@ class Job:
             return tasks
         else:
             raise NotImplementedError()
+
+
+class Status:
+    def __init__(
+        self, job: Job = None, run_time: int = None, status: str = None, logger: logging.Logger = None,
+    ):
+        self.id = None
+        self.job = job
+        self.run_time = run_time
+        self.status = status
+        self.logger = logger or logging.getLogger(__name__)
+
+    def register(self):
+        self.id = JobStatusTable(logger=self.logger).register(status=self)
+        return self
+
+    def update(self, run_time, status):
+        self.run_time = run_time
+        self.status = status
+        JobStatusTable(logger=self.logger).update(id=self.id, run_time=run_time, status=status)

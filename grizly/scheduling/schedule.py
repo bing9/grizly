@@ -48,7 +48,7 @@ if __name__ == "__main__":
         cron = croniter(cron_str, start_date)
         next_run = cron.get_next(datetime)
 
-        if next_run < start_date + timedelta(minutes=1):
+        if next_run < datetime.now() + timedelta(minutes=1):
             job = Job(
                 name=name,
                 owner=owner,
