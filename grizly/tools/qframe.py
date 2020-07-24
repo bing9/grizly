@@ -82,6 +82,8 @@ class QFrame(BaseTool):
     def nrows(self):
         con = self.sqldb.get_connection()
         query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
+        if self.sqldb.db == "denodo":
+            query += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
         nrows = con.execute(query).fetchone()[0]
         con.close()
         return nrows
