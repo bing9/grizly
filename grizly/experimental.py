@@ -9,6 +9,7 @@ import logging
 from distributed import Client
 from typing import List, Any
 from dask.delayed import Delayed
+import gc
 
 
 class Extract:
@@ -175,13 +176,15 @@ class Extract:
         return values
 
     @dask.delayed
-    def query_qf(self, query: str):
+    def query_driver(self, query: str):
         queried = self.driver.copy().query(query, if_exists="append")
         return queried
 
     @dask.delayed
-    def to_arrow(self, processed_qf: QFrame):
-        return processed_qf.to_arrow()  # qf.to_arrow(), sfdc.to_arrow()
+    def to_arrow(self, driver: QFrame):
+        pa = driver.to_arrow()
+        gc.collect()
+        return pa
 
     @dask.delayed
     def arrow_to_data_backend(self, arrow_table: Table, s3_key: str = None, file_name: str = None):
@@ -294,8 +297,8 @@ class Extract:
             where = f"{partition_cols}='{partition}'"
             # where_with_null = f"{partition_cols} IS NULL"
             # where = regular_where if partition_cols is not None else where_with_null
-            processed_qf = self.query_qf(query=where)
-            arrow_table = self.to_arrow(processed_qf)
+            processed_driver = self.query_driver(query=where)
+            arrow_table = self.to_arrow(driver=processed_driver)
             push_to_backend = self.arrow_to_data_backend(arrow_table, s3_key=s3_key)
             uploads.append(push_to_backend)
         external_table = self.create_external_table(upstream=uploads)
