@@ -21,7 +21,7 @@ def get_scheduled_jobs():
     registry_qf.query("trigger ->> 'class' = 'Schedule'")
 
     status_qf = QFrame(dsn=dsn).from_table(table=job_status_table, schema=schema)
-    status_qf.select(["job_id", "run_date"]).groupby(["job_id"])["run_date"].agg("max")
+    status_qf.select(["job_id", "status", "run_date"]).groupby(["job_id", "status"])["run_date"].agg("max")
 
     qf = join([registry_qf, status_qf], join_type="left join", on="sq1.id=sq2.job_id")
 
@@ -42,13 +42,14 @@ if __name__ == "__main__":
         if obj is not None:
             return json.loads(obj)
 
-    for _, name, owner, type, notification, trigger, source, source_type, _, _, last_run in records:
+    for _, name, owner, type, notification, trigger, source, source_type, _, _, status, last_run in records:
         cron_str = nonesafe_loads(trigger)["cron"]
         start_date = last_run or datetime.now()
         cron = croniter(cron_str, start_date)
         next_run = cron.get_next(datetime)
+        logger.warning(f"{next_run}, {name}")
 
-        if next_run < datetime.now() + timedelta(minutes=1):
+        if status != "submitted" and next_run < datetime.now() + timedelta(minutes=1):
             job = Job(
                 name=name,
                 owner=owner,
