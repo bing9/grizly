@@ -148,7 +148,8 @@ class Extract:
         partitions_to_download = [partition for partition in all_partitions if partition not in existing_partitions]
         self.logger.debug(f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}")
         self.logger.info(f"Downloading {len(partitions_to_download)} partitions...")
-        return partitions_to_download
+        partitions_to_download_normalized = [partition.replace("_", "") for partition in partitions_to_download]
+        return partitions_to_download_normalized
 
     @dask.delayed
     def to_store_backend(self, serializable: Any, file_name: str):
