@@ -23,7 +23,7 @@ class Extract:
         logger: logging.Logger = None,
         **kwargs,
     ):
-        self.name = name or "X Æ A-12"
+        self.name = name
         self.driver = driver
         self.store_backend = store_backend
         self.data_backend = data_backend
@@ -50,6 +50,10 @@ class Extract:
             )
         if getattr(self, "s3_key", None) is None:
             self.s3_key = f"extracts/{self.module_name}/"
+            self.logger.debug(
+                "'s3_key' was not provided but backend is set to 's3'.\n"
+                f"Attempting to load {self.store_file_name} from {self.s3_key}..."
+            )
 
         if self.store_backend == "local":
             if getattr(self, "store_file_dir", None) is None:
@@ -61,22 +65,15 @@ class Extract:
             file_path = os.path.join(self.store_file_dir, self.store_file_name)
             with open(file_path) as f:
                 store = json.load(f)
-
         elif self.store_backend == "s3":
-            if getattr(self, "s3_key", None) is None:
-                self.logger.debug(
-                    "'s3_key' was not provided but backend is set to 's3'.\n"
-                    f"Attempting to load {self.store_file_name} from {self.s3_key}..."
-                )
-                s3 = S3(s3_key=self.s3_key, file_name=self.store_file_name)
-                store = s3.to_serializable()
+            s3 = S3(s3_key=self.s3_key, file_name=self.store_file_name)
+            store = s3.to_serializable()
         else:
             raise NotImplementedError
 
         self._validate_store(store)
         self.partition_cols = store["partition_cols"]
-        self.input_dsn = store["input"].get("dsn") or self.qf.dsn
-        self.output_dsn = store["output"].get("dsn") or self.input_dsn
+        self.output_dsn = store["output"].get("dsn") or self.driver.dsn
         self.output_external_schema = store["output"].get("external_schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
         )
@@ -100,16 +97,16 @@ class Extract:
                         raise ValueError(f"QFrame does not contain {column}")
 
         columns = self.partition_cols
-        existing_columns = self.qf.get_fields(aliased=False)
+        existing_columns = self.driver.get_fields(aliased=False)
         _validate_columns(columns, existing_columns)
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
-        schema = self.qf.data["select"]["schema"]
-        table = self.qf.data["select"]["table"]
-        where = self.qf.data["select"]["where"]
+        schema = self.driver.data["select"]["schema"]
+        table = self.driver.data["select"]["table"]
+        where = self.driver.data["select"]["where"]
         partitions_qf = (
-            QFrame(dsn=self.input_dsn).from_table(table=table, schema=schema, columns=columns).query(where).groupby()
+            QFrame(dsn=self.driver.dsn).from_table(table=table, schema=schema, columns=columns).query(where).groupby()
         )
         records = partitions_qf.to_records()
         if isinstance(columns, list):
@@ -179,7 +176,7 @@ class Extract:
 
     @dask.delayed
     def query_qf(self, query: str):
-        queried = self.qf.copy().query(query, if_exists="append")
+        queried = self.driver.copy().query(query, if_exists="append")
         return queried
 
     @dask.delayed
@@ -216,7 +213,7 @@ class Extract:
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
         if self.data_backend == "s3":
-            self.qf.create_external_table(
+            self.driver.create_external_table(
                 schema=self.output_schema_staging,
                 table=self.output_table_staging,
                 dsn=self.output_dsn,
@@ -325,27 +322,3 @@ class Extract:
         if not kwargs.get("scheduler_address"):
             scheduler_address = self.scheduler_address
         wf.submit(scheduler_address=scheduler_address, **kwargs)
-
-
-# testing
-# from grizly.experimental import Extract
-# from grizly import QFrame
-# import logging
-# from distributed import Client
-# import os
-
-
-# logger = logging.getLogger("distributed.worker").getChild("dss_extract")
-
-
-# def load_qf(dsn):
-#     grizly_wf_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows/workflows"
-#     json_path = os.path.join(grizly_wf_dir, "workflows", "direct_sales_summary_csr", "direct_sales_summary_csr_eng.json")
-#     qf = QFrame(dsn=dsn, logger=logger).from_json(json_path, subquery="direct_sales_summary_csr_eng")
-#     return qf
-
-
-# qf = load_qf(dsn="DenodoPROD")
-# wf = Extract("Direct Sales Summary CSR", qf, backend="s3").generate_workflow(refresh_partitions_list=True)
-# local_client = Client("grizly_scheduler:8786")
-# wf.submit(client=local_client)
