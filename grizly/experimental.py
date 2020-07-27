@@ -73,7 +73,7 @@ class Extract:
 
         self._validate_store(store)
         self.partition_cols = store["partition_cols"]
-        self.output_dsn = store["output"].get("dsn") or self.driver.dsn
+        self.output_dsn = store["output"].get("dsn") or self.driver.sqldb.dsn  # this will only work for SQL drivers
         self.output_external_schema = store["output"].get("external_schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
         )
@@ -106,11 +106,14 @@ class Extract:
         table = self.driver.data["select"]["table"]
         where = self.driver.data["select"]["where"]
         partitions_qf = (
-            QFrame(dsn=self.driver.dsn).from_table(table=table, schema=schema, columns=columns).query(where).groupby()
+            QFrame(dsn=self.driver.sqldb.dsn)
+            .from_table(table=table, schema=schema, columns=columns)
+            .query(where)
+            .groupby()
         )
         records = partitions_qf.to_records()
         if isinstance(columns, list):
-            values = ["".join(str(val) for val in row) for row in records]
+            values = ["_".join(str(val) for val in row) for row in records]
         else:
             values = [row[0] for row in records]
 
@@ -139,12 +142,9 @@ class Extract:
 
     @dask.delayed
     def get_partitions_to_download(self, all_partitions, existing_partitions, upstream: Delayed = None):
-        existing_partitons_normalized = [partition.replace(".", "") for partition in existing_partitions]
         self.logger.debug(f"All partitions: {all_partitions}")
-        self.logger.debug(f"Existing partitions: {existing_partitons_normalized}")
-        partitions_to_download = [
-            partition for partition in all_partitions if partition not in existing_partitons_normalized
-        ]
+        self.logger.debug(f"Existing partitions: {existing_partitions}")
+        partitions_to_download = [partition for partition in all_partitions if partition not in existing_partitions]
         self.logger.debug(f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}")
         self.logger.info(f"Downloading {len(partitions_to_download)} partitions...")
         return partitions_to_download
