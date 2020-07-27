@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from .sqldb import SQLDB
 from .dialects import pyarrow_to_rds_type
 from ..utils import get_path, clean, clean_colnames, file_extension
-from pandas import DataFrame, read_csv, read_parquet
+from pandas import DataFrame, read_csv, read_parquet, read_excel
 import pyarrow.parquet as pq
 from io import StringIO
 from csv import reader
@@ -370,9 +370,9 @@ class S3:
         self.logger.info(f"'{s3_key}' was successfully downloaded to '{file_path}'")
 
     def to_df(self, **kwargs):
-
-        if not file_extension(self.file_name) in ["csv", "parquet"]:
-            raise NotImplementedError("Unsupported file format. Please use CSV or Parquet files.")
+        ext = ["csv", "parquet", "xlsx"]
+        if not file_extension(self.file_name) in ext:
+            raise NotImplementedError(f"Unsupported file format. Please use files with extensions {ext}.")
 
         file_path = os.path.join(self.file_dir, self.file_name)
         self.to_file(if_exists=kwargs.get("if_exists"))
@@ -382,6 +382,8 @@ class S3:
             if not sep:
                 sep = "\t"
             df = read_csv(file_path, sep=sep)
+        elif file_extension(self.file_name) == "xlsx":
+            df = read_excel(file_path, **kwargs)
         else:
             columns = kwargs.get("columns")
             df = read_parquet(file_path, columns=columns)

@@ -6,7 +6,6 @@ import os
 import sys
 import traceback
 from datetime import date, datetime, timedelta, timezone
-from functools import wraps
 from json.decoder import JSONDecodeError
 from logging import Logger
 from time import sleep, time
@@ -26,7 +25,7 @@ from exchangelib.errors import ErrorFolderNotFound
 
 from ..config import Config
 from ..tools.email import Email, EmailAccount
-from ..utils import get_path
+from ..utils import get_path, retry
 from ..tools.sqldb import SQLDB
 
 
@@ -189,47 +188,6 @@ class Listener:
             return f'{type(self).__name__}(query="""{self.query}""")'
         return f"{type(self).__name__}(dsn={self.dsn}, schema={self.schema}, table={self.table}, field={self.field})"
 
-    def retry_task(exceptions, tries=4, delay=3, backoff=2, logger=None):
-        """
-        Retry calling the decorated function using an exponential backoff.
-
-        Args:
-            exceptions: The exception to check. may be a tuple of
-                exceptions to check.
-            tries: Number of times to try (not retry) before giving up.
-            delay: Initial delay between retries in seconds.
-            backoff: Backoff multiplier (e.g. value of 2 will double the delay
-                each retry).
-            logger: Logger to use. If None, print.
-        """
-
-        if not logger:
-            logger = logging.getLogger(__name__)
-
-        def deco_retry(f):
-            @wraps(f)
-            def f_retry(*args, **kwargs):
-
-                mtries, mdelay = tries, delay
-
-                while mtries > 1:
-
-                    try:
-                        return f(*args, **kwargs)
-
-                    except exceptions as e:
-                        msg = f"{e}, \nRetrying in {mdelay} seconds..."
-                        logger.warning(msg)
-                        sleep(mdelay)
-                        mtries -= 1
-                        mdelay *= backoff
-
-                return f(*args, **kwargs)
-
-            return f_retry  # true decorator
-
-        return deco_retry
-
     def get_last_json_refresh(self, key):
         if os.path.exists(LISTENER_STORE):
             with open(LISTENER_STORE) as f:
@@ -271,7 +229,7 @@ class Listener:
         with open(LISTENER_STORE, "w") as f_write:
             json.dump(listener_store, f_write, indent=4)
 
-    @retry_task(TypeError, tries=3, delay=5)
+    @retry(TypeError, tries=3, delay=5)
     def get_table_refresh_date(self):
 
         table_refresh_date = None
@@ -508,61 +466,6 @@ class Workflow:
         self.scheduler_address = scheduler_address
 
         self.logger.info(f"Workflow {self.name} initiated successfully")
-
-    def register(self, name, notification, dsn, schema, table):
-        """Registers the job in specified registry"""
-        # read args from config, eg. registry_table {dsn: a, table: b}
-        # default args can be taken from registry_table key in config:
-        # scheduling{
-        #     registry_table: {
-        #         schema: x
-        #     }
-        #     status_table: {
-        #         schema: y
-        #     }
-        # }
-        pass
-
-    def retry_task(exceptions, tries=4, delay=3, backoff=2, logger=None):
-        """
-        Retry calling the decorated function using an exponential backoff.
-
-        Args:
-            exceptions: The exception to check. may be a tuple of
-                exceptions to check.
-            tries: Number of times to try (not retry) before giving up.
-            delay: Initial delay between retries in seconds.
-            backoff: Backoff multiplier (e.g. value of 2 will double the delay
-                each retry).
-            logger: Logger to use. If None, print.
-        """
-
-        if not logger:
-            logger = logging.getLogger(__name__)
-
-        def deco_retry(f):
-            @wraps(f)
-            def f_retry(*args, **kwargs):
-
-                mtries, mdelay = tries, delay
-
-                while mtries > 1:
-
-                    try:
-                        return f(*args, **kwargs)
-
-                    except exceptions as e:
-                        msg = f"{e}, \nRetrying in {mdelay} seconds..."
-                        logger.warning(msg)
-                        sleep(mdelay)
-                        mtries -= 1
-                        mdelay *= backoff
-
-                return f(*args, **kwargs)
-
-            return f_retry  # true decorator
-
-        return deco_retry
 
     def __str__(self):
         return f"{self.tasks}"
@@ -806,46 +709,3 @@ class SimpleGraph:
 
         return display_cls(filename=full_filename)
 
-
-def retry(exceptions, tries=4, delay=3, backoff=2, logger=None):
-    """
-    Retry calling the decorated function using an exponential backoff.
-
-    Args:
-        exceptions: The exception to check. may be a tuple of
-            exceptions to check.
-        tries: Number of times to try (not retry) before giving up.
-        delay: Initial delay between retries in seconds.
-        backoff: Backoff multiplier (e.g. value of 2 will double the delay
-            each retry).
-        logger: Logger to use. If None, print.
-
-
-    This is almost a copy of Workflow.retry, but it's using its own logger.
-    """
-    if not logger:
-        logger = logging.getLogger(__name__)
-
-    def deco_retry(f):
-        @wraps(f)
-        def f_retry(*args, **kwargs):
-
-            mtries, mdelay = tries, delay
-
-            while mtries > 1:
-
-                try:
-                    return f(*args, **kwargs)
-
-                except exceptions as e:
-                    msg = f"{e}, \nRetrying in {mdelay} seconds..."
-                    logger.warning(msg)
-                    sleep(mdelay)
-                    mtries -= 1
-                    mdelay *= backoff
-
-            return f(*args, **kwargs)
-
-        return f_retry  # true decorator
-
-    return deco_retry

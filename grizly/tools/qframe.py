@@ -1100,7 +1100,7 @@ class QFrame(BaseTool):
         self.sql = _get_sql(data=self.data, sqldb=self.sqldb)
         return self.sql
 
-    def create_table(self, table, schema="", char_size=500, dsn=None, sqldb=None, if_exists=None, **kwargs):
+    def create_table(self, table, schema="", char_size=500, dsn=None, sqldb=None, if_exists: str = "skip", **kwargs):
         """Creates a new empty QFrame table in database if the table doesn't exist.
         TODO: Remove engine_str, db, dsn and dialect and leave sqldb
 
