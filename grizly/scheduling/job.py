@@ -10,31 +10,41 @@ import traceback
 from ..tools.sqldb import SQLDB
 from ..tools.s3 import S3
 from ..utils import get_path
-from .tables import JobRegistryTable, JobStatusTable
+from .tables import JobRegistryTable, JobTriggersTable, JobNTriggersTable, JobStatusTable
+
+
+class Trigger:
+    def __init__(
+        self, name: str, type: str, value: str, logger: logging.Logger = None,
+    ):
+        self.name = name
+        self.type = type
+        self.value = value
+        self.logger = logger or logging.getLogger(__name__)
+
+    @property
+    def id(self):
+        return JobTriggersTable(logger=self.logger)._get_trigger_id(self)
+
+    def register(self):
+        self.id = JobTriggersTable(logger=self.logger).register(trigger=self)
+        return self
 
 
 class Job:
     def __init__(
         self,
         name: str,
-        owner: str,
+        triggers: List[Trigger],
         tasks: List[dask.delayed] = None,
-        source: Dict[str, Any] = None,
-        type: Literal["JOB", "SCHEDULE", "LISTENER"] = None,
-        trigger: Dict[str, Any] = None,
-        notification: Dict[str, Any] = None,
-        env: str = None,
+        inputs: Dict[str, Any] = None,
         logger: logging.Logger = None,
     ):
         self.name = name
-        self.owner = owner
-        self.source = source
-        self.type = type
+        self.triggers = triggers
+        self.inputs = inputs
         self.tasks = tasks or self._get_tasks()
         self.graph = dask.delayed()(self.tasks, name=self.name + "_graph")
-        self.trigger = trigger
-        self.notification = notification
-        self.env = env or "local"
         self.logger = logger or logging.getLogger(__name__)
 
     @property
@@ -43,18 +53,20 @@ class Job:
 
     @property
     def source_type(self):
-        if self.source["main"].lower().startswith("https://github.com"):
+        if self.inputs["artifact"]["main"].lower().startswith("https://github.com"):
             return "github"
-        elif self.source["main"].lower().startswith("s3://"):
+        elif self.inputs["artifact"]["main"].lower().startswith("s3://"):
             return "s3"
         else:
-            raise NotImplementedError(f"Source {self.source} not supported")
+            raise NotImplementedError(f"""Source {self.inputs["artifact"]["main"]} not supported""")
 
     def __repr__(self):
         pass
 
     def register(self):
         JobRegistryTable(logger=self.logger).register(job=self)
+        JobTriggersTable(logger=self.logger).register(trigger=self.triggers[0])
+        JobNTriggersTable(logger=self.logger).register(job=self)
         return self
 
     def visualize(self, **kwargs):
@@ -75,7 +87,7 @@ class Job:
         self.scheduler_address = client.scheduler.address
 
         self.logger.info(f"Submitting job {self.name}...")
-        status = Status(job=self, status="submitted")
+        status = Status(job=self, status="running")
         status.register()
         start = time()
         try:
@@ -123,7 +135,7 @@ class Job:
             return s3.file_name
 
         if self.source_type == "s3":
-            file_name = _download_script_from_s3(url=self.source["main"], file_dir=file_dir)
+            file_name = _download_script_from_s3(url=self.inputs["artifact"]["main"], file_dir=file_dir)
             module = __import__("tmp." + file_name[:-3], fromlist=[None])
             try:
                 tasks = module.tasks
@@ -154,3 +166,4 @@ class Status:
         self.run_time = run_time
         self.status = status
         JobStatusTable(logger=self.logger).update(id=self.id, run_time=run_time, status=status)
+
