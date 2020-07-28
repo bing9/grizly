@@ -47,7 +47,8 @@ class Extract:
         if getattr(self, "store_file_name", None) is None:
             self.store_file_name = "store.json"
             self.logger.warning(
-                "'store_file_name' was not provided.\n" f"Attempting to load from {self.store_file_name}..."
+                "'store_file_name' was not provided.\n"
+                f"Attempting to load from {self.store_file_name}..."
             )
         if getattr(self, "s3_key", None) is None:
             self.s3_key = f"extracts/{self.module_name}/"
@@ -58,7 +59,9 @@ class Extract:
 
         if self.store_backend == "local":
             if getattr(self, "store_file_dir", None) is None:
-                self.store_file_dir = os.path.join(os.getenv("GRIZLY_WORKFLOWS_HOME"), "workflows", self.module_name)
+                self.store_file_dir = os.path.join(
+                    os.getenv("GRIZLY_WORKFLOWS_HOME"), "workflows", self.module_name
+                )
                 self.logger.debug(
                     "'store_file_dir' was not provided but backend is set to 'local'.\n"
                     f"Attempting to load {self.store_file_name} from {self.store_file_dir or 'current directory'}..."
@@ -74,11 +77,15 @@ class Extract:
 
         self._validate_store(store)
         self.partition_cols = store["partition_cols"]
-        self.output_dsn = store["output"].get("dsn") or self.driver.sqldb.dsn  # this will only work for SQL drivers
+        self.output_dsn = (
+            store["output"].get("dsn") or self.driver.sqldb.dsn
+        )  # this will only work for SQL drivers
         self.output_external_schema = store["output"].get("external_schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
         )
-        self.output_schema_prod = store["output"].get("schema") or os.getenv("GRIZLY_EXTRACT_STAGING_SCHEMA")
+        self.output_schema_prod = store["output"].get("schema") or os.getenv(
+            "GRIZLY_EXTRACT_STAGING_SCHEMA"
+        )
         self.output_external_table = store["output"].get("external_table") or self.module_name
         self.output_table_prod = store["output"].get("table") or self.module_name
 
@@ -142,11 +149,17 @@ class Extract:
         return existing_partitions
 
     @dask.delayed
-    def get_partitions_to_download(self, all_partitions, existing_partitions, upstream: Delayed = None):
+    def get_partitions_to_download(
+        self, all_partitions, existing_partitions, upstream: Delayed = None
+    ):
         self.logger.debug(f"All partitions: {all_partitions}")
         self.logger.debug(f"Existing partitions: {existing_partitions}")
-        partitions_to_download = [partition for partition in all_partitions if partition not in existing_partitions]
-        self.logger.debug(f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}")
+        partitions_to_download = [
+            partition for partition in all_partitions if partition not in existing_partitions
+        ]
+        self.logger.debug(
+            f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}"
+        )
         self.logger.info(f"Downloading {len(partitions_to_download)} partitions...")
         return partitions_to_download
 
@@ -194,7 +207,9 @@ class Extract:
 
             s3 = s3fs.S3FileSystem()
             file_name = s3_key.split("/")[-1]
-            s3_key_root = "s3://acoe-s3/" + s3_key[: s3_key.index(file_name) - 1]  # -1 removes the last slash
+            s3_key_root = (
+                "s3://acoe-s3/" + s3_key[: s3_key.index(file_name) - 1]
+            )  # -1 removes the last slash
             self.logger.info(f"Uploading {file_name} to {s3_key_root}...")
             pq.write_to_dataset(
                 arrow_table,
@@ -228,7 +243,9 @@ class Extract:
         else:
             raise ValueError("Exteral tables are only supported for S3 backend")
         full_table_name = f"{self.output_external_schema}.{self.output_external_table}"
-        self.logger.info(f"External table {full_table_name} has been successfully created from {s3_key}")
+        self.logger.info(
+            f"External table {full_table_name} has been successfully created from {s3_key}"
+        )
 
     @dask.delayed
     def create_table(self, upstream: Delayed = None):
@@ -243,7 +260,9 @@ class Extract:
                 table=self.output_table_prod,
                 if_exists="skip",
             )
-            qf.to_table(schema=self.output_schema_prod, table=self.output_table_prod, if_exists="replace")
+            qf.to_table(
+                schema=self.output_schema_prod, table=self.output_table_prod, if_exists="replace"
+            )
         else:
             # qf.to_table()
             raise NotImplementedError
@@ -270,7 +289,9 @@ class Extract:
 
         # by default, always cache the list of distinct values in backend for future use
         if cache_distinct_values:
-            cache_distinct_values_in_backend = self.to_store_backend(all_partitions, file_name="all_partitions.json")
+            cache_distinct_values_in_backend = self.to_store_backend(
+                all_partitions, file_name="all_partitions.json"
+            )
         else:
             cache_distinct_values_in_backend = None
 
@@ -288,7 +309,9 @@ class Extract:
             self.logger.warning("No partitions to download")
 
         if len(self.partition_cols) > 1:
-            partition_cols_casted = [f"CAST({partition_col} AS VARCHAR)" for partition_col in self.partition_cols]
+            partition_cols_casted = [
+                f"CAST({partition_col} AS VARCHAR)" for partition_col in self.partition_cols
+            ]
             partition_cols = "CONCAT(" + ", ".join(partition_cols_casted) + ")"
         else:
             partition_cols = self.partition_cols[0]
@@ -296,8 +319,9 @@ class Extract:
         # create the workflow
         uploads = []
         for partition in partitions:
+            partition_concatenated = partition.replace("_", "")
             s3_key = self.s3_key + "data/staging/" + f"{partition}.parquet"
-            where = f"{partition_cols}='{partition}'"
+            where = f"{partition_cols}='{partition_concatenated}'"
             # where_with_null = f"{partition_cols} IS NULL"
             # where = regular_where if partition_cols is not None else where_with_null
             processed_driver = self.query_driver(query=where)
