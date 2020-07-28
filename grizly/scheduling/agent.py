@@ -27,6 +27,9 @@ def get_scheduled_jobs():
 
     return qf.to_records()
 
+def run():
+    results = get_scheduled_jobs()
+
 
 if __name__ == "__main__":
     logger = logging.getLogger(__name__)

@@ -349,7 +349,14 @@ def _validate_config(config: dict, services: list = None, env: str = None):
             return config
 
         elif service == "schedule":
-            valid_keys = {"dsn", "schema", "job_registry_table", "job_status_table"}
+            valid_keys = {
+                "dsn",
+                "schema",
+                "job_registry_table",
+                "job_status_table",
+                "job_triggers_table",
+                "job_n_triggers_table",
+            }
 
         invalid_keys = set(config[service].keys()) - valid_keys
         if invalid_keys != set():
