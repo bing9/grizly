@@ -326,7 +326,7 @@ class SQLDB:
 
         return self
 
-    def insert_into(self, table, columns, sql, schema=None):
+    def insert_into(self, table, sql, columns=None, schema=None):
         """Inserts records into redshift table.
 
         Examples
@@ -348,7 +348,10 @@ class SQLDB:
 
             if self.check_if_exists(table=table, schema=schema):
                 columns = ", ".join(columns)
-                sql = f"INSERT INTO {table_name} ({columns}) {sql}"
+                if columns:
+                    sql = f"INSERT INTO {table_name} ({columns}) {sql}"
+                else:
+                    sql = f"INSERT INTO {table_name} ({sql})"
                 SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
                 con.execute(sql).commit()
             else:
