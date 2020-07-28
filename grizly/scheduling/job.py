@@ -81,6 +81,7 @@ class Job:
         try:
             self.graph.compute()
             _status = "success"
+        # TODO: Catch and save errors in status table
         except Exception as e:
             _status = "fail"
             # exc_type, exc_value, exc_tb = sys.exc_info()
@@ -112,6 +113,7 @@ class Job:
         file_dir = os.path.join(GRIZLY_WORKFLOWS_HOME, "tmp")
 
         def _download_script_from_s3(url, file_dir):
+            # TODO: This should load script to the memory not download it
             bucket = url.split("/")[2]
             file_name = url.split("/")[-1]
             s3_key = "/".join(url.split("/")[3:-1])
