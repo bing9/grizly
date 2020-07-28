@@ -79,7 +79,7 @@ class Extract:
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
         )
         self.output_schema_prod = store["output"].get("schema") or os.getenv("GRIZLY_EXTRACT_STAGING_SCHEMA")
-        self.output_table_staging = store["output"].get("external_table") or self.module_name
+        self.output_external_table = store["output"].get("external_table") or self.module_name
         self.output_table_prod = store["output"].get("table") or self.module_name
 
         return store
@@ -148,8 +148,7 @@ class Extract:
         partitions_to_download = [partition for partition in all_partitions if partition not in existing_partitions]
         self.logger.debug(f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}")
         self.logger.info(f"Downloading {len(partitions_to_download)} partitions...")
-        partitions_to_download_normalized = [partition.replace("_", "") for partition in partitions_to_download]
-        return partitions_to_download_normalized
+        return partitions_to_download
 
     @dask.delayed
     def to_store_backend(self, serializable: Any, file_name: str):
@@ -216,10 +215,11 @@ class Extract:
 
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
+        self.logger.warning(self.output_external_schema)
         if self.data_backend == "s3":
             self.driver.create_external_table(
-                schema=self.output_schema_staging,
-                table=self.output_table_staging,
+                schema=self.output_external_schema,
+                table=self.output_external_table,
                 dsn=self.output_dsn,
                 bucket=self.bucket,
                 s3_key=self.s3_key + "data/staging/",
@@ -232,7 +232,7 @@ class Extract:
     def create_table(self, upstream: Delayed = None):
         if self.data_backend == "s3":
             qf = QFrame(dsn=self.output_dsn, dialect="mysql").from_table(
-                schema=self.output_schema_staging, table=self.output_table_staging
+                schema=self.output_external_schema, table=self.output_external_table
             )
             qf.create_table(
                 dsn=self.output_dsn,
