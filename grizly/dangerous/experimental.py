@@ -215,18 +215,20 @@ class Extract:
 
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
-        self.logger.warning(self.output_external_schema)
+        s3_key = self.s3_key + "data/staging/"
         if self.data_backend == "s3":
             self.driver.create_external_table(
                 schema=self.output_external_schema,
                 table=self.output_external_table,
                 dsn=self.output_dsn,
                 bucket=self.bucket,
-                s3_key=self.s3_key + "data/staging/",
+                s3_key=s3_key,
                 if_exists="skip",
             )
         else:
             raise ValueError("Exteral tables are only supported for S3 backend")
+        full_table_name = f"{self.output_external_schema}.{self.output_external_table}"
+        self.logger.info(f"External table {full_table_name} has been successfully created from {s3_key}")
 
     @dask.delayed
     def create_table(self, upstream: Delayed = None):
