@@ -263,7 +263,9 @@ class S3:
         """
         s3_obj = resource("s3").Object(self.bucket, self.full_s3_key)
         s3_obj.put(Body=(bytes(json.dumps(serializable).encode("UTF-8"))))
-        self.logger.info(f"Successfully uploaded '{self.file_name}' to 's3://{self.bucket}/{self.s3_key}'")
+        self.logger.info(
+            f"Successfully uploaded '{self.file_name}' to 's3://{self.bucket}/{self.s3_key}'"
+        )
 
     def from_file(
         self, keep_file: bool = True, if_exists: str = "replace",
@@ -372,7 +374,9 @@ class S3:
     def to_df(self, **kwargs):
         ext = ["csv", "parquet", "xlsx"]
         if not file_extension(self.file_name) in ext:
-            raise NotImplementedError(f"Unsupported file format. Please use files with extensions {ext}.")
+            raise NotImplementedError(
+                f"Unsupported file format. Please use files with extensions {ext}."
+            )
 
         file_path = os.path.join(self.file_dir, self.file_name)
         self.to_file(if_exists=kwargs.get("if_exists"))
@@ -509,7 +513,9 @@ class S3:
                 f"Parameter redshift_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
             )
         if dsn is None and sqldb is None:
-            self.logger.warning("Please specify dsn parameter. Since version 0.3.8 it will be obligatory.")
+            self.logger.warning(
+                "Please specify dsn parameter. Since version 0.3.8 it will be obligatory."
+            )
 
         sqldb = sqldb or SQLDB(dsn=(dsn or "redshift_acoe"), **kwargs)
 
@@ -528,7 +534,9 @@ class S3:
             else:
                 pass
         else:
-            self._create_table_like_s3(table=table, schema=schema, sep=sep, sqldb=sqldb, types=types)
+            self._create_table_like_s3(
+                table=table, schema=schema, sep=sep, sqldb=sqldb, types=types
+            )
 
         config = ConfigParser()
         config.read(get_path(".aws", "credentials"))
@@ -604,14 +612,22 @@ class S3:
             last_line_pos = len(sql) - len(";commit;") - indent
             spaces = indent * " "  # print formatting
             time_format_argument = f"timeformat '{time_format}'"
-            sql = sql[:last_line_pos] + time_format_argument + "\n" + spaces[:-1] + sql[last_line_pos:]
+            sql = (
+                sql[:last_line_pos]
+                + time_format_argument
+                + "\n"
+                + spaces[:-1]
+                + sql[last_line_pos:]
+            )
 
         con = sqldb.get_connection()
         self.logger.info(f"Inserting '{self.file_name}' into {table_name}...")
         try:
             con.execute(sql)
         except:
-            self.logger.exception(f"Failed to insert '{self.file_name}' into Redshift [{table_name}]")
+            self.logger.exception(
+                f"Failed to insert '{self.file_name}' into Redshift [{table_name}]"
+            )
             self.logger.exception(sql)
             self.status = "failed"
             raise
@@ -693,7 +709,9 @@ class S3:
             else:
                 pass
         else:
-            self._create_table_like_s3(table=table, schema=schema, sep=sep, sqldb=sqldb, types=types)
+            self._create_table_like_s3(
+                table=table, schema=schema, sep=sep, sqldb=sqldb, types=types
+            )
 
         from configparser import ConfigParser
 
@@ -757,13 +775,26 @@ class S3:
         file_dir: '/home/analyst/'
         >>> s3_arch.delete()
         """
-        s3_archive = S3(file_name=self.file_name, s3_key="archive/" + self.s3_key, bucket=self.bucket,)
+        date_short = datetime.now().strftime("%Y-%m-%d")
+        s3_archive = S3(
+            file_name=self.file_name,
+            s3_key=f"archive/{date_short}/" + self.s3_key,
+            bucket=self.bucket,
+        )
 
         version = 0
         while True:
-            file_name = s3_archive.file_name.split(".")[0] + f"({version})." + s3_archive.file_name.split(".")[1]
+            file_name = (
+                s3_archive.file_name.split(".")[0]
+                + f"({version})."
+                + s3_archive.file_name.split(".")[1]
+            )
             if file_name not in s3_archive.list():
-                return self.copy_to(file_name=file_name, s3_key="archive/" + self.s3_key, keep_file=False,)
+                return self.copy_to(
+                    file_name=file_name,
+                    s3_key=f"archive/{date_short}/" + self.s3_key,
+                    keep_file=False,
+                )
             else:
                 version += 1
 
@@ -777,7 +808,11 @@ class S3:
                 ExpressionType="SQL",
                 Expression="SELECT * FROM s3object LIMIT 21",
                 InputSerialization={
-                    "CSV": {"FileHeaderInfo": "None", "AllowQuotedRecordDelimiter": True, "FieldDelimiter": sep}
+                    "CSV": {
+                        "FileHeaderInfo": "None",
+                        "AllowQuotedRecordDelimiter": True,
+                        "FieldDelimiter": sep,
+                    }
                 },
                 OutputSerialization={"CSV": {}},
             )
@@ -861,7 +896,9 @@ class S3:
         s3_client = resource("s3").meta.client
 
         if file_ext == "CSV":
-            InputSerialization = {"CSV": {"FieldDelimiter": sep, "AllowQuotedRecordDelimiter": True}}
+            InputSerialization = {
+                "CSV": {"FieldDelimiter": sep, "AllowQuotedRecordDelimiter": True}
+            }
         elif file_ext == "Parquet":
             InputSerialization = {"Parquet": {}}
 
@@ -903,7 +940,9 @@ def s3_to_csv(csv_path, bucket: str = None):
     bucket : str, optional
         Bucket name, if None then 'teis-data'
     """
-    s3 = S3(file_name=os.path.basename(csv_path), bucket=bucket, file_dir=os.path.dirname(csv_path),)
+    s3 = S3(
+        file_name=os.path.basename(csv_path), bucket=bucket, file_dir=os.path.dirname(csv_path),
+    )
     s3.to_file()
 
 
@@ -921,7 +960,12 @@ def csv_to_s3(csv_path, s3_key: str = None, keep_csv=True, bucket: str = None):
     bucket : str, optional
         Bucket name, if None then 'teis-data'
     """
-    s3 = S3(file_name=os.path.basename(csv_path), s3_key=s3_key, bucket=bucket, file_dir=os.path.dirname(csv_path),)
+    s3 = S3(
+        file_name=os.path.basename(csv_path),
+        s3_key=s3_key,
+        bucket=bucket,
+        file_dir=os.path.dirname(csv_path),
+    )
     return s3.from_file(keep_file=keep_csv)
 
 
@@ -965,7 +1009,13 @@ def s3_to_rds(
         table = file_name.replace(".csv", "")
     else:
         table = table_name
-    s3 = S3(file_name=file_name, s3_key=s3_key, bucket=bucket, file_dir=os.getcwd(), redshift_str=redshift_str)
+    s3 = S3(
+        file_name=file_name,
+        s3_key=s3_key,
+        bucket=bucket,
+        file_dir=os.getcwd(),
+        redshift_str=redshift_str,
+    )
     s3.to_rds(
         table=table,
         schema=schema,
