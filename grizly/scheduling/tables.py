@@ -114,16 +114,16 @@ class JobRegistryTable(JobTable):
         JobNTriggersTable(logger=self.logger)
         JobStatusTable(logger=self.logger)
 
-    def register(self, job):
+    def register(self, name, inputs):
 
-        _id = self._get_job_id(job)
+        _id = self._get_job_id(job_name=name)
         if _id is None:
             self.insert(
-                name=job.name, inputs=job.inputs, created_at=datetime.today().__str__(),
+                name=name, inputs=inputs, created_at=datetime.today().__str__(),
             )
-            return self._get_job_id(job)
+            return self._get_job_id(job_name=name)
         else:
-            self.logger.exception(f"Job {job.name} already exists in {self.full_name}")
+            self.logger.exception(f"Job {name} already exists in {self.full_name}")
             return _id
 
     def __register_system_jobs(self):
@@ -136,14 +136,22 @@ class JobRegistryTable(JobTable):
             created_at=datetime.today().__str__(),
         )
 
-    def _get_job_id(self, job):
+    def _get_job(self, job_name):
         qf = QFrame(sqldb=self.sqldb)
-        qf.from_table(table=self.name, schema=self.schema, columns=["id"])
-        qf.query(f"name='{job.name}'")
+        qf.from_table(table=self.name, schema=self.schema)
+        qf.query(f"name='{job_name}'")
         records = qf.to_records()
 
         if records:
-            return records[0][0]
+            return records[0]
+
+    def _get_job_id(self, job_name):
+        row = self._get_job(job_name=job_name)
+        return row[0]
+
+    def _get_job_inputs(self, job_name):
+        row = self._get_job(job_name=job_name)
+        return row[2]
 
 
 class JobTriggersTable(JobTable):
@@ -238,10 +246,10 @@ class JobNTriggersTable(JobTable):
         finally:
             con.close()
 
-    def register(self, job):
+    def register(self, job_id, trigger_id):
 
         self.insert(
-            job_id=job.id, trigger_id=job.triggers[0].id,
+            job_id=job_id, trigger_id=trigger_id,
         )
 
 
@@ -281,23 +289,35 @@ class JobStatusTable(JobTable):
         finally:
             con.close()
 
-    def register(self, status):
+    def register(self, job_run):
 
         self.insert(
-            job_id=status.job.id, status=status.status, run_at=datetime.today().__str__(),
+            job_id=job_run.job_id, status=job_run.status, run_at=datetime.today().__str__(),
         )
 
-        status_id = self._get_last_status_id(job=status.job)
+        status_id = self._get_last_job_run_id(job_id=job_run.job_id)
 
         return status_id
 
-    def _get_last_status_id(self, job):
+    def _get_last_job_run(self, job_id):
         qf = QFrame(sqldb=self.sqldb)
-        qf.from_table(table=self.name, schema=self.schema, columns=["id", "run_at"])
-        qf.query(f"job_id='{job.id}'")
+        qf.from_table(table=self.name, schema=self.schema)
+        qf.query(f"job_id='{job_id}'")
         qf.orderby("run_at", ascending=False)
         qf.limit(1)
         records = qf.to_records()
 
         if records:
-            return records[0][0]
+            return records[0]
+
+    def _get_last_job_run_id(self, job_id):
+        row = self._get_last_job_run(job_id)
+
+        if row:
+            return row[0]
+
+    def _get_last_job_run_status(self, job_id):
+        row = self._get_last_job_run(job_id)
+
+        if row:
+            return row[4]
