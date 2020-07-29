@@ -378,10 +378,9 @@ class S3:
         self.to_file(if_exists=kwargs.get("if_exists"))
 
         if file_extension(self.file_name) == "csv":
-            sep = kwargs.get("sep")
-            if not sep:
-                sep = "\t"
-            df = read_csv(file_path, sep=sep)
+            if kwargs.get("sep") is None:
+                kwargs["sep"] = "\t"
+            df = read_csv(file_path, **kwargs)
         elif file_extension(self.file_name) == "xlsx":
             df = read_excel(file_path, **kwargs)
         else:

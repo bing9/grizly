@@ -93,6 +93,7 @@ class JobRegistryTable(JobTable):
         sql = f"""CREATE TABLE {self.full_name} (
                     id SERIAL NOT NULL
                     ,name VARCHAR(50) NOT NULL UNIQUE
+                    ,type VARCHAR(20) NOT NULL
                     ,inputs JSONB NOT NULL
                     ,created_at TIMESTAMP (6) NOT NULL
                     ,PRIMARY KEY (id)
@@ -114,12 +115,12 @@ class JobRegistryTable(JobTable):
         JobNTriggersTable(logger=self.logger)
         JobStatusTable(logger=self.logger)
 
-    def register(self, name, inputs):
+    def register(self, name, type, inputs):
 
         _id = self._get_job_id(job_name=name)
         if _id is None:
             self.insert(
-                name=name, inputs=inputs, created_at=datetime.today().__str__(),
+                name=name, type=type, inputs=inputs, created_at=datetime.today().__str__(),
             )
             return self._get_job_id(job_name=name)
         else:
@@ -147,11 +148,18 @@ class JobRegistryTable(JobTable):
 
     def _get_job_id(self, job_name):
         row = self._get_job(job_name=job_name)
-        return row[0]
+        if row:
+            return row[0]
+
+    def _get_job_type(self, job_name):
+        row = self._get_job(job_name=job_name)
+        if row:
+            return row[2]
 
     def _get_job_inputs(self, job_name):
         row = self._get_job(job_name=job_name)
-        return row[2]
+        if row:
+            return row[3]
 
 
 class JobTriggersTable(JobTable):
@@ -173,6 +181,7 @@ class JobTriggersTable(JobTable):
                     ,name VARCHAR (50) NOT NULL
                     ,type VARCHAR (20) NOT NULL
                     ,value VARCHAR (20) NOT NULL
+                    ,is_triggered BOOL
                     ,created_at TIMESTAMP (6) NOT NULL
                     ,PRIMARY KEY (id)
                 );
@@ -188,26 +197,46 @@ class JobTriggersTable(JobTable):
         finally:
             con.close()
 
-    def register(self, trigger):
+    def register(self, name, type, value):
 
-        _id = self._get_trigger_id(trigger)
+        _id = self._get_trigger_id(trigger_name=name)
         if _id is None:
             self.insert(
-                name=trigger.name, type=trigger.type, value=trigger.value, created_at=datetime.today().__str__(),
+                name=name, type=type, value=value, created_at=datetime.today().__str__(),
             )
-            return self._get_trigger_id(trigger)
+            return self._get_trigger_id(trigger_name=name)
         else:
-            self.logger.exception(f"Trigger {trigger.name} already exists in {self.full_name}")
+            self.logger.exception(f"Trigger {name} already exists in {self.full_name}")
             return _id
 
-    def _get_trigger_id(self, trigger):
+    def _get_trigger(self, trigger_name):
         qf = QFrame(sqldb=self.sqldb)
-        qf.from_table(table=self.name, schema=self.schema, columns=["id"])
-        qf.query(f"name='{trigger.name}'")
+        qf.from_table(table=self.name, schema=self.schema)
+        qf.query(f"name='{trigger_name}'")
         records = qf.to_records()
 
         if records:
-            return records[0][0]
+            return records[0]
+
+    def _get_trigger_id(self, trigger_name):
+        row = self._get_trigger(trigger_name=trigger_name)
+        if row:
+            return row[0]
+
+    def _get_trigger_type(self, trigger_name):
+        row = self._get_trigger(trigger_name=trigger_name)
+        if row:
+            return row[2]
+
+    def _get_trigger_value(self, trigger_name):
+        row = self._get_trigger(trigger_name=trigger_name)
+        if row:
+            return row[3]
+
+    def _get_trigger_is_triggered(self, trigger_name):
+        row = self._get_trigger(trigger_name=trigger_name)
+        if row:
+            return row[4]
 
 
 class JobNTriggersTable(JobTable):
@@ -274,6 +303,7 @@ class JobStatusTable(JobTable):
                     run_at TIMESTAMP (6) NOT NULL,
                     run_time INTEGER,
                     status VARCHAR (20) NOT NULL,
+                    error_value VARCHAR(1000),
                     PRIMARY KEY (id),
                     FOREIGN KEY (job_id) REFERENCES {self.registry_table_full_name}(id)
                 );

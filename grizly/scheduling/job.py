@@ -6,6 +6,7 @@ import os
 import sys
 from time import time
 import traceback
+import json
 
 from ..tools.qframe import QFrame, join
 from ..config import Config
@@ -17,19 +18,32 @@ from .tables import JobRegistryTable, JobTriggersTable, JobNTriggersTable, JobSt
 
 class Trigger:
     def __init__(
-        self, name: str, type: str, value: str, logger: logging.Logger = None,
+        self, name: str, logger: logging.Logger = None,
     ):
         self.name = name
-        self.type = type
-        self.value = value
         self.logger = logger or logging.getLogger(__name__)
 
     @property
     def id(self):
-        return JobTriggersTable(logger=self.logger)._get_trigger_id(self)
+        return JobTriggersTable(logger=self.logger)._get_trigger_id(self.name)
 
-    def register(self):
-        self.id = JobTriggersTable(logger=self.logger).register(trigger=self)
+    @property
+    def value(self):
+        return JobTriggersTable(logger=self.logger)._get_trigger_value(self.name)
+
+    @property
+    def type(self):
+        return JobTriggersTable(logger=self.logger)._get_trigger_type(self.name)
+
+    @property
+    def is_triggered(self):
+        return JobTriggersTable(logger=self.logger)._get_trigger_is_triggered(self.name)
+
+    def set(self, triggered: bool):
+        JobTriggersTable(logger=self.logger).update(id=self.id, is_triggered=triggered)
+
+    def register(self, type: str, value: str):
+        JobTriggersTable(logger=self.logger).register(name=self.name, type=type, value=value)
         return self
 
 
@@ -47,7 +61,19 @@ class Job:
 
     @property
     def inputs(self):
-        return JobRegistryTable(logger=self.logger)._get_job_inputs(self.name)
+        inputs = JobRegistryTable(logger=self.logger)._get_job_inputs(self.name)
+
+        def nonesafe_loads(obj):
+            """To avoid errors if json is None"""
+            if obj is not None:
+                return json.loads(obj)
+
+        return nonesafe_loads(inputs)
+
+    @property
+    def type(self):
+        if self.id:
+            return JobRegistryTable(logger=self.logger)._get_job_type(self.name)
 
     @property
     def status(self):
@@ -111,7 +137,7 @@ class Job:
         return dask.delayed()(self.tasks, name=self.name + "_graph")
 
     def __repr__(self):
-        return None
+        return f"Job({self.name})"
 
     def update_status(self, status):
         _id = JobStatusTable(logger=self.logger)._get_last_job_run_id(job_id=self.id)
@@ -119,11 +145,11 @@ class Job:
         job_run.update(status=status)
 
     def register(
-        self, triggers: List[Trigger], inputs: Dict[str, Any] = None,
+        self, triggers: List[Trigger], type: str, inputs: Dict[str, Any] = None,
     ):
-        job_id = JobRegistryTable(logger=self.logger).register(name=self.name, inputs=inputs)
-        trigger_id = JobTriggersTable(logger=self.logger).register(trigger=triggers[0])
-        JobNTriggersTable(logger=self.logger).register(job_id=job_id, trigger_id=trigger_id)
+        job_id = JobRegistryTable(logger=self.logger).register(name=self.name, type=type, inputs=inputs)
+        # trigger_id = JobTriggersTable(logger=self.logger).register(trigger=triggers[0])
+        JobNTriggersTable(logger=self.logger).register(job_id=job_id, trigger_id=triggers[0].id)
         return self
 
     def visualize(self, **kwargs):
