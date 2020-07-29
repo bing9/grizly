@@ -1,20 +1,23 @@
+import json
+import logging
+import os
+from configparser import ConfigParser
+from csv import reader
+from datetime import datetime, timezone
+from functools import partial, wraps
+from io import StringIO
+from itertools import count
+from typing import List
+
+import deprecation
+import pyarrow.parquet as pq
 from boto3 import resource
 from botocore.exceptions import ClientError
-import os
-from datetime import datetime, timezone
-from .sqldb import SQLDB
+from pandas import DataFrame, read_csv, read_excel, read_parquet
+
+from ..utils import clean, clean_colnames, file_extension, get_path
 from .dialects import pyarrow_to_rds_type
-from ..utils import get_path, clean, clean_colnames, file_extension
-from pandas import DataFrame, read_csv, read_parquet, read_excel
-import pyarrow.parquet as pq
-from io import StringIO
-from csv import reader
-from configparser import ConfigParser
-import logging
-from functools import wraps, partial
-from itertools import count
-import deprecation
-import json
+from .sqldb import SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
@@ -131,9 +134,8 @@ class S3:
         """
         print(self.__repr__())
 
-    def list(self):
-        """Returns the list of files that are in S3.s3_key
-        """
+    def list(self) -> List[str]:
+        """Returns the list of files that are in S3.s3_key"""
         files = []
         key_list = self.s3_key.split("/")[:-1]
         data = resource("s3").meta.client.list_objects(Bucket=self.bucket, Prefix=self.s3_key)
@@ -175,6 +177,7 @@ class S3:
         bucket: str = None,
         keep_file: bool = True,
         if_exists: {"fail", "skip", "replace", "archive"} = "replace",
+        versioning: bool = True,
     ):
         """Copies S3 file to another S3 file.
 
@@ -231,7 +234,7 @@ class S3:
             elif if_exists == "skip":
                 return self
             elif if_exists == "archive":
-                out_s3.archive()
+                out_s3.archive(versioning=versioning)
 
         s3_file = resource("s3").Object(bucket, s3_key + file_name)
 
@@ -248,7 +251,7 @@ class S3:
 
         return out_s3
 
-    def from_serializable(self, serializable):
+    def from_serializable(self, serializable) -> None:
         """Writes a JSON-serializable object to S3
 
         Parameters
@@ -267,9 +270,7 @@ class S3:
             f"Successfully uploaded '{self.file_name}' to 's3://{self.bucket}/{self.s3_key}'"
         )
 
-    def from_file(
-        self, keep_file: bool = True, if_exists: str = "replace",
-    ):
+    def from_file(self, keep_file: bool = True, if_exists: str = "replace", versioning=True):
         """Writes local file to S3.
 
         Parameters
@@ -308,7 +309,7 @@ class S3:
             elif if_exists == "skip":
                 return self
             elif if_exists == "archive":
-                self.archive()
+                self.archive(versioning=versioning)
 
         s3_file = resource("s3").Object(self.bucket, self.full_s3_key)
 
@@ -334,9 +335,7 @@ class S3:
         return self
 
     @_check_if_s3_exists
-    def to_file(
-        self, if_exists: str = None,
-    ):
+    def to_file(self, if_exists: str = None) -> None:
         r"""Writes S3 to local file.
 
         Parameters
@@ -371,7 +370,7 @@ class S3:
 
         self.logger.info(f"'{s3_key}' was successfully downloaded to '{file_path}'")
 
-    def to_df(self, **kwargs):
+    def to_df(self, **kwargs) -> DataFrame:
         ext = ["csv", "parquet", "xlsx"]
         if not file_extension(self.file_name) in ext:
             raise NotImplementedError(
