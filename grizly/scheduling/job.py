@@ -10,41 +10,14 @@ import json
 
 from ..tools.qframe import QFrame, join
 from ..config import Config
-from ..tools.sqldb import SQLDB
 from ..tools.s3 import S3
 from ..utils import get_path
-from .tables import JobRegistryTable, JobTriggersTable, JobNTriggersTable, JobStatusTable
+from .tables import JobRegistryTable, JobNTriggersTable, JobStatusTable
 
 
 class Trigger:
-    def __init__(
-        self, name: str, logger: logging.Logger = None,
-    ):
-        self.name = name
-        self.logger = logger or logging.getLogger(__name__)
-
-    @property
-    def id(self):
-        return JobTriggersTable(logger=self.logger)._get_trigger_id(self.name)
-
-    @property
-    def value(self):
-        return JobTriggersTable(logger=self.logger)._get_trigger_value(self.name)
-
-    @property
-    def type(self):
-        return JobTriggersTable(logger=self.logger)._get_trigger_type(self.name)
-
-    @property
-    def is_triggered(self):
-        return JobTriggersTable(logger=self.logger)._get_trigger_is_triggered(self.name)
-
-    def set(self, triggered: bool):
-        JobTriggersTable(logger=self.logger).update(id=self.id, is_triggered=triggered)
-
-    def register(self, type: str, value: str):
-        JobTriggersTable(logger=self.logger).register(name=self.name, type=type, value=value)
-        return self
+    """placeholder for type"""
+    pass
 
 
 class Job:
@@ -134,7 +107,9 @@ class Job:
             return s3.file_name
 
         if self.source_type == "s3":
-            file_name = _download_script_from_s3(url=self.inputs["artifact"]["main"], file_dir=file_dir)
+            file_name = _download_script_from_s3(
+                url=self.inputs["artifact"]["main"], file_dir=file_dir
+            )
             module = __import__("tmp." + file_name[:-3], fromlist=[None])
             try:
                 tasks = module.tasks
@@ -161,7 +136,9 @@ class Job:
     def register(
         self, triggers: List[Trigger], type: str, inputs: Dict[str, Any] = None,
     ):
-        job_id = JobRegistryTable(logger=self.logger).register(name=self.name, type=type, inputs=inputs)
+        job_id = JobRegistryTable(logger=self.logger).register(
+            name=self.name, type=type, inputs=inputs
+        )
         # trigger_id = JobTriggersTable(logger=self.logger).register(trigger=triggers[0])
         JobNTriggersTable(logger=self.logger).register(job_id=job_id, trigger_id=triggers[0].id)
         return self
