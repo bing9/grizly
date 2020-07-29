@@ -7,6 +7,8 @@ import sys
 from time import time
 import traceback
 
+from ..tools.qframe import QFrame, join
+from ..config import Config
 from ..tools.sqldb import SQLDB
 from ..tools.s3 import S3
 from ..utils import get_path
@@ -46,10 +48,26 @@ class Job:
         self.tasks = tasks or self._get_tasks()
         self.graph = dask.delayed()(self.tasks, name=self.name + "_graph")
         self.logger = logger or logging.getLogger(__name__)
+        self.config = Config().get_service(service="schedule")
 
     @property
     def id(self):
         return JobRegistryTable(logger=self.logger)._get_job_id(self)
+
+    @property
+    def trigger_type(self):
+        dsn = self.config.get("dsn")
+        schema = self.config.get("schema")
+        job_registry_table = self.config.get("job_registry_table")
+        job_triggers_table = self.config.get("job_triggers_table")
+        job_n_triggers_table = self.config.get("job_n_triggers_table")
+        qf1 = QFrame(dsn=dsn).from_table(table=job_triggers_table, schema=schema)
+        qf2 = QFrame(dsn=dsn).from_table(table=job_n_triggers_table, schema=schema)
+        qf2.query(f"job_id = {self.id}")
+        on = "sq1.id = sq2.trigger_id"
+        qf_join = join(qframes=[qf1, qf2], join_type="INNER JOIN", on=on)
+        df = qf_join.to_df()
+        return df.loc[0,"type"]
 
     @property
     def source_type(self):
