@@ -95,6 +95,20 @@ class Job:
         return df.loc[0, "type"]
 
     @property
+    def trigger_value(self):
+        dsn = self.config.get("dsn")
+        schema = self.config.get("schema")
+        job_triggers_table = self.config.get("job_triggers_table")
+        job_n_triggers_table = self.config.get("job_n_triggers_table")
+        qf1 = QFrame(dsn=dsn).from_table(table=job_triggers_table, schema=schema)
+        qf2 = QFrame(dsn=dsn).from_table(table=job_n_triggers_table, schema=schema)
+        qf2.query(f"job_id = {self.id}")
+        on = "sq1.id = sq2.trigger_id"
+        qf_join = join(qframes=[qf1, qf2], join_type="INNER JOIN", on=on)
+        df = qf_join.to_df()
+        return df.loc[0, "value"]
+
+    @property
     def source_type(self):
         if self.inputs["artifact"]["main"].lower().startswith("https://github.com"):
             return "github"
