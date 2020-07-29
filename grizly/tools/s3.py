@@ -759,7 +759,7 @@ class S3:
         self.logger.info(f"Successfully inserted {self.file_name} into Aurora")
         self.logger.debug(f"'{self.file_name}''s Aurora location: {table_name}")
 
-    def archive(self):
+    def archive(self, versioning=True):
         """Moves S3 to 'archive/' key. It adds also the versions of the file eg. file(0).csv, file(1).csv, ...
 
         Examples
@@ -784,11 +784,15 @@ class S3:
 
         version = 0
         while True:
-            file_name = (
-                s3_archive.file_name.split(".")[0]
-                + f"({version})."
-                + s3_archive.file_name.split(".")[1]
-            )
+            if versioning:
+                file_name = (
+                    s3_archive.file_name.split(".")[0]
+                    + f"({version})."
+                    + s3_archive.file_name.split(".")[1]
+                )
+            else:
+                file_name = s3_archive.file_name
+
             if file_name not in s3_archive.list():
                 return self.copy_to(
                     file_name=file_name,
@@ -796,7 +800,8 @@ class S3:
                     keep_file=False,
                 )
             else:
-                version += 1
+                if versioning:
+                    version += 1
 
     def _create_table_like_s3(self, table, schema, sqldb, types, sep):
         if file_extension(self.file_name) == "csv":
