@@ -12,11 +12,12 @@ from ..tools.qframe import QFrame, join
 from ..config import Config
 from ..tools.s3 import S3
 from ..utils import get_path
-from .tables import JobRegistryTable, JobNTriggersTable, JobStatusTable
+from .tables import JobRegistryTable, JobNTriggersTable, JobRunsTable
 
 
 class Trigger:
     """placeholder for type"""
+
     pass
 
 
@@ -49,9 +50,14 @@ class Job:
             return JobRegistryTable(logger=self.logger)._get_job_type(self.name)
 
     @property
+    def last_run(self):
+        if self.id:
+            return JobRunsTable(logger=self.logger)._get_last_job_run_date(job_id=self.id)
+
+    @property
     def status(self):
         if self.id:
-            return JobStatusTable(logger=self.logger)._get_last_job_run_status(job_id=self.id)
+            return JobRunsTable(logger=self.logger)._get_last_job_run_status(job_id=self.id)
 
     @property
     def trigger_type(self):
@@ -107,9 +113,7 @@ class Job:
             return s3.file_name
 
         if self.source_type == "s3":
-            file_name = _download_script_from_s3(
-                url=self.inputs["artifact"]["main"], file_dir=file_dir
-            )
+            file_name = _download_script_from_s3(url=self.inputs["artifact"]["main"], file_dir=file_dir)
             module = __import__("tmp." + file_name[:-3], fromlist=[None])
             try:
                 tasks = module.tasks
@@ -129,16 +133,14 @@ class Job:
         return f"Job({self.name})"
 
     def update_status(self, status):
-        _id = JobStatusTable(logger=self.logger)._get_last_job_run_id(job_id=self.id)
+        _id = JobRunsTable(logger=self.logger)._get_last_job_run_id(job_id=self.id)
         job_run = JobRun(id=_id, job_id=self.id)
         job_run.update(status=status)
 
     def register(
         self, triggers: List[Trigger], type: str, inputs: Dict[str, Any] = None,
     ):
-        job_id = JobRegistryTable(logger=self.logger).register(
-            name=self.name, type=type, inputs=inputs
-        )
+        job_id = JobRegistryTable(logger=self.logger).register(name=self.name, type=type, inputs=inputs)
         # trigger_id = JobTriggersTable(logger=self.logger).register(trigger=triggers[0])
         JobNTriggersTable(logger=self.logger).register(job_id=job_id, trigger_id=triggers[0].id)
         return self
@@ -210,11 +212,11 @@ class JobRun:
         self.logger = logger or logging.getLogger(__name__)
 
     def register(self):
-        self.id = JobStatusTable(logger=self.logger).register(job_run=self)
+        self.id = JobRunsTable(logger=self.logger).register(job_run=self)
         return self
 
     def update(self, **kwargs):
         self.run_time = kwargs.get("run_time") or self.run_time
         self.status = kwargs.get("status") or self.status
-        JobStatusTable(logger=self.logger).update(id=self.id, **kwargs)
+        JobRunsTable(logger=self.logger).update(id=self.id, **kwargs)
 

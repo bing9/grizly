@@ -113,7 +113,7 @@ class JobRegistryTable(JobTable):
         # create tables
         JobTriggersTable(logger=self.logger)
         JobNTriggersTable(logger=self.logger)
-        JobStatusTable(logger=self.logger)
+        JobRunsTable(logger=self.logger)
 
     def register(self, name, type, inputs):
 
@@ -282,7 +282,7 @@ class JobNTriggersTable(JobTable):
         )
 
 
-class JobStatusTable(JobTable):
+class JobRunsTable(JobTable):
     def __init__(
         self, **kwargs,
     ):
@@ -345,6 +345,12 @@ class JobStatusTable(JobTable):
 
         if row:
             return row[0]
+
+    def _get_last_job_run_date(self, job_id):
+        row = self._get_last_job_run(job_id)
+
+        if row:
+            return row[2]
 
     def _get_last_job_run_status(self, job_id):
         row = self._get_last_job_run(job_id)
