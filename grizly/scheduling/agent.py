@@ -27,7 +27,9 @@ def get_jobs() -> List[Job]:
     records = registry_qf.to_records()
     jobs = []
     for record in records:
-        job = Job(name=record[0])
+        job = Job(
+            name=record[0], logger=logging.getLogger("distributed.worker").getChild("agent_test")
+        )
         jobs.append(job)
     return jobs
 
@@ -60,6 +62,8 @@ def run():
     logger.info("Checking scheduled jobs...")
     periodic_jobs = [job for job in jobs if job.trigger_type == "cron"]
     for job in periodic_jobs:
+        if job.status == "running":
+            continue
         last_run = None
         start_date = last_run or datetime.now()
         cron_str = job.trigger_value
