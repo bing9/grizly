@@ -47,9 +47,7 @@ class JobTable:
             con.execute(sql)
             self.logger.info(f"Successfully registered job {name} in {self.full_name}")
         except:
-            self.logger.exception(
-                f"Error occured during registering job {name} in {self.full_name}"
-            )
+            self.logger.exception(f"Error occured during registering job {name} in {self.full_name}")
             self.logger.exception(sql)
             raise
         finally:
@@ -71,9 +69,7 @@ class JobTable:
             con.execute(sql)
             self.logger.info(f"Successfully updated record with id {id} in {self.full_name}")
         except:
-            self.logger.exception(
-                f"Error occured during updating record with id {id} in {self.full_name}"
-            )
+            self.logger.exception(f"Error occured during updating record with id {id} in {self.full_name}")
             self.logger.exception(sql)
             raise
         finally:
@@ -99,7 +95,7 @@ class JobRegistryTable(JobTable):
                     ,name VARCHAR(50) NOT NULL UNIQUE
                     ,type VARCHAR(20) NOT NULL
                     ,inputs JSONB NOT NULL
-                    ,created_at TIMESTAMP (6) NOT NULL DEFAULT GETUTCDATE()
+                    ,created_at TIMESTAMP (6) NOT NULL DEFAULT (now() at time zone 'utc')
                     ,PRIMARY KEY (id)
                 );
                 COMMIT;
@@ -124,7 +120,10 @@ class JobRegistryTable(JobTable):
         _id = self._get_job_id(job_name=name)
         if _id is None:
             self.insert(
-                name=name, type=type, inputs=inputs, created_at=datetime.today().__str__(),
+                name=name,
+                type=type,
+                inputs=inputs,
+                # created_at=datetime.today().__str__(),
             )
             return self._get_job_id(job_name=name)
         else:
@@ -138,7 +137,7 @@ class JobRegistryTable(JobTable):
             type="SCHEDULE",
             source='{"main": "https://github.com/kfk/grizly/tree/master/grizly/scheduling/script.py"}',
             source_type="github",
-            created_at=datetime.today().__str__(),
+            # created_at=datetime.today().__str__(),
         )
 
     def _get_job(self, job_name):
@@ -191,7 +190,7 @@ class JobTriggersTable(JobTable):
                     ,type VARCHAR (20) NOT NULL
                     ,value VARCHAR (20) NOT NULL
                     ,is_triggered BOOL
-                    ,created_at TIMESTAMP (6) NOT NULL DEFAULT GETUTCDATE()
+                    ,created_at TIMESTAMP (6) NOT NULL DEFAULT (now() at time zone 'utc')
                     ,PRIMARY KEY (id)
                 );
 
@@ -304,7 +303,7 @@ class JobRunsTable(JobTable):
         sql = f"""CREATE TABLE {self.full_name} (
                     id SERIAL NOT NULL,
                     job_id INT NOT NULL ,
-                    ran_at TIMESTAMP (6) NOT NULL DEFAULT GETUTCDATE(),
+                    ran_at TIMESTAMP (6) NOT NULL DEFAULT (now() at time zone 'utc'),
                     run_time INTEGER,
                     status VARCHAR (20) NOT NULL,
                     error_value VARCHAR(1000),
