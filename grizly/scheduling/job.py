@@ -50,6 +50,10 @@ class Job:
             return JobRegistryTable(logger=self.logger)._get_job_type(self.name)
 
     @property
+    def created_at(self):
+        return JobRegistryTable(logger=self.logger)._get_job_created_at(self.name)
+
+    @property
     def last_run(self):
         if self.id:
             return JobRunsTable(logger=self.logger)._get_last_job_run_date(job_id=self.id)

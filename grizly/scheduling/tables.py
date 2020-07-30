@@ -161,6 +161,11 @@ class JobRegistryTable(JobTable):
         if row:
             return row[3]
 
+    def _get_job_created_at(self, job_name):
+        row = self._get_job(job_name=job_name)
+        if row:
+            return row[4]
+
 
 class JobTriggersTable(JobTable):
     def __init__(
