@@ -21,14 +21,16 @@ schema = config.get("schema")
 
 def get_jobs() -> List[Job]:
     job_registry_table = config.get("job_registry_table")
-    registry_qf = QFrame(dsn=dsn).from_table(
-        table=job_registry_table, schema=schema, columns=["name"]
-    )
+    registry_qf = QFrame(dsn=dsn).from_table(table=job_registry_table, schema=schema)
+
     records = registry_qf.to_records()
     jobs = []
     for record in records:
+        # job_run_table = sth2
         job = Job(
-            name=record[0], logger=logging.getLogger("distributed.worker").getChild("agent_test")
+            name=record[0],
+            job_registry_record=record,
+            logger=logging.getLogger("distributed.worker").getChild("agent_test"),
         )
         jobs.append(job)
     return jobs

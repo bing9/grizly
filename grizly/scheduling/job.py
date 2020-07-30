@@ -24,28 +24,32 @@ class Trigger:
 
 class Job:
     def __init__(
-        self, name: str, logger: logging.Logger = None,
+        self, name: str, job_registry_record: tuple = None, logger: logging.Logger = None,
     ):
         self.name = name
         self.logger = logger or logging.getLogger(__name__)
         self.config = Config().get_service(service="schedule")
+        self.job_registry_record = job_registry_record
 
     @cached_property
-    def job_registry_entry(self):
-        return JobRegistryTable(logger=self.logger)._get_job(job_name=self.name)
+    def job_registry_record(self):
+        if self.job_registry_record is None:
+            return JobRegistryTable(logger=self.logger)._get_job(job_name=self.name)
+        else:
+            self.job_registry_record
 
     @property
     def id(self):
-        return self.job_registry_entry[0]
+        return self.job_registry_record[0]
 
     @property
     def type(self):
         if self.id:
-            return self.job_registry_entry[2]
+            return self.job_registry_record[2]
 
     @property
     def inputs(self):
-        inputs = self.job_registry_entry[3]
+        inputs = self.job_registry_record[3]
 
         def nonesafe_loads(obj):
             """To avoid errors if json is None"""
@@ -56,7 +60,7 @@ class Job:
 
     @property
     def created_at(self):
-        return self.job_registry_entry[4]
+        return self.job_registry_record[4]
 
     @property
     def last_run(self):
