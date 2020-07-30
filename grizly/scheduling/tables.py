@@ -47,7 +47,9 @@ class JobTable:
             con.execute(sql)
             self.logger.info(f"Successfully registered job {name} in {self.full_name}")
         except:
-            self.logger.exception(f"Error occured during registering job {name} in {self.full_name}")
+            self.logger.exception(
+                f"Error occured during registering job {name} in {self.full_name}"
+            )
             self.logger.exception(sql)
             raise
         finally:
@@ -69,7 +71,9 @@ class JobTable:
             con.execute(sql)
             self.logger.info(f"Successfully updated record with id {id} in {self.full_name}")
         except:
-            self.logger.exception(f"Error occured during updating record with id {id} in {self.full_name}")
+            self.logger.exception(
+                f"Error occured during updating record with id {id} in {self.full_name}"
+            )
             self.logger.exception(sql)
             raise
         finally:
@@ -95,7 +99,7 @@ class JobRegistryTable(JobTable):
                     ,name VARCHAR(50) NOT NULL UNIQUE
                     ,type VARCHAR(20) NOT NULL
                     ,inputs JSONB NOT NULL
-                    ,created_at TIMESTAMP (6) NOT NULL
+                    ,created_at TIMESTAMP (6) NOT NULL DEFAULT GETUTCDATE()
                     ,PRIMARY KEY (id)
                 );
                 COMMIT;
@@ -187,7 +191,7 @@ class JobTriggersTable(JobTable):
                     ,type VARCHAR (20) NOT NULL
                     ,value VARCHAR (20) NOT NULL
                     ,is_triggered BOOL
-                    ,created_at TIMESTAMP (6) NOT NULL
+                    ,created_at TIMESTAMP (6) NOT NULL DEFAULT GETUTCDATE()
                     ,PRIMARY KEY (id)
                 );
 
@@ -206,9 +210,7 @@ class JobTriggersTable(JobTable):
 
         _id = self._get_trigger_id(trigger_name=name)
         if _id is None:
-            self.insert(
-                name=name, type=type, value=value, created_at=datetime.today().__str__(),
-            )
+            self.insert(name=name, type=type, value=value)
             return self._get_trigger_id(trigger_name=name)
         else:
             self.logger.exception(f"Trigger {name} already exists in {self.full_name}")
@@ -281,10 +283,7 @@ class JobNTriggersTable(JobTable):
             con.close()
 
     def register(self, job_id, trigger_id):
-
-        self.insert(
-            job_id=job_id, trigger_id=trigger_id,
-        )
+        self.insert(job_id=job_id, trigger_id=trigger_id)
 
 
 class JobRunsTable(JobTable):
@@ -305,7 +304,7 @@ class JobRunsTable(JobTable):
         sql = f"""CREATE TABLE {self.full_name} (
                     id SERIAL NOT NULL,
                     job_id INT NOT NULL ,
-                    run_at TIMESTAMP (6) NOT NULL,
+                    ran_at TIMESTAMP (6) NOT NULL DEFAULT GETUTCDATE(),
                     run_time INTEGER,
                     status VARCHAR (20) NOT NULL,
                     error_value VARCHAR(1000),
@@ -325,20 +324,15 @@ class JobRunsTable(JobTable):
             con.close()
 
     def register(self, job_run):
-
-        self.insert(
-            job_id=job_run.job_id, status=job_run.status, run_at=datetime.today().__str__(),
-        )
-
+        self.insert(job_id=job_run.job_id, status=job_run.status)
         status_id = self._get_last_job_run_id(job_id=job_run.job_id)
-
         return status_id
 
     def _get_last_job_run(self, job_id):
         qf = QFrame(sqldb=self.sqldb)
         qf.from_table(table=self.name, schema=self.schema)
         qf.query(f"job_id='{job_id}'")
-        qf.orderby("run_at", ascending=False)
+        qf.orderby("ran_at", ascending=False)
         qf.limit(1)
         records = qf.to_records()
 
