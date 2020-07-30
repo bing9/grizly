@@ -19,16 +19,29 @@ dsn = config.get("dsn")
 schema = config.get("schema")
 
 
-def get_jobs() -> List[Job]:
+def get_jobs(logger=None) -> List[Job]:
     job_registry_table = config.get("job_registry_table")
-    registry_qf = QFrame(dsn=dsn).from_table(
-        table=job_registry_table, schema=schema, columns=["name"]
+    job_runs_table = config.get("job_runs_table")
+    registry_qf = QFrame(dsn=dsn).from_table(table=job_registry_table, schema=schema)
+    job_runs_df = (
+        QFrame(dsn=dsn)
+        .from_table(table=job_runs_table, schema=schema)
+        .groupby()["ran_at"]
+        .agg("max")
+        .to_df()
     )
+
     records = registry_qf.to_records()
     jobs = []
     for record in records:
+        # job_run_table = sth2
+        job_runs_record = job_runs_df[job_runs_df.id == record[0]].to_records()[0]
+        logger.info(job_runs_record)
         job = Job(
-            name=record[0], logger=logging.getLogger("distributed.worker").getChild("agent_test")
+            name=record[1],
+            job_registry_record=record,
+            job_runs_record=job_runs_record,
+            logger=logging.getLogger("distributed.worker").getChild("agent_test"),
         )
         jobs.append(job)
     return jobs
@@ -52,7 +65,7 @@ def run():
     logger = logging.getLogger("distributed.worker").getChild("agent")
 
     logger.info("Loading jobs...")
-    jobs = get_jobs()
+    jobs = get_jobs(logger=logger)
     logger.info("Jobs loaded successfully")
 
     logger.info("Loading triggers...")
