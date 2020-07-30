@@ -13,6 +13,7 @@ from ..config import Config
 from ..tools.s3 import S3
 from ..utils import get_path
 from .tables import JobRegistryTable, JobNTriggersTable, JobRunsTable
+from functools import cached_property
 
 
 class Trigger:
@@ -29,13 +30,22 @@ class Job:
         self.logger = logger or logging.getLogger(__name__)
         self.config = Config().get_service(service="schedule")
 
+    @cached_property
+    def job_registry_entry(self):
+        return JobRegistryTable(logger=self.logger)._get_job(job_name=self.name)
+
     @property
     def id(self):
-        return JobRegistryTable(logger=self.logger)._get_job_id(self.name)
+        return self.job_registry_entry[0]
+
+    @property
+    def type(self):
+        if self.id:
+            return self.job_registry_entry[2]
 
     @property
     def inputs(self):
-        inputs = JobRegistryTable(logger=self.logger)._get_job_inputs(self.name)
+        inputs = self.job_registry_entry[3]
 
         def nonesafe_loads(obj):
             """To avoid errors if json is None"""
@@ -45,13 +55,8 @@ class Job:
         return nonesafe_loads(inputs)
 
     @property
-    def type(self):
-        if self.id:
-            return JobRegistryTable(logger=self.logger)._get_job_type(self.name)
-
-    @property
     def created_at(self):
-        return JobRegistryTable(logger=self.logger)._get_job_created_at(self.name)
+        return self.job_registry_entry[4]
 
     @property
     def last_run(self):
@@ -119,7 +124,9 @@ class Job:
             return s3.file_name
 
         if self.source_type == "s3":
-            file_name = _download_script_from_s3(url=self.inputs["artifact"]["main"], file_dir=file_dir)
+            file_name = _download_script_from_s3(
+                url=self.inputs["artifact"]["main"], file_dir=file_dir
+            )
             module = __import__("tmp." + file_name[:-3], fromlist=[None])
             try:
                 tasks = module.tasks
@@ -146,7 +153,9 @@ class Job:
     def register(
         self, triggers: List[Trigger], type: str, inputs: Dict[str, Any] = None,
     ):
-        job_id = JobRegistryTable(logger=self.logger).register(name=self.name, type=type, inputs=inputs)
+        job_id = JobRegistryTable(logger=self.logger).register(
+            name=self.name, type=type, inputs=inputs
+        )
         # trigger_id = JobTriggersTable(logger=self.logger).register(trigger=triggers[0])
         JobNTriggersTable(logger=self.logger).register(job_id=job_id, trigger_id=triggers[0].id)
         return self
@@ -164,9 +173,15 @@ class Job:
 
         priority = priority or 1
         if not client:
-            client = Client(scheduler_address)
+            self.scheduler_address = scheduler_address or os.getenv(
+                "GRIZLY_DEV_DASK_SCHEDULER_ADDRESS"
+            )
+            client = Client(self.scheduler_address)
+        else:
+            self.scheduler_address = client.scheduler.address
 
-        self.scheduler_address = client.scheduler.address
+        if not client or self.scheduler_address:
+            raise ValueError("distributed.Client/scheduler address was not provided")
 
         self.logger.info(f"Submitting job {self.name}...")
         job_run = JobRun(job_id=self.id, status="running")
