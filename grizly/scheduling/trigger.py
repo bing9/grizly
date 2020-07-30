@@ -1,3 +1,4 @@
+from functools import cached_property
 from .tables import JobTriggersTable
 from .job import Job
 from ..config import Config
@@ -14,21 +15,25 @@ class Trigger:
         self.logger = logger or logging.getLogger(__name__)
         self.config = Config().get_service(service="schedule")
 
-    @property
-    def id(self):
-        return JobTriggersTable(logger=self.logger)._get_trigger_id(self.name)
+    @cached_property
+    def jobtriggers_table_entry(self):
+        return JobTriggersTable(logger=self.logger)._get_trigger(self.name)
 
     @property
-    def value(self):
-        return JobTriggersTable(logger=self.logger)._get_trigger_value(self.name)
+    def id(self):
+        return self.jobtriggers_table_entry[0]
 
     @property
     def type(self):
-        return JobTriggersTable(logger=self.logger)._get_trigger_type(self.name)
+        return self.jobtriggers_table_entry[2]
+
+    @property
+    def value(self):
+        return self.jobtriggers_table_entry[3]
 
     @property
     def is_triggered(self):
-        return JobTriggersTable(logger=self.logger)._get_trigger_is_triggered(self.name)
+        return self.jobtriggers_table_entry[4]
 
     def set(self, triggered: bool):
         JobTriggersTable(logger=self.logger).update(id=self.id, is_triggered=triggered)
