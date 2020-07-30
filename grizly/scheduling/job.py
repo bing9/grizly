@@ -30,6 +30,7 @@ class Job:
         self.logger = logger or logging.getLogger(__name__)
         self.config = Config().get_service(service="schedule")
         self.job_registry_record = job_registry_record
+        self.job_runs_record = job_runs_record
 
     @cached_property
     def job_registry_record(self):
@@ -37,6 +38,13 @@ class Job:
             return JobRegistryTable(logger=self.logger)._get_job(job_name=self.name)
         else:
             self.job_registry_record
+
+    @cached_property
+    def job_runs_record(self):
+        if self.job_runs_record is None:
+            return JobRunsTable(logger=self.logger)._get_last_job_run(self.id)
+        else:
+            self.job_runs_record
 
     @property
     def id(self):
@@ -65,12 +73,12 @@ class Job:
     @property
     def last_run(self):
         if self.id:
-            return JobRunsTable(logger=self.logger)._get_last_job_run_date(job_id=self.id)
+            return self.job_runs_record[2]
 
     @property
     def status(self):
         if self.id:
-            return JobRunsTable(logger=self.logger)._get_last_job_run_status(job_id=self.id)
+            return self.job_runs_record[4]
         else:
             self.logger.warning("You need to register a job before calling job.status")
 
