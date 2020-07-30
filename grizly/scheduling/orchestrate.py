@@ -98,6 +98,8 @@ class Schedule:
 
     @staticmethod
     def to_utc(cron_local: str, timezone: str = None):
+        if "/" in cron_local:
+            return cron_local
         cron_hour = cron_local.split()[1]
         offset = int(pendulum.now(timezone).offset_hours)
         cron_adjusted_hour = str(int(cron_hour) - offset)
@@ -494,6 +496,7 @@ class Workflow:
         scheduler_address: str = None,
         priority: int = None,
         resources: Dict[str, Any] = None,
+        show_progress=False,
         **kwargs,
     ) -> None:
 
@@ -509,7 +512,8 @@ class Workflow:
         self.scheduler_address = client.scheduler.address
 
         computation = client.compute(self.graph, retries=3, priority=priority, resources=resources)
-        progress(computation)
+        if show_progress:
+            progress(computation)
         fire_and_forget(computation)
         client.close()
         return None
