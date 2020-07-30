@@ -194,8 +194,10 @@ class Extract:
         return queried
 
     @dask.delayed
-    def to_arrow(self, driver: QFrame):
+    def to_arrow(self, driver: QFrame, partition: str = None):
+        self.logger.info(f"Downloading data for partition {partition}...")
         pa = driver.to_arrow()
+        self.logger.info(f"Data for partition {partition} has been successfully downloaded")
         gc.collect()
         return pa
 
@@ -325,7 +327,7 @@ class Extract:
             # where_with_null = f"{partition_cols} IS NULL"
             # where = regular_where if partition_cols is not None else where_with_null
             processed_driver = self.query_driver(query=where)
-            arrow_table = self.to_arrow(driver=processed_driver)
+            arrow_table = self.to_arrow(driver=processed_driver, partition=partition)
             push_to_backend = self.arrow_to_data_backend(arrow_table, s3_key=s3_key)
             uploads.append(push_to_backend)
         external_table = self.create_external_table(upstream=uploads)
