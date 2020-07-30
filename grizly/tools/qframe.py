@@ -73,6 +73,28 @@ class QFrame(BaseTool):
 
         self.sqldb = sqldb or SQLDB(dsn=dsn, **kwargs)
 
+    @property
+    def ncols(self):
+        ncols = len(self.get_fields())
+        return ncols
+
+    @property
+    def nrows(self):
+        con = self.sqldb.get_connection()
+        query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
+        if self.sqldb.db == "denodo":
+            query += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
+        nrows = con.execute(query).fetchone()[0]
+        con.close()
+        return nrows
+
+    @property
+    def shape(self):
+        nrows = self.nrows
+        ncols = self.ncols
+        shape = (nrows, ncols)
+        return shape
+
     def create_sql_blocks(self):
         """Creates blocks which are used to generate an SQL"""
         if self.data == {}:
@@ -1080,7 +1102,7 @@ class QFrame(BaseTool):
         self.sql = _get_sql(data=self.data, sqldb=self.sqldb)
         return self.sql
 
-    def create_table(self, table, schema="", char_size=500, dsn=None, sqldb=None, if_exists=None, **kwargs):
+    def create_table(self, table, schema="", char_size=500, dsn=None, sqldb=None, if_exists: str = "skip", **kwargs):
         """Creates a new empty QFrame table in database if the table doesn't exist.
         TODO: Remove engine_str, db, dsn and dialect and leave sqldb
 
@@ -1388,13 +1410,7 @@ class QFrame(BaseTool):
         return sql
 
     def __len__(self):
-        con = self.sqldb.get_connection()
-        query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
-        try:
-            no_rows = con.execute(query).fetchval()
-        except:
-            no_rows = con.execute(query).fetchone()[0]
-        return no_rows
+        return self.nrows
 
     def __getitem__(self, getfields):
         if isinstance(getfields, str):
