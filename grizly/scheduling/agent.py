@@ -1,7 +1,7 @@
 #!/usr/local/bin/python3
 
 from croniter import croniter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import List
 
@@ -64,12 +64,11 @@ def run():
     for job in periodic_jobs:
         if job.status == "running":
             continue
-        last_run = None
-        start_date = last_run or datetime.now()
+        start_date = job.last_run or job.created_at
         cron_str = job.trigger_value
         cron = croniter(cron_str, start_date)
-        next_run = cron.get_next(datetime)
-        if next_run < datetime.now() + timedelta(minutes=1):
+        next_run = cron.get_next(datetime).replace(tzinfo=timezone.utc)
+        if next_run < datetime.now(timezone.utc) + timedelta(minutes=1):
             if job.type == "regular":
                 submit_queue.enqueue(job.submit)
                 logger.info(f"Job {job.name} has been successfully submitted to submit queue")
