@@ -24,7 +24,7 @@ class Trigger:
 
 class Job:
     def __init__(
-        self, name: str, job_registry_record: tuple = None, logger: logging.Logger = None,
+        self, name: str, job_registry_record: tuple = None, job_runs_record: tuple = None, logger: logging.Logger = None,
     ):
         self.name = name
         self.logger = logger or logging.getLogger(__name__)
@@ -73,12 +73,12 @@ class Job:
     @property
     def last_run(self):
         if self.id:
-            return self.job_runs_record[2]
+            return self.job_runs_record[3]
 
     @property
     def status(self):
         if self.id:
-            return self.job_runs_record[4]
+            return self.job_runs_record[5]
         else:
             self.logger.warning("You need to register a job before calling job.status")
 
