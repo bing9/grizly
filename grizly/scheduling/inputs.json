@@ -1,0 +1,24 @@
+{
+    "config": {
+        "owner": [
+            "test@example.com"
+        ],
+        "backup": [
+            "test"
+        ]
+    },
+    "notification": {
+        "subject": "subject string",
+        "body": "",
+        "attachments": [],
+        "recipients": [],
+        "cc": []
+    },
+    "resources": {
+        "cluster": ""
+    },
+    "artifact": {
+        "source": "zip file of the whole job",
+        "main": "path to main python file"
+    }
+}

@@ -6,55 +6,141 @@ import os
 import sys
 from time import time
 import traceback
+import json
 
-from ..tools.sqldb import SQLDB
+from ..tools.qframe import QFrame, join
+from ..config import Config
 from ..tools.s3 import S3
 from ..utils import get_path
-from .tables import JobRegistryTable, JobStatusTable
+from .tables import JobRegistryTable, JobNTriggersTable, JobStatusTable
+
+
+class Trigger:
+    """placeholder for type"""
+    pass
 
 
 class Job:
     def __init__(
-        self,
-        name: str,
-        owner: str,
-        tasks: List[dask.delayed] = None,
-        source: Dict[str, Any] = None,
-        type: Literal["JOB", "SCHEDULE", "LISTENER"] = None,
-        trigger: Dict[str, Any] = None,
-        notification: Dict[str, Any] = None,
-        env: str = None,
-        logger: logging.Logger = None,
+        self, name: str, logger: logging.Logger = None,
     ):
         self.name = name
-        self.owner = owner
-        self.source = source
-        self.type = type
-        self.tasks = tasks or self._get_tasks()
-        self.graph = dask.delayed()(self.tasks, name=self.name + "_graph")
-        self.trigger = trigger
-        self.notification = notification
-        self.env = env or "local"
         self.logger = logger or logging.getLogger(__name__)
+        self.config = Config().get_service(service="schedule")
 
     @property
     def id(self):
-        return JobRegistryTable(logger=self.logger)._get_job_id(self)
+        return JobRegistryTable(logger=self.logger)._get_job_id(self.name)
+
+    @property
+    def inputs(self):
+        inputs = JobRegistryTable(logger=self.logger)._get_job_inputs(self.name)
+
+        def nonesafe_loads(obj):
+            """To avoid errors if json is None"""
+            if obj is not None:
+                return json.loads(obj)
+
+        return nonesafe_loads(inputs)
+
+    @property
+    def type(self):
+        if self.id:
+            return JobRegistryTable(logger=self.logger)._get_job_type(self.name)
+
+    @property
+    def status(self):
+        if self.id:
+            return JobStatusTable(logger=self.logger)._get_last_job_run_status(job_id=self.id)
+
+    @property
+    def trigger_type(self):
+        dsn = self.config.get("dsn")
+        schema = self.config.get("schema")
+        job_triggers_table = self.config.get("job_triggers_table")
+        job_n_triggers_table = self.config.get("job_n_triggers_table")
+        qf1 = QFrame(dsn=dsn).from_table(table=job_triggers_table, schema=schema)
+        qf2 = QFrame(dsn=dsn).from_table(table=job_n_triggers_table, schema=schema)
+        qf2.query(f"job_id = {self.id}")
+        on = "sq1.id = sq2.trigger_id"
+        qf_join = join(qframes=[qf1, qf2], join_type="INNER JOIN", on=on)
+        df = qf_join.to_df()
+        return df.loc[0, "type"]
+
+    @property
+    def trigger_value(self):
+        dsn = self.config.get("dsn")
+        schema = self.config.get("schema")
+        job_triggers_table = self.config.get("job_triggers_table")
+        job_n_triggers_table = self.config.get("job_n_triggers_table")
+        qf1 = QFrame(dsn=dsn).from_table(table=job_triggers_table, schema=schema)
+        qf2 = QFrame(dsn=dsn).from_table(table=job_n_triggers_table, schema=schema)
+        qf2.query(f"job_id = {self.id}")
+        on = "sq1.id = sq2.trigger_id"
+        qf_join = join(qframes=[qf1, qf2], join_type="INNER JOIN", on=on)
+        df = qf_join.to_df()
+        return df.loc[0, "value"]
 
     @property
     def source_type(self):
-        if self.source["main"].lower().startswith("https://github.com"):
+        if self.inputs["artifact"]["main"].lower().startswith("https://github.com"):
             return "github"
-        elif self.source["main"].lower().startswith("s3://"):
+        elif self.inputs["artifact"]["main"].lower().startswith("s3://"):
             return "s3"
         else:
-            raise NotImplementedError(f"Source {self.source} not supported")
+            raise NotImplementedError(f"""Source {self.inputs["artifact"]["main"]} not supported""")
+
+    @property
+    def tasks(self):
+        GRIZLY_WORKFLOWS_HOME = os.getenv("GRIZLY_WORKFLOWS_HOME") or get_path()
+        sys.path.insert(0, GRIZLY_WORKFLOWS_HOME)
+        file_dir = os.path.join(GRIZLY_WORKFLOWS_HOME, "tmp")
+
+        def _download_script_from_s3(url, file_dir):
+            # TODO: This should load script to the memory not download it
+            bucket = url.split("/")[2]
+            file_name = url.split("/")[-1]
+            s3_key = "/".join(url.split("/")[3:-1])
+            s3 = S3(bucket=bucket, file_name=file_name, s3_key=s3_key, file_dir=file_dir)
+            s3.to_file()
+
+            return s3.file_name
+
+        if self.source_type == "s3":
+            file_name = _download_script_from_s3(
+                url=self.inputs["artifact"]["main"], file_dir=file_dir
+            )
+            module = __import__("tmp." + file_name[:-3], fromlist=[None])
+            try:
+                tasks = module.tasks
+            except AttributeError:
+                raise AttributeError("Please specify tasks in your script")
+
+            # os.remove(file_name)
+            return tasks
+        else:
+            raise NotImplementedError()
+
+    @property
+    def graph(self):
+        return dask.delayed()(self.tasks, name=self.name + "_graph")
 
     def __repr__(self):
-        pass
+        return f"Job({self.name})"
 
-    def register(self):
-        JobRegistryTable(logger=self.logger).register(job=self)
+    def update_status(self, status):
+        _id = JobStatusTable(logger=self.logger)._get_last_job_run_id(job_id=self.id)
+        job_run = JobRun(id=_id, job_id=self.id)
+        job_run.update(status=status)
+
+    def register(
+        self, triggers: List[Trigger], type: str, inputs: Dict[str, Any] = None,
+    ):
+        job_id = JobRegistryTable(logger=self.logger).register(
+            name=self.name, type=type, inputs=inputs
+        )
+        # trigger_id = JobTriggersTable(logger=self.logger).register(trigger=triggers[0])
+        JobNTriggersTable(logger=self.logger).register(job_id=job_id, trigger_id=triggers[0].id)
         return self
 
     def visualize(self, **kwargs):
@@ -75,8 +161,8 @@ class Job:
         self.scheduler_address = client.scheduler.address
 
         self.logger.info(f"Submitting job {self.name}...")
-        status = Status(job=self, status="submitted")
-        status.register()
+        job_run = JobRun(job_id=self.id, status="running")
+        job_run.register()
         start = time()
         try:
             self.graph.compute()
@@ -92,9 +178,9 @@ class Job:
 
         end = time()
         run_time = int(end - start)
-        status.update(status=_status, run_time=run_time)
+        job_run.update(status=_status, run_time=run_time)
 
-        self.logger.info(f"Job {self.name} finished with status {status.status}")
+        self.logger.info(f"Job {self.name} finished with status {job_run.status}")
 
         if not client:  # if cient is provided, we assume the user will close it
             client.close()
@@ -107,50 +193,28 @@ class Job:
         f.cancel(force=True)
         client.close()
 
-    def _get_tasks(self):
-        GRIZLY_WORKFLOWS_HOME = os.getenv("GRIZLY_WORKFLOWS_HOME") or get_path()
-        sys.path.insert(0, GRIZLY_WORKFLOWS_HOME)
-        file_dir = os.path.join(GRIZLY_WORKFLOWS_HOME, "tmp")
 
-        def _download_script_from_s3(url, file_dir):
-            # TODO: This should load script to the memory not download it
-            bucket = url.split("/")[2]
-            file_name = url.split("/")[-1]
-            s3_key = "/".join(url.split("/")[3:-1])
-            s3 = S3(bucket=bucket, file_name=file_name, s3_key=s3_key, file_dir=file_dir)
-            s3.to_file()
-
-            return s3.file_name
-
-        if self.source_type == "s3":
-            file_name = _download_script_from_s3(url=self.source["main"], file_dir=file_dir)
-            module = __import__("tmp." + file_name[:-3], fromlist=[None])
-            try:
-                tasks = module.tasks
-            except AttributeError:
-                raise AttributeError("Please specify tasks in your script")
-
-            # os.remove(file_name)
-            return tasks
-        else:
-            raise NotImplementedError()
-
-
-class Status:
+class JobRun:
     def __init__(
-        self, job: Job = None, run_time: int = None, status: str = None, logger: logging.Logger = None,
+        self,
+        id: int = None,
+        job_id: int = None,
+        run_time: int = None,
+        status: str = None,
+        logger: logging.Logger = None,
     ):
-        self.id = None
-        self.job = job
+        self.id = id
+        self.job_id = job_id
         self.run_time = run_time
         self.status = status
         self.logger = logger or logging.getLogger(__name__)
 
     def register(self):
-        self.id = JobStatusTable(logger=self.logger).register(status=self)
+        self.id = JobStatusTable(logger=self.logger).register(job_run=self)
         return self
 
-    def update(self, run_time, status):
-        self.run_time = run_time
-        self.status = status
-        JobStatusTable(logger=self.logger).update(id=self.id, run_time=run_time, status=status)
+    def update(self, **kwargs):
+        self.run_time = kwargs.get("run_time") or self.run_time
+        self.status = kwargs.get("status") or self.status
+        JobStatusTable(logger=self.logger).update(id=self.id, **kwargs)
+

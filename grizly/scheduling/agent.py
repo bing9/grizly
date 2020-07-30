@@ -3,64 +3,87 @@
 from croniter import croniter
 from datetime import datetime, timedelta
 import logging
-import json
+from typing import List
 
-from grizly.tools.qframe import QFrame, join
+from grizly.tools.qframe import QFrame
 from grizly.config import Config
 from grizly.scheduling.job import Job
+from grizly.scheduling.trigger import Trigger
 
 
-def get_scheduled_jobs():
-    config = Config().get_service(service="schedule")
-    dsn = config.get("dsn")
-    schema = config.get("schema")
+from rq import Queue
+from redis import Redis
+
+config = Config().get_service(service="schedule")
+dsn = config.get("dsn")
+schema = config.get("schema")
+
+
+def get_jobs() -> List[Job]:
     job_registry_table = config.get("job_registry_table")
-    job_status_table = config.get("job_status_table")
+    registry_qf = QFrame(dsn=dsn).from_table(
+        table=job_registry_table, schema=schema, columns=["name"]
+    )
+    records = registry_qf.to_records()
+    jobs = []
+    for record in records:
+        job = Job(name=record[0])
+        jobs.append(job)
+    return jobs
 
-    registry_qf = QFrame(dsn=dsn).from_table(table=job_registry_table, schema=schema)
-    registry_qf.query("trigger ->> 'class' = 'Schedule'")
 
-    status_qf = QFrame(dsn=dsn).from_table(table=job_status_table, schema=schema)
-    status_qf.select(["job_id", "status", "run_date"]).groupby(["job_id", "status"])["run_date"].agg("max")
+def get_triggers() -> List[Trigger]:
+    job_trigger_table = config.get("job_triggers_table")
+    qf = QFrame(dsn=dsn).from_table(table=job_trigger_table, schema=schema, columns=["name"])
+    records = qf.to_records()
+    triggers = []
+    for record in records:
+        trigger = Trigger(name=record[0])
+        triggers.append(trigger)
+    return triggers
 
-    qf = join([registry_qf, status_qf], join_type="left join", on="sq1.id=sq2.job_id")
-
-    return qf.to_records()
 
 def run():
-    results = get_scheduled_jobs()
+    redis = Redis(host="10.125.68.177", port=80)
+    checks_queue = Queue("checks_queue", connection=redis)
+    submit_queue = Queue("submit_queue", connection=redis)
+    logger = logging.getLogger("distributed.worker").getChild("agent")
+
+    logger.info("Loading jobs...")
+    jobs = get_jobs()
+    logger.info("Jobs loaded successfully")
+
+    logger.info("Loading triggers...")
+    triggers = get_triggers()
+    logger.info("Triggers loaded successfully")
+
+    logger.info("Checking scheduled jobs...")
+    periodic_jobs = [job for job in jobs if job.trigger_type == "cron"]
+    for job in periodic_jobs:
+        last_run = None
+        start_date = last_run or datetime.now()
+        cron_str = job.trigger_value
+        cron = croniter(cron_str, start_date)
+        next_run = cron.get_next(datetime)
+        if next_run < datetime.now() + timedelta(minutes=1):
+            if job.type == "regular":
+                submit_queue.enqueue(job.submit)
+                logger.info(f"Job {job.name} has been successfully submitted to submit queue")
+            elif job.type == "listener":
+                checks_queue.enqueue(job.submit)
+                logger.info(f"Job {job.name} has been successfully submitted to chcks queue")
+
+    logger.info("Submitting triggered jobs...")
+    for trigger in triggers:
+        if trigger.is_triggered:
+            jobs_to_run = trigger.get_jobs()
+            for job in jobs_to_run:
+                submit_queue.enqueue(job.submit)
+                logger = logger.info(
+                    f"Job {job.name} has been successfully submitted to submit queue"
+                )
+            trigger.set(False)
 
 
 if __name__ == "__main__":
-    logger = logging.getLogger(__name__)
-    logger.info(datetime.today().__str__())
-    logger.warning("Loading jobs...")
-    records = get_scheduled_jobs()
-    logger.info("Jobs loaded successfully")
-    logger.debug(records)
-    logger.info("Checking scheduled jobs...")
-
-    def nonesafe_loads(obj):
-        """To avoid errors if json is None"""
-        if obj is not None:
-            return json.loads(obj)
-
-    for _, name, owner, type, notification, trigger, source, source_type, _, _, status, last_run in records:
-        cron_str = nonesafe_loads(trigger)["cron"]
-        start_date = last_run or datetime.now()
-        cron = croniter(cron_str, start_date)
-        next_run = cron.get_next(datetime)
-        logger.warning(f"{next_run}, {name}")
-
-        if status != "submitted" and next_run < datetime.now() + timedelta(minutes=1):
-            job = Job(
-                name=name,
-                owner=owner,
-                source=nonesafe_loads(source),
-                trigger=nonesafe_loads(trigger),
-                notification=nonesafe_loads(notification),
-                env="prod",
-                logger=logging.getLogger("distributed.worker.test"),
-            )
-            logger.warning(f"Submitting job {name}...")
-            job.submit()
+    run()
