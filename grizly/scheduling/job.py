@@ -52,6 +52,8 @@ class Job:
     def status(self):
         if self.id:
             return JobStatusTable(logger=self.logger)._get_last_job_run_status(job_id=self.id)
+        else:
+            self.logger.warning("You need to register a job before calling job.status")
 
     @property
     def trigger_type(self):
