@@ -20,12 +20,16 @@ class Job:
         self, name: str, logger: logging.Logger = None,
     ):
         self.name = name
-        self.con = Redis(host="10.125.68.177", port=80, db=0)
-        self.key = f"job {self.name}"
+        self.key = f"{self.name}"
         self.logger = logger or logging.getLogger(__name__)
 
     def __repr__(self):
         return f"{self.__class__.__name__}(name='{self.name}')"
+
+    @property
+    def con(self):
+        con = Redis(host="10.125.68.177", port=80, db=0)
+        return con
 
     @property
     def trigger_name(self):
@@ -38,22 +42,6 @@ class Job:
     @property
     def inputs(self):
         return json.loads(self.con.hget(self.key, "inputs").decode("utf-8"))
-
-    @property
-    def last_run(self):
-        return self.con.hget(self.key, "last_run").decode("utf-8")
-
-    @last_run.setter
-    def last_run(self, value):
-        return self.con.hset(self.key, "last_run", value)
-
-    @property
-    def run_time(self):
-        return self.con.hget(self.key, "run_time").decode("utf-8")
-
-    @run_time.setter
-    def run_time(self, value):
-        return self.con.hset(self.key, "run_time", value)
 
     @property
     def status(self):
@@ -119,7 +107,15 @@ class Job:
 
     @property
     def graph(self):
-        return dask.delayed()(self.tasks, name=self.name + "_graph")
+        return dask.delayed()(self.tasks, name = self.name + "_graph")
+        
+    @property
+    def run_time(self):
+        return self.con.hget(self.key, "run_time").decode("utf-8")
+
+    @run_time.setter
+    def run_time(self, value):
+        return self.con.hset(self.key, "run_time", value)
 
     def visualize(self, **kwargs):
         return self.graph.visualize(**kwargs)
@@ -135,7 +131,7 @@ class Job:
             "error": "",
             "created_at": datetime.utcnow().__str__(),
         }
-        self.con.hset(name=self.key, key=None, value=None, mapping=mapping)
+        self.con.hset(name=self.name, key=None, value=None, mapping=mapping)
         return self
 
     def submit(
@@ -158,7 +154,7 @@ class Job:
 
         self.logger.info(f"Submitting job {self.name}...")
         self.status = "running"
-        self.last_run = datetime.utcnow().__str__()
+        #self.last_run = datetime.utcnow().__str__()
         self.error = ""
 
         start = time()
