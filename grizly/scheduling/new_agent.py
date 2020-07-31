@@ -46,10 +46,10 @@ def run():
             for job in jobs:
                 if job.status != "running":
                     if job.type == "regular":
-                        submit_queue.enqueue(job.submit, None, "acoe.connect.te.com:8786")
+                        submit_queue.enqueue(job.submit)
                         logger.info(f"Job {job.name} has been successfully submitted to submit queue")
                     elif job.type == "listener":
-                        checks_queue.enqueue(job.submit, None, "acoe.connect.te.com:8786")
+                        checks_queue.enqueue(job.submit)
                         logger.info(f"Job {job.name} has been successfully submitted to chcks queue")
             trigger.last_run = datetime.utcnow().__str__()
             trigger.is_triggered = 0
