@@ -64,12 +64,12 @@ class Job:
         return self.con.hset(self.key, "status", value)
 
     @property
-    def error_value(self):
-        return self.con.hget(self.key, "error_value").decode("utf-8")
+    def error(self):
+        return self.con.hget(self.key, "error").decode("utf-8")
 
-    @error_value.setter
-    def error_value(self, value):
-        return self.con.hset(self.key, "error_value", value)
+    @error.setter
+    def error(self, value):
+        return self.con.hset(self.key, "error", value)
 
     @property
     def created_at(self):
@@ -132,7 +132,7 @@ class Job:
             "last_run": "",
             "run_time": "",
             "status": "",
-            "error_value": "",
+            "error": "",
             "created_at": datetime.utcnow().__str__(),
         }
         self.con.hset(name=self.key, key=None, value=None, mapping=mapping)
@@ -153,13 +153,13 @@ class Job:
         else:
             self.scheduler_address = client.scheduler.address
 
-        if not client or self.scheduler_address:
+        if not client and not self.scheduler_address:
             raise ValueError("distributed.Client/scheduler address was not provided")
 
         self.logger.info(f"Submitting job {self.name}...")
         self.status = "running"
         self.last_run = datetime.utcnow().__str__()
-        self.error_value = ""
+        self.error = ""
 
         start = time()
         try:
@@ -168,7 +168,7 @@ class Job:
         except Exception:
             status = "fail"
             _, exc_value, _ = sys.exc_info()
-            self.error_value = str(exc_value)
+            self.error = str(exc_value)
 
         end = time()
         self.run_time = int(end - start)
