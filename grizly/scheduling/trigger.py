@@ -1,65 +1,55 @@
-from functools import cached_property
-from .tables import JobTriggersTable
-from .job import Job
-from ..config import Config
-from ..tools.qframe import QFrame, join
 import logging
-from typing import List
+import redis
+from datetime import datetime
+
+from . import job as _job
 
 
 class Trigger:
-    def __init__(
-        self, name: str, logger: logging.Logger = None,
-    ):
+    def __init__(self, name: str, logger: logging.Logger = None):
         self.name = name
+        self.con = redis.Redis(host="10.125.68.177", port=80, db=0)
+        self.key = "trigger " + self.name
         self.logger = logger or logging.getLogger(__name__)
-        self.config = Config().get_service(service="schedule")
 
-    @cached_property
-    def jobtriggers_table_entry(self):
-        return JobTriggersTable(logger=self.logger)._get_trigger(self.name)
-
-    @property
-    def id(self):
-        return self.jobtriggers_table_entry[0]
+    def __repr__(self):
+        return f"{self.__class__.__name__}(name='{self.name}')"
 
     @property
     def type(self):
-        return self.jobtriggers_table_entry[2]
+        return self.con.hget(self.key, "type").decode("utf-8")
 
     @property
     def value(self):
-        return self.jobtriggers_table_entry[3]
+        return self.con.hget(self.key, "value").decode("utf-8")
 
     @property
     def is_triggered(self):
-        return self.jobtriggers_table_entry[4]
+        return self.con.hget(self.key, "is_triggered").decode("utf-8")
 
-    def set(self, triggered: bool):
-        JobTriggersTable(logger=self.logger).update(id=self.id, is_triggered=triggered)
+    @property
+    def created_at(self):
+        return self.con.hget(self.key, "created_at").decode("utf-8")
 
-    def register(self, type: str, value: str):
-        JobTriggersTable(logger=self.logger).register(name=self.name, type=type, value=value)
+    def register(self, type, value):
+        mapping = {"type": type, "value": value, "is_triggered": "", "created_at": datetime.utcnow().__str__()}
+        self.con.hset(name=f"trigger {self.name}", key=None, value=None, mapping=mapping)
         return self
 
-    def get_jobs(self) -> List[Job]:
-        job_registry_table = self.config.get("job_registry_table")
-        jobntriggers_table = self.config.get("job_n_triggers_table")
-        dsn = self.config.get("dsn")
-        schema = self.config.get("schema")
-        registry_qf = QFrame(dsn=dsn).from_table(table=job_registry_table, schema=schema)
-        jobntriggers_qf = (
-            QFrame(dsn=dsn)
-            .from_table(table=jobntriggers_table, schema=schema)
-            .query(f"trigger_id = {self.id}")
-        )
+    def trigger(self):
+        self.con.hset(self.key, "is_triggered", 1)
+        return self
 
-        joined = join(
-            [registry_qf, jobntriggers_qf], join_type="inner join", on="sq1.id = sq2.job_id"
-        )
-        records = joined.to_records()
-        jobs = []
-        for record in records:
-            job = Job(name=record[0])
-            jobs.append(job)
-        return jobs
+    def get_jobs(self):
+        jobs = self.con.keys("job*")
+        triggered_jobs = []
+        for job in jobs:
+            job_key = job.decode("utf-8")
+            try:
+                job_trigger = self.con.hget(job_key, "trigger").decode("utf-8")
+                if job_trigger == self.key:
+                    job_name = job_key.split(" ")[1]
+                    triggered_jobs.append(_job.Job(name=job_name))
+            except:
+                pass
+        return triggered_jobs
