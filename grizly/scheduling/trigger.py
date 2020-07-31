@@ -25,7 +25,9 @@ class Trigger:
 
     @property
     def is_triggered(self):
-        return self.con.hget(self.key, "is_triggered").decode("utf-8")
+        is_triggered = self.con.hget(self.key, "is_triggered")
+        if is_triggered is not None:
+            return int(is_triggered.decode("utf-8"))
 
     @is_triggered.setter
     def is_triggered(self, value):
@@ -39,7 +41,7 @@ class Trigger:
         created_at = self.con.hget(self.name, "created_at")
         if created_at is not None:
             created_at = created_at.decode("utf-8")
-            created_at = datetime.strptime(created_at, '%Y-%m-%d %H:%M:%S.%f')
+            created_at = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S.%f")
             return created_at
 
     @property
@@ -47,7 +49,7 @@ class Trigger:
         last_run = self.con.hget(self.key, "last_run")
         if last_run is not None:
             last_run = last_run.decode("utf-8")
-            last_run = datetime.strptime(last_run, '%Y-%m-%d %H:%M:%S.%f')
+            last_run = datetime.strptime(last_run, "%Y-%m-%d %H:%M:%S.%f")
             return last_run
 
     @last_run.setter
@@ -67,7 +69,7 @@ class Trigger:
             try:
                 job_trigger = self.con.hget(job_name, "trigger_name").decode("utf-8")
                 if job_trigger == self.key:
-                    triggered_jobs.append(_job.Job(name=job_name))
+                    triggered_jobs.append(_job.Job(name=job_name, logger=self.logger))
             except:
                 pass
         return triggered_jobs
