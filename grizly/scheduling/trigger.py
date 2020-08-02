@@ -54,7 +54,7 @@ class Trigger:
 
     @last_run.setter
     def last_run(self, value):
-        return self.con.hset(self.key, "last_run", value)
+        return self.con.hset(self.name, "last_run", value)
 
     def register(self, type, value):
         mapping = {"type": type, "value": value, "is_triggered": "", "created_at": datetime.utcnow().__str__()}

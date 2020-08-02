@@ -35,17 +35,20 @@ def run():
             cron_str = trigger.value
             cron = croniter(cron_str, start_date)
             next_run = cron.get_next(datetime).replace(tzinfo=timezone.utc)
-            logger.info(next_run)
-            logger.info((datetime.now(timezone.utc) + timedelta(minutes=1)).__str__())
-            if next_run < datetime.now(timezone.utc) + timedelta(minutes=1):
+            now = datetime.now(timezone.utc) + timedelta(minutes=1)
+            logger.info(f"trigger is {trigger.name} now is {now} and next run will be {next_run}")
+            logger.info(now)
+            if next_run < now:
                 trigger.is_triggered = 1
-        if trigger.is_triggered == 1:
+                trigger.last_run = now.strftime("%Y-%m-%d %H:%M:%S.%f")
+        if trigger.is_triggered == "1":
             logger.info(f"Loading {trigger.name} jobs...")
             jobs = trigger.get_jobs()
             logger.info(f"Jobs from {trigger.name} loaded successfully")
             for job in jobs:
                 if job.status != "running":
                     if job.type == "regular":
+                        logger.info(f"submitting {job.name}")
                         submit_queue.enqueue(job.submit)
                         logger.info(f"Job {job.name} has been successfully submitted to submit queue")
                     elif job.type == "listener":
