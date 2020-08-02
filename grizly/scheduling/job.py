@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -23,8 +23,15 @@ class Job:
         self.key = f"{self.name}"
         self.logger = logger or logging.getLogger(__name__)
 
+        #AC remove if serialized option is not accepted
+        self.serialized = None
+
     def __repr__(self):
         return f"{self.__class__.__name__}(name='{self.name}')"
+
+    @property
+    def getall(self):
+        return self.con.hgetall(self.name)
 
     @property
     def con(self):
@@ -44,8 +51,20 @@ class Job:
         return json.loads(self.con.hget(self.key, "inputs").decode("utf-8"))
 
     @property
+    def last_run(self):
+        last_run = self.con.hget(self.name, "last_run")
+        if last_run is not None:
+            return last_run.decode("utf-8")
+
+    @last_run.setter
+    def last_run(self, value):
+        return self.con.hset(self.name, "last_run", value)
+
+    @property
     def status(self):
-        return self.con.hget(self.key, "status").decode("utf-8")
+        status = self.con.hget(self.key, "status")
+        if status is not None:
+            return status.decode("utf-8")
 
     @status.setter
     def status(self, value):
@@ -107,6 +126,9 @@ class Job:
 
     @property
     def graph(self):
+        header = self.con.hget(self.name, "header")
+        if header is not None:
+            return dask.delayed()(self.s_tasks, name = self.name + "_graph")
         return dask.delayed()(self.tasks, name = self.name + "_graph")
         
     @property
@@ -169,6 +191,7 @@ class Job:
         end = time()
         self.run_time = int(end - start)
         self.status = status
+        self.last_run = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
 
         self.logger.info(f"Job {self.name} finished with status {status}")
 
@@ -181,3 +204,38 @@ class Job:
         f = Future(self.name + "_graph", client=client)
         f.cancel(force=True)
         client.close()
+
+    #AC Proposal starts here
+    def s_register(self, trigger_name: str = "", type: str = "", owner: str = ""):
+        mapping = {
+            "owner": owner,
+            "trigger_name": trigger_name,
+            "type": type,
+            "last_run": "",
+            "run_time": "",
+            "status": "",
+            "error": "",
+            "created_at": datetime.utcnow().__str__(),
+        }
+        self.con.hset(name=self.name, key=None, value=None, mapping=mapping)
+        return self
+    
+    @property
+    def s_tasks(self):
+        import json
+        from distributed.protocol.serialize import deserialize
+        header = json.loads(self.con.hget(self.name, "header"))
+        frames = [self.con.hget(self.name, "frames")]
+        tasks = deserialize(header, frames)
+        return tasks
+
+    @s_tasks.setter
+    def s_tasks(self, tasks):
+        import json
+        from distributed.protocol.serialize import serialize
+        self.serialized = serialize(tasks)
+        header = json.dumps(self.serialized[0])
+        self.con.hset(self.name, "header", header)
+        self.con.hset(self.name, "frames", self.serialized[1][0])
+        return self
+
