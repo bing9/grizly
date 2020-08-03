@@ -16,12 +16,23 @@ class Trigger:
         return f"{self.__class__.__name__}(name='{self.name}')"
 
     @property
-    def type(self):
-        return self.con.hget(self.key, "type").decode("utf-8")
+    def getall(self):
+        return self.con.hgetall(self.name)
+
+    # @property
+    # def type(self):
+    #     return self.con.hget(self.key, "type").decode("utf-8")
+
+    # @property
+    # def value(self):
+    #     return self.con.hget(self.key, "value").decode("utf-8")
 
     @property
-    def value(self):
-        return self.con.hget(self.key, "value").decode("utf-8")
+    def jobs(self):
+        jobs = self.con.hget(self.key, "jobs")
+        if jobs is not None:
+            jobs = jobs.decode("utf-8").split(" ")
+            return [_job.Job(name=job) for job in jobs if job != ""]
 
     @property
     def is_triggered(self):
@@ -56,10 +67,25 @@ class Trigger:
     def last_run(self, value):
         return self.con.hset(self.name, "last_run", value)
 
-    def register(self, type, value):
-        mapping = {"type": type, "value": value, "is_triggered": "", "created_at": datetime.utcnow().__str__()}
+    @property
+    def exists(self):
+        return self.con.exists(self.name)
+
+    def register(self):
+        mapping = {"is_triggered": "", "jobs": "", "created_at": datetime.utcnow().__str__()}
         self.con.hset(name=f"{self.name}", key=None, value=None, mapping=mapping)
         return self
+
+    def add_job(self, job_name):
+        if not self.exists:
+            self.register()
+        jobs = [job.name for job in self.jobs]
+        if job_name in jobs:
+            raise ValueError(f"Job {job_name} already registered with trigger {self.name}")
+        else:
+            jobs.append(job_name)
+            jobs_str = " ".join(jobs)
+            self.con.hset(name=self.name, key="jobs", value=jobs_str)
 
     def get_jobs(self):
         jobs = self.con.keys("job*")
