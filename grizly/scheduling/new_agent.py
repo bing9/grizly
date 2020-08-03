@@ -52,7 +52,7 @@ def run():
                         submit_queue.enqueue(job.submit)
                         logger.info(f"Job {job.name} has been successfully submitted to submit queue")
                     elif job.type == "listener":
-                        checks_queue.enqueue(job.submit)
+                        checks_queue.enqueue(job.run, to_dask=False)
                         logger.info(f"Job {job.name} has been successfully submitted to chcks queue")
             trigger.last_run = datetime.utcnow().__str__()
             trigger.is_triggered = 0

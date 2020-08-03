@@ -157,17 +157,19 @@ class Job:
         scheduler_address: str = None,
         priority: int = None,
         resources: Dict[str, Any] = None,
+        to_dask = True
     ) -> None:
 
         priority = priority or 1
-        if not client:
-            self.scheduler_address = scheduler_address or os.getenv("GRIZLY_DEV_DASK_SCHEDULER_ADDRESS")
-            client = Client(self.scheduler_address)
-        else:
-            self.scheduler_address = client.scheduler.address
+        if to_dask:
+            if not client:
+                self.scheduler_address = scheduler_address or os.getenv("GRIZLY_DEV_DASK_SCHEDULER_ADDRESS")
+                client = Client(self.scheduler_address)
+            else:
+                self.scheduler_address = client.scheduler.address
 
-        if not client and not self.scheduler_address:
-            raise ValueError("distributed.Client/scheduler address was not provided")
+            if not client and not self.scheduler_address:
+                raise ValueError("distributed.Client/scheduler address was not provided")
 
         self.logger.info(f"Submitting job {self.name}...")
         self.status = "running"
