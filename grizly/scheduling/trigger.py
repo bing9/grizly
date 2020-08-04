@@ -1,15 +1,19 @@
+from datetime import datetime, timezone
+import json
 import logging
-import redis
-from datetime import datetime
+
+from redis import Redis
 
 from . import job as _job
+from ..utils import none_safe_loads
 
 
 class Trigger:
+    prefix = "grizly:trigger:"
+
     def __init__(self, name: str, logger: logging.Logger = None):
         self.name = name
-        self.con = redis.Redis(host="10.125.68.177", port=80, db=0)
-        self.key = self.name
+        self.name_with_prefix = self.prefix + name
         self.logger = logger or logging.getLogger(__name__)
 
     def __repr__(self):
@@ -19,61 +23,46 @@ class Trigger:
     def getall(self):
         return self.con.hgetall(self.name)
 
-    # @property
-    # def type(self):
-    #     return self.con.hget(self.key, "type").decode("utf-8")
-
-    # @property
-    # def value(self):
-    #     return self.con.hget(self.key, "value").decode("utf-8")
+    @property
+    def con(self):
+        con = Redis(host="10.125.68.177", port=80, db=0)
+        return con
 
     @property
     def jobs(self):
-        jobs = self.con.hget(self.key, "jobs")
-        if jobs is not None:
-            jobs = jobs.decode("utf-8").split(" ")
-            return [_job.Job(name=job) for job in jobs if job != ""]
+        jobs = none_safe_loads(self.con.hget(self.name_with_prefix, "jobs"))
+        return [_job.Job(name=job) for job in jobs]
 
     @property
     def is_triggered(self):
-        is_triggered = self.con.hget(self.key, "is_triggered")
-        if is_triggered is not None:
-            return int(is_triggered.decode("utf-8"))
+        return none_safe_loads(self.con.hget(self.name_with_prefix, "is_triggered"))
 
     @is_triggered.setter
-    def is_triggered(self, value):
-        if value == 1 or value == 0:
-            self.con.hset(self.name, "is_triggered", value)
-        else:
-            raise ValueError("Value can only be 1 or 0")
+    def is_triggered(self, value: bool):
+        self.con.hset(self.name_with_prefix, "is_triggered", json.dumps(value))
 
     @property
     def created_at(self):
-        created_at = self.con.hget(self.name, "created_at")
-        if created_at is not None:
-            created_at = created_at.decode("utf-8")
-            created_at = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S.%f")
-            return created_at
+        created_at = json.loads(self.con.hget(self.name_with_prefix, "created_at"))
+        return datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S.%f")
 
     @property
     def last_run(self):
-        last_run = self.con.hget(self.key, "last_run")
+        last_run = none_safe_loads(self.con.hget(self.name_with_prefix, "last_run"))
         if last_run is not None:
-            last_run = last_run.decode("utf-8")
-            last_run = datetime.strptime(last_run, "%Y-%m-%d %H:%M:%S.%f")
-            return last_run
+            return datetime.strptime(last_run, "%Y-%m-%d %H:%M:%S.%f")
 
     @last_run.setter
     def last_run(self, value):
-        return self.con.hset(self.name, "last_run", value)
+        self.con.hset(self.name_with_prefix, "last_run", value)
 
     @property
     def exists(self):
-        return self.con.exists(self.name)
+        return self.con.exists(self.name_with_prefix)
 
     def register(self):
-        mapping = {"is_triggered": "", "jobs": "", "created_at": datetime.utcnow().__str__()}
-        self.con.hset(name=f"{self.name}", key=None, value=None, mapping=mapping)
+        mapping = {"is_triggered": "", "jobs": "[]", "created_at": str(datetime.now(timezone.utc))}
+        self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
         return self
 
     def add_job(self, job_name):
@@ -84,18 +73,10 @@ class Trigger:
             raise ValueError(f"Job {job_name} already registered with trigger {self.name}")
         else:
             jobs.append(job_name)
-            jobs_str = " ".join(jobs)
-            self.con.hset(name=self.name, key="jobs", value=jobs_str)
+            jobs_str = json.dumps(jobs)
+            self.con.hset(name=self.name_with_prefix, key="jobs", value=jobs_str)
 
-    def get_jobs(self):
-        jobs = self.con.keys("job*")
-        triggered_jobs = []
-        for job in jobs:
-            job_name = job.decode("utf-8")
-            try:
-                job_trigger = self.con.hget(job_name, "trigger_name").decode("utf-8")
-                if job_trigger == self.key:
-                    triggered_jobs.append(_job.Job(name=job_name, logger=self.logger))
-            except:
-                pass
-        return triggered_jobs
+    def remove_job(self, job_name):
+        jobs = [job.name for job in self.jobs if job.name != job_name]
+        jobs_str = json.dumps(jobs)
+        self.con.hset(name=self.name_with_prefix, key="jobs", value=jobs_str)

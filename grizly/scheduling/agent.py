@@ -1,60 +1,22 @@
-#!/usr/local/bin/python3
+import logging
+from datetime import datetime, timedelta, timezone
 
 from croniter import croniter
-from datetime import datetime, timedelta, timezone
-import logging
-from typing import List
+from redis import Redis
+from rq import Queue
+from distributed import Client
 
-from grizly.tools.qframe import QFrame
-from grizly.config import Config
-from grizly.scheduling.job import Job
 from grizly.scheduling.trigger import Trigger
 
-
-from rq import Queue
-from redis import Redis
-
-config = Config().get_service(service="schedule")
-dsn = config.get("dsn")
-schema = config.get("schema")
+logger = logging.getLogger("distributed.worker")
 
 
-def get_jobs(logger=None) -> List[Job]:
-    job_registry_table = config.get("job_registry_table")
-    job_runs_table = config.get("job_runs_table")
-    registry_qf = QFrame(dsn=dsn).from_table(table=job_registry_table, schema=schema)
-    job_runs_df = (
-        QFrame(dsn=dsn)
-        .from_table(table=job_runs_table, schema=schema)
-        .groupby()["ran_at"]
-        .agg("max")
-        .to_df()
-    )
-
-    records = registry_qf.to_records()
-    jobs = []
-    for record in records:
-        # job_run_table = sth2
-        job_runs_record = job_runs_df[job_runs_df.id == record[0]].to_records()[0]
-        logger.info(job_runs_record)
-        job = Job(
-            name=record[1],
-            job_registry_record=record,
-            job_runs_record=job_runs_record,
-            logger=logging.getLogger("distributed.worker").getChild("agent_test"),
-        )
-        jobs.append(job)
-    return jobs
-
-
-def get_triggers() -> List[Trigger]:
-    job_trigger_table = config.get("job_triggers_table")
-    qf = QFrame(dsn=dsn).from_table(table=job_trigger_table, schema=schema, columns=["name"])
-    records = qf.to_records()
+def get_triggers():
+    redis_conn = Redis(host="10.125.68.177", port=80, db=0)
     triggers = []
-    for record in records:
-        trigger = Trigger(name=record[0])
-        triggers.append(trigger)
+    for trigger_name in redis_conn.keys("trigger:*"):
+        if trigger_name is not None:
+            triggers.append(Trigger(trigger_name.decode("utf-8"), logger=logger))
     return triggers
 
 
@@ -62,43 +24,38 @@ def run():
     redis = Redis(host="10.125.68.177", port=80)
     checks_queue = Queue("checks_queue", connection=redis)
     submit_queue = Queue("submit_queue", connection=redis)
-    logger = logging.getLogger("distributed.worker").getChild("agent")
-
-    logger.info("Loading jobs...")
-    jobs = get_jobs(logger=logger)
-    logger.info("Jobs loaded successfully")
 
     logger.info("Loading triggers...")
     triggers = get_triggers()
     logger.info("Triggers loaded successfully")
 
-    logger.info("Checking scheduled jobs...")
-    periodic_jobs = [job for job in jobs if job.trigger_type == "cron"]
-    for job in periodic_jobs:
-        if job.status == "running":
-            continue
-        start_date = job.last_run or job.created_at
-        cron_str = job.trigger_value
-        cron = croniter(cron_str, start_date)
-        next_run = cron.get_next(datetime).replace(tzinfo=timezone.utc)
-        if next_run < datetime.now(timezone.utc) + timedelta(minutes=1):
-            if job.type == "regular":
-                submit_queue.enqueue(job.submit)
-                logger.info(f"Job {job.name} has been successfully submitted to submit queue")
-            elif job.type == "listener":
-                checks_queue.enqueue(job.submit)
-                logger.info(f"Job {job.name} has been successfully submitted to chcks queue")
-
-    logger.info("Submitting triggered jobs...")
     for trigger in triggers:
-        if trigger.is_triggered:
-            jobs_to_run = trigger.get_jobs()
-            for job in jobs_to_run:
-                submit_queue.enqueue(job.submit)
-                logger = logger.info(
-                    f"Job {job.name} has been successfully submitted to submit queue"
-                )
-            trigger.set(False)
+        if trigger.type == "cron":
+            start_date = trigger.last_run or trigger.created_at
+            cron_str = trigger.value
+            cron = croniter(cron_str, start_date)
+            next_run = cron.get_next(datetime).replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc) + timedelta(minutes=1)
+            logger.info(f"trigger is {trigger.name} now is {now} and next run will be {next_run}")
+            logger.info(now)
+            if next_run < now:
+                trigger.is_triggered = 1
+                trigger.last_run = now.strftime("%Y-%m-%d %H:%M:%S.%f")
+        if trigger.is_triggered == "1":
+            logger.info(f"Loading {trigger.name} jobs...")
+            jobs = trigger.get_jobs()
+            logger.info(f"Jobs from {trigger.name} loaded successfully")
+            for job in jobs:
+                if job.status != "running":
+                    if job.type == "regular":
+                        logger.info(f"submitting {job.name}")
+                        submit_queue.enqueue(job.submit)
+                        logger.info(f"Job {job.name} has been successfully submitted to submit queue")
+                    elif job.type == "listener":
+                        checks_queue.enqueue(job.submit)
+                        logger.info(f"Job {job.name} has been successfully submitted to chcks queue")
+            trigger.last_run = datetime.utcnow().__str__()
+            trigger.is_triggered = 0
 
 
 if __name__ == "__main__":

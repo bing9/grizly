@@ -330,3 +330,8 @@ def retry(exceptions, tries=4, delay=3, backoff=2, logger=None):
         return f_retry  # true decorator
 
     return deco_retry
+
+
+def none_safe_loads(value):
+    if value is not None:
+        return json.loads(value)
