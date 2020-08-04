@@ -515,7 +515,8 @@ class Workflow:
         if show_progress:
             progress(computation)
         fire_and_forget(computation)
-        client.close()
+        if scheduler_address:
+            client.close()
         return None
 
     def cancel(self, scheduler_address=None):

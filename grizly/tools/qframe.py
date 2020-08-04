@@ -182,15 +182,21 @@ class QFrame(BaseTool):
         -------
         QFrame
         """
-        with open(json_path, "r") as f:
-            data = json.load(f)
-            if data != {}:
-                if subquery == "":
-                    self.data = self.validate_data(data)
-                else:
-                    self.data = self.validate_data(data[subquery])
+        if json_path.startswith("s3://"):
+            _, _, bucket, *s3_key_list = json_path.split("/")[:-1]
+            s3_key = "/".join(s3_key_list)
+            file_name = json_path.split("/")[-1]
+            data = S3(bucket=bucket, s3_key=s3_key, file_name=file_name).to_serializable()
+        else:
+            with open(json_path, "r") as f:
+                data = json.load(f)
+        if data:
+            if not subquery:
+                self.data = self.validate_data(data)
             else:
-                self.data = data
+                self.data = self.validate_data(data[subquery])
+        else:
+            self.data = data
         return self
 
     @deprecation.deprecated(details="Use QFrame.from_json instead",)
