@@ -7,17 +7,9 @@ from rq import Queue
 from distributed import Client
 
 from grizly.scheduling.trigger import Trigger
+from grizly.scheduling.registry import Registry
 
 logger = logging.getLogger("distributed.worker")
-
-
-def get_triggers():
-    redis_conn = Redis(host="10.125.68.177", port=80, db=0)
-    triggers = []
-    for trigger_name in redis_conn.keys("trigger:*"):
-        if trigger_name is not None:
-            triggers.append(Trigger(trigger_name.decode("utf-8"), logger=logger))
-    return triggers
 
 
 def run():
@@ -26,7 +18,7 @@ def run():
     submit_queue = Queue("submit_queue", connection=redis)
 
     logger.info("Loading triggers...")
-    triggers = get_triggers()
+    triggers = Registry().get_triggers()
     logger.info("Triggers loaded successfully")
 
     for trigger in triggers:
@@ -39,9 +31,9 @@ def run():
             logger.info(f"trigger is {trigger.name} now is {now} and next run will be {next_run}")
             logger.info(now)
             if next_run < now:
-                trigger.is_triggered = 1
+                trigger.is_triggered = True
                 trigger.last_run = now.strftime("%Y-%m-%d %H:%M:%S.%f")
-        if trigger.is_triggered == "1":
+        if trigger.is_triggered:
             logger.info(f"Loading {trigger.name} jobs...")
             jobs = trigger.get_jobs()
             logger.info(f"Jobs from {trigger.name} loaded successfully")
@@ -55,7 +47,7 @@ def run():
                         checks_queue.enqueue(job.submit)
                         logger.info(f"Job {job.name} has been successfully submitted to chcks queue")
             trigger.last_run = datetime.utcnow().__str__()
-            trigger.is_triggered = 0
+            trigger.is_triggered = False
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import time
-import new_agent
+import agent
 
 while True:
-    new_agent.run()
+    agent.run()
     time.sleep(30)

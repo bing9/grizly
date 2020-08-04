@@ -29,6 +29,18 @@ class Trigger:
         return con
 
     @property
+    def type(self):
+        return none_safe_loads(self.con.hget(self.name_with_prefix, "type"))
+
+    @property
+    def value(self):
+        return none_safe_loads(self.con.hget(self.name_with_prefix, "value"))
+
+    @value.setter
+    def value(self, value):
+        self.con.hset(self.name_with_prefix, "value", json.dumps(value))
+
+    @property
     def jobs(self):
         jobs = none_safe_loads(self.con.hget(self.name_with_prefix, "jobs"))
         return [_job.Job(name=job) for job in jobs]
@@ -60,23 +72,29 @@ class Trigger:
     def exists(self):
         return self.con.exists(self.name_with_prefix)
 
-    def register(self):
-        mapping = {"is_triggered": "", "jobs": "[]", "created_at": str(datetime.now(timezone.utc))}
+    def register(self, type: str, value: str):
+        mapping = {
+            "type": type,
+            "value": json.dumps(value),
+            "is_triggered": "",
+            "jobs": "[]",
+            "created_at": str(datetime.now(timezone.utc)),
+        }
         self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
         return self
 
     def add_job(self, job_name):
         if not self.exists:
-            self.register()
-        jobs = [job.name for job in self.jobs]
-        if job_name in jobs:
+            raise ValueError(f"Trigger {self.name} does not exist.")
+        job_names = [job.name for job in self.jobs]
+        if job_name in job_names:
             raise ValueError(f"Job {job_name} already registered with trigger {self.name}")
         else:
-            jobs.append(job_name)
-            jobs_str = json.dumps(jobs)
+            job_names.append(job_name)
+            jobs_str = json.dumps(job_names)
             self.con.hset(name=self.name_with_prefix, key="jobs", value=jobs_str)
 
     def remove_job(self, job_name):
-        jobs = [job.name for job in self.jobs if job.name != job_name]
-        jobs_str = json.dumps(jobs)
+        job_names = [job.name for job in self.jobs if job.name != job_name]
+        jobs_str = json.dumps(job_names)
         self.con.hset(name=self.name_with_prefix, key="jobs", value=jobs_str)

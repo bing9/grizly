@@ -68,7 +68,7 @@ class Job:
 
     @last_run.setter
     def last_run(self, value):
-        self.con.hset(self.name_with_prefix, "last_run", value)
+        self.con.hset(self.name_with_prefix, "last_run", str(value))
 
     @property
     def run_time(self):
@@ -152,7 +152,7 @@ class Job:
         scheduler_address: str = None,
         priority: int = None,
         resources: Dict[str, Any] = None,
-        to_dask = True
+        to_dask=True,
     ) -> None:
 
         priority = priority or 1
@@ -168,7 +168,7 @@ class Job:
 
         self.logger.info(f"Submitting job {self.name}...")
         self.status = "running"
-        self.last_run = datetime.utcnow().__str__()
+        self.last_run = datetime.now(timezone.utc)
         self.error = ""
 
         start = time()
@@ -183,7 +183,7 @@ class Job:
         end = time()
         self.run_time = int(end - start)
         self.status = status
-        self.last_run = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+        self.last_run = datetime.now(timezone.utc)
 
         self.logger.info(f"Job {self.name} finished with status {status}")
 
