@@ -57,9 +57,9 @@ class SQLDB:
             )
 
         self.db = db or config[dsn]["db"]
-        supported_dbs = ("redshift", "denodo", "sqlite", "mariadb", "aurora")
+        supported_dbs = ("redshift", "denodo", "sqlite", "mariadb", "aurora", "tableau")
         if self.db not in supported_dbs:
-            raise NotImplementedError(f"DB {db} not supported yet. Supported DB's: {supported_dbs}")
+            raise NotImplementedError(f"DB {self.db} not supported yet. Supported DB's: {supported_dbs}")
 
         self.dialect = dialect or config[dsn]["dialect"]
 
