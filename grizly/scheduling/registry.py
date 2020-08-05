@@ -4,7 +4,9 @@ import logging
 import os
 import sys
 from time import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
+from ..config import Config
+from croniter import croniter
 
 import dask
 from dask.delayed import Delayed
@@ -13,17 +15,30 @@ from distributed.protocol.serialize import serialize as dask_serialize
 from distributed.protocol.serialize import deserialize as dask_deserialize
 from redis import Redis
 
-from ..config import Config
+
+config = Config().get_service("scheduling")
 
 
 class Registry:
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, env:str="prod", redis_host: str=None, redis_port:int =None, logger: logging.Logger = None):
         self.logger = logger or logging.getLogger(__name__)
+        self.env = env
+        self.redis_host = None
+        self.redis_port = None
 
     @property
     def con(self):
-        schedule = Config().get_service("schedule")
-        con = Redis(host=schedule["redis_host"], port=schedule["redis_port"], db=0)
+        if self.env == "prod":
+            host = self.redis_host or os.getenv("GRIZLY_REDIS_HOST") or config.get("redis_host")
+            port = self.redis_port or os.getenv("GRIZLY_REDIS_PORT") or config.get("redis_port")
+        elif self.env == "dev":
+            host = self.redis_host or os.getenv("GRIZLY_REDIS_DEV_HOST") or config.get("redis_dev_host")
+            port = self.redis_port or os.getenv("GRIZLY_REDIS_DEV_HOST") or config.get("redis_dev_port")
+        else:
+            raise ValueError("Only dev and prod environments are supported")
+        
+        # dev host = "10.125.68.177"
+        con = Redis(host=host, port=port, db=0)
         return con
 
     def get_triggers(self):
@@ -53,10 +68,11 @@ class RegistryObject:
     prefix = "grizly:"
 
     def __init__(
-        self, name: str, logger: logging.Logger = None,
+        self, name: str, env: str = "prod", logger: logging.Logger = None, **kwargs
     ):
         self.name = name
         self.name_with_prefix = self.prefix + name
+        self.registry = Registry(env=env, **kwargs)
         self.logger = logger or logging.getLogger(__name__)
 
     def __repr__(self):
@@ -68,8 +84,7 @@ class RegistryObject:
 
     @property
     def con(self):
-        schedule = Config().get_service("schedule")
-        con = Redis(host=schedule["redis_host"], port=schedule["redis_port"], db=0)
+        con = self.registry.con
         return con
 
     @property
@@ -98,71 +113,6 @@ class RegistryObject:
                 value = dask_deserialize(*eval(value))
 
             return value
-
-class Trigger(RegistryObject):
-    prefix = "grizly:trigger:"
-
-    @property
-    def type(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
-
-    @property
-    def value(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "value"))
-
-    @value.setter
-    def value(self, value):
-        self.con.hset(self.name_with_prefix, "value", self.serialize(value))
-
-    @property
-    def jobs(self):
-        job_names = self.deserialize(self.con.hget(self.name_with_prefix, "jobs"))
-        return [Job(name=job) for job in job_names]
-
-    @property
-    def is_triggered(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "is_triggered"))
-
-    @is_triggered.setter
-    def is_triggered(self, value: bool):
-        self.con.hset(self.name_with_prefix, "is_triggered", self.serialize(value))
-
-    @property
-    def created_at(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
-
-    @property
-    def last_run(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "last_run"), type="datetime")
-
-    @last_run.setter
-    def last_run(self, value):
-        self.con.hset(self.name_with_prefix, "last_run", self.serialize(value))
-
-    def register(self, type: str, value: str):
-        mapping = {
-            "type": self.serialize(type),
-            "value": self.serialize(value),
-            "is_triggered": "null",
-            "jobs": self.serialize([]),
-            "created_at": self.serialize(datetime.now(timezone.utc)),
-        }
-        self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
-        return self
-
-    def add_job(self, job_name):
-        if not self.exists:
-            raise ValueError(f"Trigger {self.name} does not exist.")
-        job_names = [job.name for job in self.jobs]
-        if job_name in job_names:
-            raise ValueError(f"Job {job_name} already registered with trigger {self.name}")
-        else:
-            job_names.append(job_name)
-            self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
-
-    def remove_job(self, job_name):
-        job_names = [job.name for job in self.jobs if job.name != job_name]
-        self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
 
 
 class Job(RegistryObject):
@@ -236,7 +186,7 @@ class Job(RegistryObject):
         self.con.hset(self.name_with_prefix, "tasks", self.serialize(tasks))
 
     @property
-    def trigger(self) -> Trigger:
+    def trigger(self) -> Union["Trigger", None]:
         if self.trigger_name is not None:
             return Trigger(name=self.trigger_name)
 
@@ -321,3 +271,75 @@ class Job(RegistryObject):
         client.close()
 
 
+class Trigger(RegistryObject):
+    prefix = "grizly:trigger:"
+
+    @property
+    def type(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
+
+    @property
+    def value(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "value"))
+
+    @value.setter
+    def value(self, value):
+        self.con.hset(self.name_with_prefix, "value", self.serialize(value))
+
+    @property
+    def jobs(self):
+        job_names = self.deserialize(self.con.hget(self.name_with_prefix, "jobs"))
+        return [Job(name=job) for job in job_names]
+
+    @property
+    def is_triggered(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "is_triggered"))
+
+    @is_triggered.setter
+    def is_triggered(self, value: bool):
+        self.con.hset(self.name_with_prefix, "is_triggered", self.serialize(value))
+
+    @property
+    def created_at(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
+
+    @property
+    def last_run(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "last_run"), type="datetime")
+
+    @last_run.setter
+    def last_run(self, value):
+        self.con.hset(self.name_with_prefix, "last_run", self.serialize(value))
+
+    @property
+    def next_run(self):
+        start_date = self.last_run or self.created_at
+        cron_str = self.value
+        cron = croniter(cron_str, start_date)
+        next_run = cron.get_next(datetime).replace(tzinfo=timezone.utc)
+        return next_run
+
+    def register(self, type: str, value: str):
+        mapping = {
+            "type": self.serialize(type),
+            "value": self.serialize(value),
+            "is_triggered": "null",
+            "jobs": self.serialize([]),
+            "created_at": self.serialize(datetime.now(timezone.utc)),
+        }
+        self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
+        return self
+
+    def add_job(self, job_name):
+        if not self.exists:
+            raise ValueError(f"Trigger {self.name} does not exist.")
+        job_names = [job.name for job in self.jobs]
+        if job_name in job_names:
+            raise ValueError(f"Job {job_name} already registered with trigger {self.name}")
+        else:
+            job_names.append(job_name)
+            self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
+
+    def remove_job(self, job_name):
+        job_names = [job.name for job in self.jobs if job.name != job_name]
+        self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
