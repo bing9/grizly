@@ -63,7 +63,7 @@ class Registry:
         Trigger(name=name).register(type=type, value=value)
 
     def add_job(self, name: str, trigger_name: str, type: str, value: str):
-        Trigger(name=name).register(type=type, value=value)
+        Job(name=name).register(type=type, value=value)
 
 
 class RegistryObject:
@@ -101,7 +101,7 @@ class RegistryObject:
         if isinstance(value, datetime):
             value = str(value)
 
-        if isinstance(value, list) and all(isinstance(i, Delayed) for i in value):
+        if isinstance(value, list) and all(isinstance(i, Delayed) for i in value) and value!=[]:
             value = str(dask_serialize(value))
 
         return json.dumps(value)
@@ -131,16 +131,32 @@ class Job(RegistryObject):
     def owner(self, value):
         self.con.hset(self.name_with_prefix, "owner", self.serialize(value))
 
+    #TRIGGERS
     @property
-    def trigger_name(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "trigger_name"))
+    def triggers(self) -> Union["Trigger", None]:
+        if self.trigger_names is not None:
+            triggers = [Trigger(name=self.trigger_name) for trigger_name in trigger_names]
+            return triggers
 
-    @trigger_name.setter
-    def trigger_name(self, value):
+    @property
+    def trigger_names(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "trigger_names"))
+
+    @trigger_names.setter
+    def trigger_names(self, trigger_names):
         """Removes job from old trigger and adds to new one"""
-        self.trigger.remove_job(job_name=value)
+        for trigger in self.triggers:
+            trigger.remove_job(job_name=self.name)
+        for trigger_name in trigger_names:
+            Trigger(name=trigger_name).add_job(job_name=self.name)
+        self.con.hset(self.name_with_prefix, "trigger_names", self.serialize(value))
+
+    def add_trigger(self, value):
         Trigger(name=value).add_job(job_name=self.name)
-        self.con.hset(self.name_with_prefix, "trigger_name", self.serialize(value))
+        trigger_names = self.trigger_names
+        trigger_names.append(value)
+        self.con.hset(self.name_with_prefix, "trigger_names", self.serialize(trigger_names))
+    #TRIGGERS END
 
     @property
     def type(self):
@@ -191,11 +207,6 @@ class Job(RegistryObject):
         self.con.hset(self.name_with_prefix, "tasks", self.serialize(tasks))
 
     @property
-    def trigger(self) -> Union["Trigger", None]:
-        if self.trigger_name is not None:
-            return Trigger(name=self.trigger_name)
-
-    @property
     def graph(self):
         return dask.delayed()(self.tasks, name=self.name + "_graph")
 
@@ -203,11 +214,11 @@ class Job(RegistryObject):
         return self.graph.visualize(**kwargs)
 
     def register(
-        self, owner: str = None, trigger_name: str = None, tasks: List[dask.delayed] = None, type: str = "regular"
+        self, owner: str = None, trigger_names: list = [], tasks: List[dask.delayed] = None, type: str = "regular"
     ):
         mapping = {
             "owner": self.serialize(owner),
-            "trigger_name": self.serialize(trigger_name),
+            "trigger_names": self.serialize(trigger_names),
             "type": self.serialize(type),
             "last_run": "null",
             "run_time": "null",
@@ -216,7 +227,7 @@ class Job(RegistryObject):
             "created_at": self.serialize(datetime.now(timezone.utc)),
         }
         self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
-        if trigger_name is not None:
+        if trigger_names != []:
             Trigger(name=trigger_name).add_job(job_name=self.name)
         tasks = tasks or self.tasks
         if tasks is None:

@@ -20,6 +20,16 @@ def test_register_job():
     saved_job_type = json.loads(con.hget(name_with_prefix, "type"))
     assert job.type == saved_job_type
 
+def test_add_trigger():
+    name = "a_job_name2"
+    job = Job(name)
+    job.register(tasks=tasks)
+    Registry().add_trigger("every_2_mins", "cron", "*/2 * * * *")
+    Registry().add_trigger("every_3_mins", "cron", "*/3 * * * *")
+    job.add_trigger("every_2_mins")
+    job.add_trigger("every_3_mins")
+    assert job.trigger_names == ["every_2_mins", "every_3_mins"]
+
 def test_get_jobs():
     name = "a_job_name"
     registry = Registry()
