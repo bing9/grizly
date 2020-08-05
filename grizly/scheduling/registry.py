@@ -42,18 +42,20 @@ class Registry:
 
     def get_triggers(self):
         triggers = []
-        for trigger_name_with_prefix in self.con.keys("grizly:trigger:*"):
+        prefix = "grizly:trigger:"
+        for trigger_name_with_prefix in self.con.keys(f"{prefix}*"):
             if trigger_name_with_prefix is not None:
-                trigger_name = trigger_name_with_prefix.decode("utf-8").split(":")[-1]
-                triggers.append(Trigger(trigger_name, logger=self.logger))
+                trigger_name = trigger_name_with_prefix.decode("utf-8")[len(prefix):]
+                triggers.append(Trigger(trigger_name, env=self.env, logger=self.logger))
         return triggers
 
     def get_jobs(self):
+        prefix = "grizly:job:"
         jobs = []
-        for job_name_with_prefix in self.con.keys("grizly:job:*"):
+        for job_name_with_prefix in self.con.keys(f"{prefix}*"):
             if job_name_with_prefix is not None:
-                job_name = job_name_with_prefix.decode("utf-8").split(":")[-1]
-                jobs.append(Job(job_name, logger=self.logger))
+                job_name = job_name_with_prefix.decode("utf-8")[len(prefix):]
+                jobs.append(Job(job_name, env=self.env, logger=self.logger))
         return jobs
 
     def add_trigger(self, name: str, type: str, value: str):
@@ -89,6 +91,9 @@ class RegistryObject:
     @property
     def exists(self):
         return self.con.exists(self.name_with_prefix)
+
+    def remove(self):
+        self.con.delete(self.name_with_prefix)
 
     @staticmethod
     def serialize(value):
