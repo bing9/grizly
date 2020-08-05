@@ -4,7 +4,9 @@ import logging
 import os
 import sys
 from time import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
+from ..config import Config
+from croniter import croniter
 
 import dask
 from distributed import Client, Future
@@ -13,13 +15,29 @@ from distributed.protocol.serialize import deserialize as dask_deserialize
 from redis import Redis
 
 
+config = Config().get_service("scheduling")
+
+
 class Registry:
-    def __init__(self, logger: logging.Logger = None):
+    def __init__(self, env:str="prod", redis_host: str=None, redis_port:int =None, logger: logging.Logger = None):
         self.logger = logger or logging.getLogger(__name__)
+        self.env = env
+        self.redis_host = None
+        self.redis_port = None
 
     @property
     def con(self):
-        con = Redis(host="10.125.68.177", port=80, db=0)
+        if self.env == "prod":
+            host = self.redis_host or os.getenv("GRIZLY_REDIS_HOST") or config.get("redis_host")
+            port = self.redis_port or os.getenv("GRIZLY_REDIS_PORT") or config.get("redis_port")
+        elif self.env == "dev":
+            host = self.redis_host or os.getenv("GRIZLY_REDIS_DEV_HOST") or config.get("redis_dev_host")
+            port = self.redis_port or os.getenv("GRIZLY_REDIS_DEV_HOST") or config.get("redis_dev_port")
+        else:
+            raise ValueError("Only dev and prod environments are supported")
+        
+        # dev host = "10.125.68.177"
+        con = Redis(host=host, port=port, db=0)
         return con
 
     def get_triggers(self):
@@ -49,10 +67,11 @@ class RegistryObject:
     prefix = "grizly:"
 
     def __init__(
-        self, name: str, logger: logging.Logger = None,
+        self, name: str, env: str = "prod", logger: logging.Logger = None, **kwargs
     ):
         self.name = name
         self.name_with_prefix = self.prefix + name
+        self.registry = Registry(env=env, **kwargs)
         self.logger = logger or logging.getLogger(__name__)
 
     def __repr__(self):
@@ -64,7 +83,7 @@ class RegistryObject:
 
     @property
     def con(self):
-        con = Redis(host="10.125.68.177", port=80, db=0)
+        con = self.registry.con
         return con
 
     @property
@@ -166,7 +185,7 @@ class Job(RegistryObject):
         self.con.hset(self.name_with_prefix, "tasks", self.serialize(tasks))
 
     @property
-    def trigger(self) -> Trigger:
+    def trigger(self) -> Union["Trigger", None]:
         if self.trigger_name is not None:
             return Trigger(name=self.trigger_name)
 
@@ -290,6 +309,14 @@ class Trigger(RegistryObject):
     @last_run.setter
     def last_run(self, value):
         self.con.hset(self.name_with_prefix, "last_run", self.serialize(value))
+
+    @property
+    def next_run(self):
+        start_date = self.last_run or self.created_at
+        cron_str = self.value
+        cron = croniter(cron_str, start_date)
+        next_run = cron.get_next(datetime).replace(tzinfo=timezone.utc)
+        return next_run
 
     def register(self, type: str, value: str):
         mapping = {
