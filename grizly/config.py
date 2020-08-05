@@ -212,6 +212,7 @@ class Config:
             * 'sfdc'
             * 'proxies'
             * 'sqldb'
+            * 'schedule'
         config_key : str, optional
             Config key, by default 'standard'
         env : str, optional
@@ -350,12 +351,8 @@ def _validate_config(config: dict, services: list = None, env: str = None):
 
         elif service == "schedule":
             valid_keys = {
-                "dsn",
-                "schema",
-                "job_registry_table",
-                "job_status_table",
-                "job_triggers_table",
-                "job_n_triggers_table",
+                "redis_host",
+                "redis_port"
             }
 
         invalid_keys = set(config[service].keys()) - valid_keys

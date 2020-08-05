@@ -7,10 +7,13 @@ from time import time
 from typing import Any, Dict, List
 
 import dask
+from dask.delayed import Delayed
 from distributed import Client, Future
 from distributed.protocol.serialize import serialize as dask_serialize
 from distributed.protocol.serialize import deserialize as dask_deserialize
 from redis import Redis
+
+from ..config import Config
 
 
 class Registry:
@@ -19,7 +22,8 @@ class Registry:
 
     @property
     def con(self):
-        con = Redis(host="10.125.68.177", port=80, db=0)
+        schedule = Config().get_service("schedule")
+        con = Redis(host=schedule["redis_host"], port=schedule["redis_port"], db=0)
         return con
 
     def get_triggers(self):
@@ -64,7 +68,8 @@ class RegistryObject:
 
     @property
     def con(self):
-        con = Redis(host="10.125.68.177", port=80, db=0)
+        schedule = Config().get_service("schedule")
+        con = Redis(host=schedule["redis_host"], port=schedule["redis_port"], db=0)
         return con
 
     @property
@@ -76,7 +81,7 @@ class RegistryObject:
         if isinstance(value, datetime):
             value = str(value)
 
-        if isinstance(value, list) and all(isinstance(i, dask.delayed) for i in value):
+        if isinstance(value, list) and all(isinstance(i, Delayed) for i in value):
             value = str(dask_serialize(value))
 
         return json.dumps(value)
@@ -93,6 +98,71 @@ class RegistryObject:
                 value = dask_deserialize(*eval(value))
 
             return value
+
+class Trigger(RegistryObject):
+    prefix = "grizly:trigger:"
+
+    @property
+    def type(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
+
+    @property
+    def value(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "value"))
+
+    @value.setter
+    def value(self, value):
+        self.con.hset(self.name_with_prefix, "value", self.serialize(value))
+
+    @property
+    def jobs(self):
+        job_names = self.deserialize(self.con.hget(self.name_with_prefix, "jobs"))
+        return [Job(name=job) for job in job_names]
+
+    @property
+    def is_triggered(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "is_triggered"))
+
+    @is_triggered.setter
+    def is_triggered(self, value: bool):
+        self.con.hset(self.name_with_prefix, "is_triggered", self.serialize(value))
+
+    @property
+    def created_at(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
+
+    @property
+    def last_run(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "last_run"), type="datetime")
+
+    @last_run.setter
+    def last_run(self, value):
+        self.con.hset(self.name_with_prefix, "last_run", self.serialize(value))
+
+    def register(self, type: str, value: str):
+        mapping = {
+            "type": self.serialize(type),
+            "value": self.serialize(value),
+            "is_triggered": "null",
+            "jobs": self.serialize([]),
+            "created_at": self.serialize(datetime.now(timezone.utc)),
+        }
+        self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
+        return self
+
+    def add_job(self, job_name):
+        if not self.exists:
+            raise ValueError(f"Trigger {self.name} does not exist.")
+        job_names = [job.name for job in self.jobs]
+        if job_name in job_names:
+            raise ValueError(f"Job {job_name} already registered with trigger {self.name}")
+        else:
+            job_names.append(job_name)
+            self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
+
+    def remove_job(self, job_name):
+        job_names = [job.name for job in self.jobs if job.name != job_name]
+        self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
 
 
 class Job(RegistryObject):
@@ -251,67 +321,3 @@ class Job(RegistryObject):
         client.close()
 
 
-class Trigger(RegistryObject):
-    prefix = "grizly:trigger:"
-
-    @property
-    def type(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
-
-    @property
-    def value(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "value"))
-
-    @value.setter
-    def value(self, value):
-        self.con.hset(self.name_with_prefix, "value", self.serialize(value))
-
-    @property
-    def jobs(self):
-        job_names = self.deserialize(self.con.hget(self.name_with_prefix, "jobs"))
-        return [Job(name=job) for job in job_names]
-
-    @property
-    def is_triggered(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "is_triggered"))
-
-    @is_triggered.setter
-    def is_triggered(self, value: bool):
-        self.con.hset(self.name_with_prefix, "is_triggered", self.serialize(value))
-
-    @property
-    def created_at(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
-
-    @property
-    def last_run(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "last_run"), type="datetime")
-
-    @last_run.setter
-    def last_run(self, value):
-        self.con.hset(self.name_with_prefix, "last_run", self.serialize(value))
-
-    def register(self, type: str, value: str):
-        mapping = {
-            "type": self.serialize(type),
-            "value": self.serialize(value),
-            "is_triggered": "null",
-            "jobs": self.serialize([]),
-            "created_at": self.serialize(datetime.now(timezone.utc)),
-        }
-        self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
-        return self
-
-    def add_job(self, job_name):
-        if not self.exists:
-            raise ValueError(f"Trigger {self.name} does not exist.")
-        job_names = [job.name for job in self.jobs]
-        if job_name in job_names:
-            raise ValueError(f"Job {job_name} already registered with trigger {self.name}")
-        else:
-            job_names.append(job_name)
-            self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
-
-    def remove_job(self, job_name):
-        job_names = [job.name for job in self.jobs if job.name != job_name]
-        self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
