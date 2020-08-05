@@ -258,7 +258,10 @@ class Config:
         if service == "sfdc":
             return Config.data[config_key][service][env]
         else:
-            return Config.data[config_key][service]
+            if service in Config.data[config_key]:
+                return Config.data[config_key][service]
+            else:
+                return dict()
 
 
 def _validate_config(config: dict, services: list = None, env: str = None):
