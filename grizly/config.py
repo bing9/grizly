@@ -212,6 +212,7 @@ class Config:
             * 'sfdc'
             * 'proxies'
             * 'sqldb'
+            * 'schedule'
         config_key : str, optional
             Config key, by default 'standard'
         env : str, optional
