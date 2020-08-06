@@ -1,8 +1,8 @@
 version: '3'
 
-networks:
-  scheduler:
-    driver: bridge
+# networks:
+#   scheduler:
+#     driver: bridge
 
 services:
   pytest_redis:
@@ -13,13 +13,17 @@ services:
       - REDIS_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
     ports:
       - '1000:6379'
+    expose:
+      - "6379"
     volumes:
       - 'redis_data:/bitnami/redis/data'
     container_name: pytest_redis
-    networks:
-      - scheduler
+    # networks:
+    #   - scheduler
   pytest_grizly_notebook:
     image: grizly_notebook:latest
+    environment:
+      - GRIZLY_REDIS_HOST=pytest_redis
     build:
       context: .
       args:
@@ -27,11 +31,43 @@ services:
     ports:
       - "1001:8888"
     volumes:
-      - C:\Users\eg013949\platform\local\docker_home:/home/analyst
+      - C:\Users\te393828\acoe_projects\platform\local\docker_home:/home/analyst
     container_name: pytest_grizly_notebook
     restart: "always"
-    networks:
-      - scheduler
+    # networks:
+    #   - scheduler
+  pytest_rq-workers:
+    image: rq-workers
+    build:
+      context: .
+      dockerfile: rq-workers/Dockerfile
+    links:
+      - pytest_redis
+    depends_on:
+        - pytest_redis
+    # networks:
+    #   - scheduler
+    volumes:
+      - ./rq-workers:/usr/src/workers
+    container_name: pytest_rq-workers
+    restart: "always"
+  pytest_rq-dashboard:
+    image: rq-dashboard
+    container_name: pytest_rq-dashboard
+    build:
+      context: .
+      dockerfile: rq-dashboard/Dockerfile
+    ports:
+      - '9181:9181'
+    expose:
+      - "9181"
+    links:
+      - pytest_redis
+    depends_on:
+      - pytest_redis
+    # networks:
+    #   - scheduler
+    restart: "always"
 
 volumes:
   redis_data:
