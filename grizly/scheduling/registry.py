@@ -123,6 +123,9 @@ class RegistryObject:
 class Job(RegistryObject):
     prefix = "grizly:job:"
 
+    def __init__(self, *args, **kwargs):
+        super(Job, self).__init__(*args, **kwargs)
+
     @property
     def owner(self):
         return self.deserialize(self.con.hget(self.name_with_prefix, "owner"))
@@ -289,6 +292,9 @@ class Job(RegistryObject):
 
 class Trigger(RegistryObject):
     prefix = "grizly:trigger:"
+
+    def __init__(self, *args, **kwargs):
+        super(Trigger, self).__init__(*args, **kwargs)
 
     @property
     def type(self):
