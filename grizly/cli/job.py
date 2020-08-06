@@ -115,32 +115,32 @@ def get_tasks(source, source_type):
 #     pass
 
 
-@job.command(hidden=True)
-@click.argument("name", type=str)
-@click.argument("owner", type=str)
-@click.argument("source", type=str)
-@click.argument("trigger", type=Dict[str, Any])
-@click.option("--source_type", "-st", is_flag=True, default=False)
-@click.option("--notification", "-n", is_flag=True, default=False)
-def schedule(name, owner, source, trigger, source_type=None, notification=None):
-    """Schedule a job"""
+# @job.command(hidden=True)
+# @click.argument("name", type=str)
+# @click.argument("owner", type=str)
+# @click.argument("source", type=str)
+# @click.argument("trigger", type=Dict[str, Any])
+# @click.option("--source_type", "-st", is_flag=True, default=False)
+# @click.option("--notification", "-n", is_flag=True, default=False)
+# def schedule(name, owner, source, trigger, source_type=None, notification=None):
+#     """Schedule a job"""
 
-    source_type = source_type or "local"
-    tasks = get_tasks(source=source, source_type=source_type)
-    job = Job(
-        name=name,
-        owner=owner,
-        source=source,
-        source_type=source_type,
-        tasks=tasks,
-        trigger=trigger,
-        notification=notification,
-        env="prod",
-    )
+#     source_type = source_type or "local"
+#     tasks = get_tasks(source=source, source_type=source_type)
+#     job = Job(
+#         name=name,
+#         owner=owner,
+#         source=source,
+#         source_type=source_type,
+#         tasks=tasks,
+#         trigger=trigger,
+#         notification=notification,
+#         env="prod",
+#     )
 
-    job.register()
+#     job.register()
 
-    print(f"Job {name} has been successfully scheduled")
+#     print(f"Job {name} has been successfully scheduled")
 
 
 # grizly job schedule "My Job" "github.com/my_job" "* * * * *" --notification={recipients=[a, b]}

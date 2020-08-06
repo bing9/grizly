@@ -18,8 +18,12 @@ def get_workflow(wf_name):
     if "check" in script_name:
         folder_name = script_name.replace("_control_check", "")
     module_path = f"workflows.{folder_name}.{script_name}"
-    module = importlib.import_module(module_path)
-    wf = module.generate_workflow(logger_name=script_name)
+    try:
+        module = importlib.import_module(module_path)
+        wf = module.generate_workflow(logger_name=script_name)
+    except AttributeError:
+        print(f"Workflow could not be imported. Perhaps the module path {module_path} is incorrect?")
+        wf = None
     return wf
 
 
