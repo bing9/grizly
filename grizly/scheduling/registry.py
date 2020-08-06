@@ -4,7 +4,7 @@ import logging
 import os
 import sys
 from time import time
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, Literal
 from ..config import Config
 from croniter import croniter
 
@@ -20,58 +20,62 @@ config = Config().get_service("scheduling")
 
 
 class Registry:
-    def __init__(self, env:str="prod", redis_host: str=None, redis_port:int =None, logger: logging.Logger = None):
+    def __init__(
+        self,
+        env: Literal["dev", "prod"] = "prod",
+        redis_host: str = None,
+        redis_port: int = None,
+        logger: logging.Logger = None,
+    ):
         self.logger = logger or logging.getLogger(__name__)
         self.env = env
-        self.redis_host = None
-        self.redis_port = None
+        self.redis_host = redis_host
+        self.redis_port = redis_port
 
     @property
     def con(self):
         if self.env == "prod":
-            host = self.redis_host or os.getenv("GRIZLY_REDIS_HOST") or config.get("redis_host")
-            port = self.redis_port or os.getenv("GRIZLY_REDIS_PORT") or config.get("redis_port")
+            self.host = self.redis_host or os.getenv("GRIZLY_REDIS_HOST") or config.get("redis_host")
+            self.port = self.redis_port or os.getenv("GRIZLY_REDIS_PORT") or config.get("redis_port")
         elif self.env == "dev":
-            host = self.redis_host or os.getenv("GRIZLY_REDIS_DEV_HOST") or config.get("redis_dev_host")
-            port = self.redis_port or os.getenv("GRIZLY_REDIS_DEV_HOST") or config.get("redis_dev_port")
+            self.host = self.redis_host or os.getenv("GRIZLY_REDIS_DEV_HOST") or config.get("redis_dev_host")
+            self.port = self.redis_port or os.getenv("GRIZLY_REDIS_DEV_HOST") or config.get("redis_dev_port")
         else:
             raise ValueError("Only dev and prod environments are supported")
-        
+
         # dev host = "10.125.68.177"
-        con = Redis(host=host, port=port, db=0)
+        con = Redis(host=self.host, port=self.port, db=0)
         return con
-
-    def get_triggers(self):
-        triggers = []
-        prefix = "grizly:trigger:"
-        for trigger_name_with_prefix in self.con.keys(f"{prefix}*"):
-            if trigger_name_with_prefix is not None:
-                trigger_name = trigger_name_with_prefix.decode("utf-8")[len(prefix):]
-                triggers.append(Trigger(trigger_name, env=self.env, logger=self.logger))
-        return triggers
-
-    def get_jobs(self):
-        prefix = "grizly:job:"
-        jobs = []
-        for job_name_with_prefix in self.con.keys(f"{prefix}*"):
-            if job_name_with_prefix is not None:
-                job_name = job_name_with_prefix.decode("utf-8")[len(prefix):]
-                jobs.append(Job(job_name, env=self.env, logger=self.logger))
-        return jobs
 
     def add_trigger(self, name: str, type: str, value: str):
         Trigger(name=name).register(type=type, value=value)
 
-    def add_job(self, name: str, trigger_name: str, type: str, value: str):
-        Job(name=name).register(type=type, value=value)
+    def get_triggers(self):
+        triggers = []
+        prefix = Trigger.prefix
+        for trigger_name_with_prefix in self.con.keys(f"{prefix}*"):
+            if trigger_name_with_prefix is not None:
+                trigger_name = trigger_name_with_prefix.decode("utf-8")[len(prefix) :]
+                triggers.append(Trigger(trigger_name, env=self.env, logger=self.logger))
+        return triggers
+
+    def add_job(self, name: str, trigger_names: list, type: str, value: str):
+        Job(name=name).register(type=type, trigger_names=trigger_names, value=value)
+
+    def get_jobs(self):
+        prefix = Job.prefix
+        jobs = []
+        for job_name_with_prefix in self.con.keys(f"{prefix}*"):
+            if job_name_with_prefix is not None:
+                job_name = job_name_with_prefix.decode("utf-8")[len(prefix) :]
+                jobs.append(Job(job_name, env=self.env, logger=self.logger))
+        return jobs
 
 
 class RegistryObject:
     prefix = "grizly:"
 
-    def __init__(
-        self, name: str, env: str = "prod", logger: logging.Logger = None, **kwargs
-    ):
+    def __init__(self, name: str, env: Literal["dev", "prod"] = "prod", logger: logging.Logger = None, **kwargs):
         self.name = name
         self.name_with_prefix = self.prefix + name
         self.registry = Registry(env=env, **kwargs)
@@ -101,7 +105,7 @@ class RegistryObject:
         if isinstance(value, datetime):
             value = str(value)
 
-        if isinstance(value, list) and all(isinstance(i, Delayed) for i in value) and value!=[]:
+        if isinstance(value, list) and all(isinstance(i, Delayed) for i in value) and value != []:
             value = str(dask_serialize(value))
 
         return json.dumps(value)
@@ -124,43 +128,20 @@ class Job(RegistryObject):
     prefix = "grizly:job:"
 
     @property
-    def owner(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "owner"))
-
-    @owner.setter
-    def owner(self, value):
-        self.con.hset(self.name_with_prefix, "owner", self.serialize(value))
-
-    #TRIGGERS
-    @property
-    def triggers(self) -> Union["Trigger", None]:
-        if self.trigger_names is not None:
-            triggers = [Trigger(name=self.trigger_name) for trigger_name in trigger_names]
-            return triggers
+    def created_at(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
 
     @property
-    def trigger_names(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "trigger_names"))
+    def error(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "error"))
 
-    @trigger_names.setter
-    def trigger_names(self, trigger_names):
-        """Removes job from old trigger and adds to new one"""
-        for trigger in self.triggers:
-            trigger.remove_job(job_name=self.name)
-        for trigger_name in trigger_names:
-            Trigger(name=trigger_name).add_job(job_name=self.name)
-        self.con.hset(self.name_with_prefix, "trigger_names", self.serialize(value))
-
-    def add_trigger(self, value):
-        Trigger(name=value).add_job(job_name=self.name)
-        trigger_names = self.trigger_names
-        trigger_names.append(value)
-        self.con.hset(self.name_with_prefix, "trigger_names", self.serialize(trigger_names))
-    #TRIGGERS END
+    @error.setter
+    def error(self, value):
+        self.con.hset(self.name_with_prefix, "error", self.serialize(value))
 
     @property
-    def type(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
+    def graph(self):
+        return dask.delayed()(self.tasks, name=self.name + "_graph")
 
     @property
     def last_run(self):
@@ -169,6 +150,14 @@ class Job(RegistryObject):
     @last_run.setter
     def last_run(self, value):
         self.con.hset(self.name_with_prefix, "last_run", self.serialize(value))
+
+    @property
+    def owner(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "owner"))
+
+    @owner.setter
+    def owner(self, value):
+        self.con.hset(self.name_with_prefix, "owner", self.serialize(value))
 
     @property
     def run_time(self):
@@ -187,18 +176,6 @@ class Job(RegistryObject):
         self.con.hset(self.name_with_prefix, "status", self.serialize(value))
 
     @property
-    def error(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "error"))
-
-    @error.setter
-    def error(self, value):
-        self.con.hset(self.name_with_prefix, "error", self.serialize(value))
-
-    @property
-    def created_at(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
-
-    @property
     def tasks(self):
         return self.deserialize(self.con.hget(self.name_with_prefix, "tasks"), type="dask")
 
@@ -206,12 +183,45 @@ class Job(RegistryObject):
     def tasks(self, tasks):
         self.con.hset(self.name_with_prefix, "tasks", self.serialize(tasks))
 
+    # TRIGGERS
     @property
-    def graph(self):
-        return dask.delayed()(self.tasks, name=self.name + "_graph")
+    def triggers(self) -> Union[List["Trigger"], None]:
+        if self.trigger_names is not None:
+            triggers = [Trigger(name=trigger_name) for trigger_name in self.trigger_names]
+            return triggers
 
-    def visualize(self, **kwargs):
-        return self.graph.visualize(**kwargs)
+    @property
+    def trigger_names(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "trigger_names"))
+
+    @trigger_names.setter
+    def trigger_names(self, trigger_names):
+        """Removes job from old trigger and adds to new one"""
+        for trigger in self.triggers:
+            trigger.remove_job(job_name=self.name)
+        for trigger_name in trigger_names:
+            Trigger(name=trigger_name).add_job(job_name=self.name)
+        self.con.hset(self.name_with_prefix, "trigger_names", self.serialize(trigger_names))
+
+    def add_trigger(self, value):
+        Trigger(name=value).add_job(job_name=self.name)
+        trigger_names = self.trigger_names
+        trigger_names.append(value)
+        self.con.hset(self.name_with_prefix, "trigger_names", self.serialize(trigger_names))
+
+    # TRIGGERS END
+
+    @property
+    def type(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
+
+    def cancel(self, scheduler_address=None):
+        if not scheduler_address:
+            scheduler_address = self.scheduler_address
+        client = Client(scheduler_address)
+        f = Future(self.name + "_graph", client=client)
+        f.cancel(force=True)
+        client.close()
 
     def register(
         self, owner: str = None, trigger_names: list = [], tasks: List[dask.delayed] = None, type: str = "regular"
@@ -227,7 +237,7 @@ class Job(RegistryObject):
             "created_at": self.serialize(datetime.now(timezone.utc)),
         }
         self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
-        if trigger_names != []:
+        for trigger_name in trigger_names:
             Trigger(name=trigger_name).add_job(job_name=self.name)
         tasks = tasks or self.tasks
         if tasks is None:
@@ -278,34 +288,16 @@ class Job(RegistryObject):
 
         client.close()
 
-    def cancel(self, scheduler_address=None):
-        if not scheduler_address:
-            scheduler_address = self.scheduler_address
-        client = Client(scheduler_address)
-        f = Future(self.name + "_graph", client=client)
-        f.cancel(force=True)
-        client.close()
+    def visualize(self, **kwargs):
+        return self.graph.visualize(**kwargs)
 
 
 class Trigger(RegistryObject):
     prefix = "grizly:trigger:"
 
     @property
-    def type(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
-
-    @property
-    def value(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "value"))
-
-    @value.setter
-    def value(self, value):
-        self.con.hset(self.name_with_prefix, "value", self.serialize(value))
-
-    @property
-    def jobs(self):
-        job_names = self.deserialize(self.con.hget(self.name_with_prefix, "jobs"))
-        return [Job(name=job) for job in job_names]
+    def created_at(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
 
     @property
     def is_triggered(self):
@@ -316,8 +308,9 @@ class Trigger(RegistryObject):
         self.con.hset(self.name_with_prefix, "is_triggered", self.serialize(value))
 
     @property
-    def created_at(self):
-        return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
+    def jobs(self):
+        job_names = self.deserialize(self.con.hget(self.name_with_prefix, "jobs"))
+        return [Job(name=job) for job in job_names]
 
     @property
     def last_run(self):
@@ -335,16 +328,17 @@ class Trigger(RegistryObject):
         next_run = cron.get_next(datetime).replace(tzinfo=timezone.utc)
         return next_run
 
-    def register(self, type: str, value: str):
-        mapping = {
-            "type": self.serialize(type),
-            "value": self.serialize(value),
-            "is_triggered": "null",
-            "jobs": self.serialize([]),
-            "created_at": self.serialize(datetime.now(timezone.utc)),
-        }
-        self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
-        return self
+    @property
+    def type(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
+
+    @property
+    def value(self):
+        return self.deserialize(self.con.hget(self.name_with_prefix, "value"))
+
+    @value.setter
+    def value(self, value):
+        self.con.hset(self.name_with_prefix, "value", self.serialize(value))
 
     def add_job(self, job_name):
         if not self.exists:
@@ -355,6 +349,17 @@ class Trigger(RegistryObject):
         else:
             job_names.append(job_name)
             self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
+
+    def register(self, type: str, value: str):
+        mapping = {
+            "type": self.serialize(type),
+            "value": self.serialize(value),
+            "is_triggered": "null",
+            "jobs": self.serialize([]),
+            "created_at": self.serialize(datetime.now(timezone.utc)),
+        }
+        self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
+        return self
 
     def remove_job(self, job_name):
         job_names = [job.name for job in self.jobs if job.name != job_name]
