@@ -1,6 +1,7 @@
 FROM grizly_notebook:latest
 
 RUN pip install rq
+RUN pip install rq-scheduler
 RUN pip install setproctitle
 
 
