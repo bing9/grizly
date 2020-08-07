@@ -46,6 +46,8 @@ services:
     build:
       context: .
       dockerfile: rq-dashboard/Dockerfile
+    environment:
+      - REDIS_HOST=pytest_redis
     ports:
       - '1002:9181'
     links:
