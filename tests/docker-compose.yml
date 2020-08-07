@@ -1,9 +1,5 @@
 version: '3'
 
-# networks:
-#   scheduler:
-#     driver: bridge
-
 services:
   pytest_redis:
     image: 'docker.io/bitnami/redis:6.0-debian-10'
@@ -18,8 +14,6 @@ services:
     volumes:
       - 'redis_data:/bitnami/redis/data'
     container_name: pytest_redis
-    # networks:
-    #   - scheduler
   pytest_grizly_notebook:
     image: grizly_notebook:latest
     environment:
@@ -31,25 +25,20 @@ services:
     ports:
       - "1001:8888"
     volumes:
-      - C:\Users\te393828\acoe_projects\platform\local\docker_home:/home/analyst
+      - ~\acoe_projects\platform\local\docker_home:/home/analyst
     container_name: pytest_grizly_notebook
     restart: "always"
-    # networks:
-    #   - scheduler
-  pytest_rq-workers:
-    image: rq-workers
+  pytest_rq-worker:
+    image: rq-worker
     build:
       context: .
-      dockerfile: rq-workers/Dockerfile
+      dockerfile: rq-worker/Dockerfile
     links:
       - pytest_redis
     depends_on:
         - pytest_redis
-    # networks:
-    #   - scheduler
     volumes:
-      - ./rq-workers:/usr/src/workers
-    container_name: pytest_rq-workers
+      - ~\acoe_projects\platform\local\docker_home:/home/analyst
     restart: "always"
   pytest_rq-dashboard:
     image: rq-dashboard
@@ -58,15 +47,26 @@ services:
       context: .
       dockerfile: rq-dashboard/Dockerfile
     ports:
-      - '9181:9181'
-    expose:
-      - "9181"
+      - '1002:9181'
     links:
       - pytest_redis
     depends_on:
       - pytest_redis
-    # networks:
-    #   - scheduler
+    restart: "always"
+  pytest_grizly_scheduler:
+    image: acoeteam/grizly_scheduler:latest
+    ports:
+      - "1003:8787"
+    container_name: pytest_grizly_scheduler
+    restart: "always"
+  pytest_grizly_worker:
+    image: acoeteam/grizly_worker:latest
+    environment:
+      - SCHEDULER_ADDRESS=pytest_grizly_scheduler:8786
+    volumes:
+      - ~\acoe_projects\platform\local\docker_home:/home/analyst
+    depends_on:
+      - pytest_grizly_scheduler
     restart: "always"
 
 volumes:
