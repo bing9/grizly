@@ -1,8 +1,14 @@
-from ..grizly.scheduling.registry import Job, Registry
-import redis
-import dask
+from datetime import datetime, timezone
 import json
-from hypothesis.strategies import text
+import pytest
+
+import dask
+from hypothesis import given
+import redis
+
+from hypothesis.strategies import integers, text, lists
+
+from ..grizly.scheduling.registry import Job, Registry, RegistryObject, Trigger
 
 
 @dask.delayed
@@ -17,19 +23,94 @@ con = redis.Redis(host="pytest_redis")
 
 
 @given(text())
-def test_job_properties(name):
+def test_registryobject_serialize(s):
+    pass
+
+
+# PROPERTIES TESTS
+# checking if properites return right values
+# and if the setters work
+
+
+@given(text(), text())
+def test_job_error(name, error):
     job = Job(name)
     job.register(tasks=tasks)
-    properties = (
-        job.owner,
-        job.trigger_names,
-        job.type,
-        job.last_run,
-        job.run_time,
-        job.status,
-        job.error,
-        job.created_at,
-    )
+    assert job.error is None
+
+    job.error = error
+    assert job.error == error
+    job.remove()
+
+
+@given(text())
+def test_job_last_run(name):
+    job = Job(name)
+    job.register(tasks=tasks)
+    assert job.last_run is None
+
+    last_run = datetime.now(timezone.utc)
+    job.last_run = last_run
+    assert job.last_run == last_run
+    job.remove()
+
+
+@given(text(), text())
+def test_job_owner(name, owner):
+    job = Job(name)
+    job.register(tasks=tasks, owner=owner)
+    assert job.owner == owner
+    job.remove()
+
+
+@given(text(), integers())
+def test_job_run_time(name, run_time):
+    job = Job(name)
+    job.register(tasks=tasks)
+    assert job.run_time is None
+
+    job.run_time = run_time
+    assert job.run_time == run_time
+    job.remove()
+
+
+def test_job_status():
+    # this one should check only allowed statuses
+    # and check if it fails in other cases
+    pass
+
+
+@given(text())
+def test_job_tasks(name):
+    job = Job(name)
+    job.register(tasks=tasks)
+    assert job.tasks == tasks
+    job.remove()
+
+
+@given(text(), text())
+def test_job_trigger_names(job_name, trigger_name):
+    job = Job(job_name)
+    job.register(tasks=tasks)
+    assert job.trigger_names == []
+
+    with pytest.raises(ValueError):
+        job.trigger_names = ["not_found_trigger"]
+
+    tr = Trigger(name=trigger_name)
+    tr.register(type="cron", value="*/3 * * * *")
+    job.trigger_names = [trigger_name]
+    assert job.trigger_names == [trigger_name]
+    job.remove()
+    tr.remove()
+
+
+def test_job_type():
+    # same as in test_job_status
+    pass
+
+
+# END PROPERTIES TESTS
 
 
 @given(text())
@@ -38,6 +119,9 @@ def test_register_job(name):
     job = Job(name)
     job.register(tasks=tasks)
     assert job.exists
+    job.remove()
+
+    assert not job.exists
 
 
 def test_add_trigger():

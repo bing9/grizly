@@ -50,25 +50,46 @@ class Registry:
     def add_trigger(self, name: str, type: str, value: str):
         Trigger(name=name).register(type=type, value=value)
 
-    def get_triggers(self):
-        triggers = []
+    def get_trigger_names(self):
+        trigger_names = []
         prefix = Trigger.prefix
         for trigger_name_with_prefix in self.con.keys(f"{prefix}*"):
             if trigger_name_with_prefix is not None:
                 trigger_name = trigger_name_with_prefix.decode("utf-8")[len(prefix) :]
-                triggers.append(Trigger(trigger_name, env=self.env, logger=self.logger))
+                trigger_names.append(trigger_name)
+        return trigger_names
+
+    def get_triggers(self):
+        trigger_names = self.get_trigger_names()
+        triggers = []
+        for trigger_name in trigger_names:
+            triggers.append(Trigger(trigger_name, env=self.env, logger=self.logger))
         return triggers
 
-    def add_job(self, name: str, trigger_names: list, type: str, value: str):
-        Job(name=name).register(type=type, trigger_names=trigger_names, value=value)
+    def add_job(
+        self,
+        name: str,
+        owner: str = None,
+        trigger_names: list = [],
+        tasks: List[dask.delayed] = None,
+        type: Literal["regular", "system"] = "regular",
+    ):
+        Job(name=name).register(type=type, trigger_names=trigger_names, owner=owner, tasks=tasks)
 
-    def get_jobs(self):
+    def get_job_names(self):
         prefix = Job.prefix
-        jobs = []
+        job_names = []
         for job_name_with_prefix in self.con.keys(f"{prefix}*"):
             if job_name_with_prefix is not None:
                 job_name = job_name_with_prefix.decode("utf-8")[len(prefix) :]
-                jobs.append(Job(job_name, env=self.env, logger=self.logger))
+                job_names.append(job_name)
+        return job_names
+
+    def get_jobs(self):
+        job_names = self.get_job_names()
+        jobs = []
+        for job_name in job_names:
+            jobs.append(Job(job_name, env=self.env, logger=self.logger))
         return jobs
 
 
@@ -101,7 +122,7 @@ class RegistryObject:
         self.con.delete(self.name_with_prefix)
 
     @staticmethod
-    def serialize(value):
+    def serialize(value: Any) -> str:
         if isinstance(value, datetime):
             value = str(value)
 
@@ -111,15 +132,16 @@ class RegistryObject:
         return json.dumps(value)
 
     @staticmethod
-    def deserialize(value, type: str = None) -> Any:
+    def deserialize(value: Any, type: Union[Literal["datetime", "dask"], None] = None) -> Any:
         if value is None:
             return None
         else:
             value = json.loads(value)
-            if type == "datetime":
-                value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
-            elif type == "dask":
-                value = dask_deserialize(*eval(value))
+            if value is not None:
+                if type == "datetime":
+                    value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
+                elif type == "dask":
+                    value = dask_deserialize(*eval(value))
 
             return value
 
@@ -127,78 +149,77 @@ class RegistryObject:
 class Job(RegistryObject):
     prefix = "grizly:job:"
 
-    def __init__(self, *args, **kwargs):
-        super(Job, self).__init__(*args, **kwargs)
+    # def __init__(self, *args, **kwargs):
+    #     super(Job, self).__init__(*args, **kwargs)
 
     @property
-    def created_at(self):
+    def created_at(self) -> datetime:
         return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
 
     @property
-    def error(self):
+    def error(self) -> str:
         return self.deserialize(self.con.hget(self.name_with_prefix, "error"))
 
     @error.setter
-    def error(self, value):
-        self.con.hset(self.name_with_prefix, "error", self.serialize(value))
+    def error(self, error: str):
+        self.con.hset(self.name_with_prefix, "error", self.serialize(error))
 
     @property
-    def graph(self):
+    def graph(self) -> Delayed:
         return dask.delayed()(self.tasks, name=self.name + "_graph")
 
     @property
-    def last_run(self):
+    def last_run(self) -> datetime:
         return self.deserialize(self.con.hget(self.name_with_prefix, "last_run"), type="datetime")
 
     @last_run.setter
-    def last_run(self, value):
-        self.con.hset(self.name_with_prefix, "last_run", self.serialize(value))
+    def last_run(self, last_run: datetime):
+        self.con.hset(self.name_with_prefix, "last_run", self.serialize(last_run))
 
     @property
-    def owner(self):
+    def owner(self) -> str:
         return self.deserialize(self.con.hget(self.name_with_prefix, "owner"))
 
     @owner.setter
-    def owner(self, value):
-        self.con.hset(self.name_with_prefix, "owner", self.serialize(value))
+    def owner(self, owner: str):
+        self.con.hset(self.name_with_prefix, "owner", self.serialize(owner))
 
     @property
-    def run_time(self):
+    def run_time(self) -> int:
         return self.deserialize(self.con.hget(self.name_with_prefix, "run_time"))
 
     @run_time.setter
-    def run_time(self, value):
-        self.con.hset(self.name_with_prefix, "run_time", self.serialize(value))
+    def run_time(self, run_time: int):
+        self.con.hset(self.name_with_prefix, "run_time", self.serialize(run_time))
 
     @property
-    def status(self):
+    def status(self) -> Literal["fail", "running", "success"]:
         return self.deserialize(self.con.hget(self.name_with_prefix, "status"))
 
     @status.setter
-    def status(self, value):
-        self.con.hset(self.name_with_prefix, "status", self.serialize(value))
+    def status(self, status: Literal["fail", "running", "success"]):
+        self.con.hset(self.name_with_prefix, "status", self.serialize(status))
 
     @property
-    def tasks(self):
+    def tasks(self) -> List[Delayed]:
         return self.deserialize(self.con.hget(self.name_with_prefix, "tasks"), type="dask")
 
     @tasks.setter
-    def tasks(self, tasks):
+    def tasks(self, tasks: List[Delayed]):
         self.con.hset(self.name_with_prefix, "tasks", self.serialize(tasks))
 
     # TRIGGERS
     @property
-    def triggers(self) -> Union[List["Trigger"], None]:
-        if self.trigger_names is not None:
-            triggers = [Trigger(name=trigger_name) for trigger_name in self.trigger_names]
-            return triggers
+    def triggers(self) -> List["Trigger"]:
+        triggers = [Trigger(name=trigger_name) for trigger_name in self.trigger_names]
+        return triggers
 
     @property
-    def trigger_names(self):
+    def trigger_names(self) -> List[str]:
         return self.deserialize(self.con.hget(self.name_with_prefix, "trigger_names"))
 
     @trigger_names.setter
-    def trigger_names(self, trigger_names):
+    def trigger_names(self, trigger_names: List[str]):
         """Removes job from old trigger and adds to new one"""
         for trigger in self.triggers:
             trigger.remove_job(job_name=self.name)
@@ -206,19 +227,19 @@ class Job(RegistryObject):
             Trigger(name=trigger_name).add_job(job_name=self.name)
         self.con.hset(self.name_with_prefix, "trigger_names", self.serialize(trigger_names))
 
-    def add_trigger(self, value):
-        Trigger(name=value).add_job(job_name=self.name)
+    def add_trigger(self, trigger_name: str):
+        Trigger(name=trigger_name).add_job(job_name=self.name)
         trigger_names = self.trigger_names
-        trigger_names.append(value)
+        trigger_names.append(trigger_name)
         self.con.hset(self.name_with_prefix, "trigger_names", self.serialize(trigger_names))
 
     # TRIGGERS END
 
     @property
-    def type(self):
+    def type(self) -> Literal["regular", "system"]:
         return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
 
-    def cancel(self, scheduler_address=None):
+    def cancel(self, scheduler_address: str = None):
         if not scheduler_address:
             scheduler_address = self.scheduler_address
         client = Client(scheduler_address)
@@ -227,8 +248,12 @@ class Job(RegistryObject):
         client.close()
 
     def register(
-        self, owner: str = None, trigger_names: list = [], tasks: List[dask.delayed] = None, type: str = "regular"
-    ):
+        self,
+        tasks: List[Delayed],
+        owner: str = None,
+        trigger_names: List[str] = [],
+        type: Literal["regular", "system"] = "regular",
+    ) -> "Job":
         mapping = {
             "owner": self.serialize(owner),
             "trigger_names": self.serialize(trigger_names),
@@ -255,7 +280,7 @@ class Job(RegistryObject):
         priority: int = None,
         resources: Dict[str, Any] = None,
         to_dask=True,
-    ) -> None:
+    ) -> Any:
 
         priority = priority or 1
         if to_dask:
@@ -275,9 +300,10 @@ class Job(RegistryObject):
 
         start = time()
         try:
-            self.graph.compute()
+            result = self.graph.compute()
             status = "success"
         except Exception:
+            result = None
             status = "fail"
             _, exc_value, _ = sys.exc_info()
             self.error = str(exc_value)
@@ -290,6 +316,7 @@ class Job(RegistryObject):
         self.logger.info(f"Job {self.name} finished with status {status}")
 
         client.close()
+        return result
 
     def visualize(self, **kwargs):
         return self.graph.visualize(**kwargs)
@@ -298,15 +325,15 @@ class Job(RegistryObject):
 class Trigger(RegistryObject):
     prefix = "grizly:trigger:"
 
-    def __init__(self, *args, **kwargs):
-        super(Trigger, self).__init__(*args, **kwargs)
+    # def __init__(self, *args, **kwargs):
+    #     super(Trigger, self).__init__(*args, **kwargs)
 
     @property
-    def created_at(self):
+    def created_at(self) -> datetime:
         return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
 
     @property
-    def is_triggered(self):
+    def is_triggered(self) -> bool:
         return self.deserialize(self.con.hget(self.name_with_prefix, "is_triggered"))
 
     @is_triggered.setter
@@ -314,20 +341,20 @@ class Trigger(RegistryObject):
         self.con.hset(self.name_with_prefix, "is_triggered", self.serialize(value))
 
     @property
-    def jobs(self):
+    def jobs(self) -> List[Union["Job", None]]:
         job_names = self.deserialize(self.con.hget(self.name_with_prefix, "jobs"))
         return [Job(name=job) for job in job_names]
 
     @property
-    def last_run(self):
+    def last_run(self) -> datetime:
         return self.deserialize(self.con.hget(self.name_with_prefix, "last_run"), type="datetime")
 
     @last_run.setter
-    def last_run(self, value):
+    def last_run(self, value: datetime):
         self.con.hset(self.name_with_prefix, "last_run", self.serialize(value))
 
     @property
-    def next_run(self):
+    def next_run(self) -> datetime:
         start_date = self.last_run or self.created_at
         cron_str = self.value
         cron = croniter(cron_str, start_date)
@@ -335,18 +362,18 @@ class Trigger(RegistryObject):
         return next_run
 
     @property
-    def type(self):
+    def type(self) -> Literal["cron", "listener"]:
         return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
 
     @property
-    def value(self):
+    def value(self) -> str:
         return self.deserialize(self.con.hget(self.name_with_prefix, "value"))
 
     @value.setter
-    def value(self, value):
+    def value(self, value: str):
         self.con.hset(self.name_with_prefix, "value", self.serialize(value))
 
-    def add_job(self, job_name):
+    def add_job(self, job_name: str):
         if not self.exists:
             raise ValueError(f"Trigger {self.name} does not exist.")
         job_names = [job.name for job in self.jobs]
@@ -356,7 +383,14 @@ class Trigger(RegistryObject):
             job_names.append(job_name)
             self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
 
-    def register(self, type: str, value: str):
+    def register(self, type: Literal["cron", "listener"], value: str):
+        # VALIDATIONS
+        valid_types = ["cron", "listener"]
+        if type not in valid_types:
+            raise ValueError(f"Invalid value {type} in type. Valid values: {valid_types}")
+        if type == "cron" and not croniter.is_valid(value):
+            raise ValueError(f"Invalid cron string {value}")
+
         mapping = {
             "type": self.serialize(type),
             "value": self.serialize(value),
@@ -367,6 +401,6 @@ class Trigger(RegistryObject):
         self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
         return self
 
-    def remove_job(self, job_name):
+    def remove_job(self, job_name: str):
         job_names = [job.name for job in self.jobs if job.name != job_name]
         self.con.hset(name=self.name_with_prefix, key="jobs", value=self.serialize(job_names))
