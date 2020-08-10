@@ -1,13 +1,13 @@
 from datetime import datetime, timezone
+from functools import wraps
 import json
 import logging
 import os
 import sys
 from time import time
-from typing import Any, Dict, List, Union, Literal
-from croniter import croniter
-from ..config import Config
+from typing import Any, Dict, List, Literal, Union
 
+from croniter import croniter
 import dask
 from dask.delayed import Delayed
 from distributed import Client, Future
@@ -15,7 +15,36 @@ from distributed.protocol.serialize import serialize as dask_serialize
 from distributed.protocol.serialize import deserialize as dask_deserialize
 from redis import Redis
 
+from ..config import Config
+from ..exceptions import JobNotFoundError
+
 config = Config().get_service("scheduling")
+
+
+def _check_if_exists(raise_error=True):
+    """Checks if the job exists in the registry
+
+    Parameters
+    ----------
+    raise_error : bool, optional
+        Whether to raise error if job doesn't exist, by default True
+
+    """
+
+    def deco_wrap(f):
+        @wraps(f)
+        def wrapped(self, *args, **kwargs):
+            if not self.exists:
+                if raise_error:
+                    raise JobNotFoundError
+                else:
+                    self.logger.warning("Job not found in the registry")
+
+            return f(self, *args, **kwargs)
+
+        return wrapped
+
+    return deco_wrap
 
 
 class Job:
@@ -96,6 +125,7 @@ class Job:
         return self.deserialize(self.con.hget(self.registry_name, "owner"))
 
     @owner.setter
+    @_check_if_exists()
     def owner(self, owner: str):
         self.con.hset(self.registry_name, "owner", self.serialize(owner))
 
@@ -120,6 +150,7 @@ class Job:
         return self.deserialize(self.con.hget(self.registry_name, "tasks"), type="dask")
 
     @tasks.setter
+    @_check_if_exists()
     def tasks(self, tasks: List[Delayed]):
         self.con.hset(self.registry_name, "tasks", self.serialize(tasks))
 
@@ -132,6 +163,7 @@ class Job:
         return downstream_jobs
 
     @downstream.setter
+    @_check_if_exists()
     def downstream(self, new_job_names: List[str]):
         """
         Overwrite the list of downstream jobs.
@@ -147,6 +179,7 @@ class Job:
         # 3. Update upstream jobs with the new job
         self.con.hset(self.registry_name, "upstream", self.serialize(new_job_names))
 
+    @_check_if_exists()
     def add_downstream_jobs(self, job_names: Union[List[str], str]):
         """Add downstream jobs
 
@@ -175,6 +208,7 @@ class Job:
             if self not in downstream_job.upstream:
                 downstream_job.add_upstream_jobs(self.name)
 
+    @_check_if_exists()
     def remove_downstream_jobs(self, job_names: Union[str, List[str]]):
         self.logger.info(f"Removing downstream jobs: {job_names}...")
 
@@ -204,6 +238,7 @@ class Job:
         return upstream_jobs
 
     @upstream.setter
+    @_check_if_exists()
     def upstream(self, new_job_names: List[str]):
         """
         Overwrite the list of upstream jobs.
@@ -219,6 +254,7 @@ class Job:
         # 3. Update upstream jobs with the new job
         self.con.hset(self.registry_name, "upstream", self.serialize(new_job_names))
 
+    @_check_if_exists()
     def add_upstream_jobs(self, job_names: Union[List[str], str]):
         """Add upstream jobs
 
@@ -247,6 +283,7 @@ class Job:
             if self not in upstream_job.downstream:
                 upstream_job.add_downstream_jobs(self.name)
 
+    @_check_if_exists()
     def remove_upstream_jobs(self, job_names: Union[str, List[str]]):
         self.logger.info(f"Removing upstream jobs: {job_names}...")
         if isinstance(job_names, str):
@@ -284,12 +321,17 @@ class Job:
         cron: Union[str, None] = None,
         owner: Union[str, None] = None,
         upstream: List[str] = [],
-        downstream: List[str] = [],
+        if_exists: Literal["fail", "replace"] = "fail",
     ) -> "Job":
+        if if_exists == "fail" and self.exists:
+            raise ValueError(f"Job {self.name} already exists")
+        if self.name in upstream:
+            raise ValueError(f"Job cannot be its own upstream job !!!")
+
         mapping = {
             "owner": self.serialize(owner),
             "upstream": self.serialize(upstream),
-            "downstream": self.serialize(downstream),
+            "downstream": self.serialize([]),
             # "last_run": "null",
             # "run_time": "null",
             # "status": "null",
@@ -305,15 +347,13 @@ class Job:
         for upstream_job_name in upstream:
             upstream_job = Job(name=upstream_job_name)
             upstream_job.add_downstream_jobs(self.name)
-        # add the job as upstream in all downstream jobs
-        for downstream_job_name in downstream:
-            downstream_job = Job(name=downstream_job_name)
-            downstream_job.add_upstream_jobs(self.name)
         return self
 
+    @_check_if_exists(raise_error=False)
     def remove(self):
         self.con.delete(self.registry_name)
 
+    @_check_if_exists()
     def submit(
         self,
         client: Client = None,
@@ -359,6 +399,7 @@ class Job:
         client.close()
         return result
 
+    @_check_if_exists()
     def visualize(self, **kwargs):
         return self.graph.visualize(**kwargs)
 
