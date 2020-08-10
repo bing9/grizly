@@ -33,10 +33,12 @@ class Job:
     ):
         self.name = name
         self.registry_name = self.registry_prefix + name
+        self.job_runs_name = self.job_runs_prefix + name
         self.env = env
         self.redis_host = redis_host
         self.redis_port = redis_port
         self.logger = logger or logging.getLogger(__name__)
+        self.descritpion = "sth"
 
     def __eq__(self, other):
         return self.name == other.name
@@ -63,13 +65,21 @@ class Job:
     def created_at(self) -> datetime:
         return self.deserialize(self.con.hget(self.registry_name, "created_at"), type="datetime")
 
+    @property
+    def info(self):
+        pass
+
+    @property
+    def nex_run(self):
+        pass
+
     # @property
     # def error(self) -> str:
-    #     return self.deserialize(self.con.hget(self.registry_name, "error"))
+    #     return self.deserialize(self.con.hget(self.job_runs_name, "error"))
 
     # @error.setter
     # def error(self, error: str):
-    #     self.con.hset(self.registry_name, "error", self.serialize(error))
+    #     self.con.hset(self.job_runs_name, "error", self.serialize(error))
 
     @property
     def exists(self):
