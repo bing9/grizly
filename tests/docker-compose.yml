@@ -55,6 +55,18 @@ services:
     depends_on:
       - pytest_redis
     restart: "always"
+  pytest-rq-scheduler:
+    image: rq-scheduler
+    container_name: pytest_rq-scheduler
+    build:
+      context: .
+      dockerfile: rq-scheduler/Dockerfile
+    environment:
+      - REDIS_HOST=pytest_redis
+    links:
+      - pytest_redis
+    depends_on:
+      - pytest_redis
   pytest_grizly_scheduler:
     image: acoeteam/grizly_scheduler:latest
     ports:
