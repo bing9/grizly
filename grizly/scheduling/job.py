@@ -23,13 +23,14 @@ class Job:
     job_runs_prefix = "grizly:job_runs:"
 
     def __init__(
-        self, 
-        name: str, 
-        env: Literal["dev", "prod"] = "prod", 
+        self,
+        name: str,
+        env: Literal["dev", "prod"] = "prod",
         redis_host: Union[str, None] = None,
         redis_port: Union[int, None] = None,
-        logger: logging.Logger = None, **kwargs
-        ):
+        logger: logging.Logger = None,
+        **kwargs,
+    ):
         self.name = name
         self.registry_name = self.registry_prefix + name
         self.env = env
@@ -59,41 +60,6 @@ class Job:
         return con
 
     @property
-    def getall(self):
-        return self.con.hgetall(self.registry_name)
-
-    @property
-    def exists(self):
-        return self.con.exists(self.registry_name)
-
-    def remove(self):
-        self.con.delete(self.registry_name)
-
-    @staticmethod
-    def serialize(value: Any) -> str:
-        if isinstance(value, datetime):
-            value = str(value)
-
-        if isinstance(value, list) and all(isinstance(i, Delayed) for i in value) and value != []:
-            value = str(dask_serialize(value))
-
-        return json.dumps(value)
-
-    @staticmethod
-    def deserialize(value: Any, type: Union[Literal["datetime", "dask"], None] = None) -> Any:
-        if value is None:
-            return None
-        else:
-            value = json.loads(value)
-            if value is not None:
-                if type == "datetime":
-                    value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
-                elif type == "dask":
-                    value = dask_deserialize(*eval(value))
-
-            return value
-
-    @property
     def created_at(self) -> datetime:
         return self.deserialize(self.con.hget(self.registry_name, "created_at"), type="datetime")
 
@@ -104,6 +70,14 @@ class Job:
     # @error.setter
     # def error(self, error: str):
     #     self.con.hset(self.registry_name, "error", self.serialize(error))
+
+    @property
+    def exists(self):
+        return self.con.exists(self.registry_name)
+
+    @property
+    def getall(self):
+        return self.con.hgetall(self.registry_name)
 
     @property
     def graph(self) -> Delayed:
@@ -149,27 +123,7 @@ class Job:
     def tasks(self, tasks: List[Delayed]):
         self.con.hset(self.registry_name, "tasks", self.serialize(tasks))
 
-    @property
-    def upstream(self) -> List["Job"]:
-        upstream_job_names = self.deserialize(self.con.hget(self.registry_name, "upstream"))
-        upstream_jobs = [Job(job_name) for job_name in upstream_job_names]
-        return upstream_jobs
-
-    @upstream.setter
-    def upstream(self, new_job_names: List[str]):
-        """
-        Overwrite the list of upstream jobs.
-        """
-        # 1. Remove from downstream jobs of all the jobs on the previous upstream jobs list
-        old_upstream_jobs = self.upstream
-        for upstream_job in old_upstream_jobs:
-            upstream_job.remove_downstream_jobs(self.name)
-        # 2. Add as a downstream job to the jobs in new_job_names
-        for new_upstream_job_name in new_job_names:
-            new_upstream_job = Job(new_upstream_job_name)
-            new_upstream_job.add_downstream_jobs(self.name)
-        # 3. Update upstream jobs with the new job
-        self.con.hset(self.registry_name, "upstream", self.serialize(new_job_names))
+    # DOWNSTREAM/UPSTREAM
 
     @property
     def downstream(self) -> List["Job"]:
@@ -177,7 +131,7 @@ class Job:
         downstream_jobs = [Job(job_name) for job_name in downstream_job_names]
         return downstream_jobs
 
-    @upstream.setter
+    @downstream.setter
     def downstream(self, new_job_names: List[str]):
         """
         Overwrite the list of downstream jobs.
@@ -221,7 +175,6 @@ class Job:
             if self not in downstream_job.upstream:
                 downstream_job.add_upstream_jobs(self.name)
 
-
     def remove_downstream_jobs(self, job_names: Union[str, List[str]]):
         self.logger.info(f"Removing downstream jobs: {job_names}...")
 
@@ -243,6 +196,28 @@ class Job:
 
         # update Redis
         self.con.hset(name=self.registry_name, key="downstream", value=self.serialize(downstream_job_names))
+
+    @property
+    def upstream(self) -> List["Job"]:
+        upstream_job_names = self.deserialize(self.con.hget(self.registry_name, "upstream"))
+        upstream_jobs = [Job(job_name) for job_name in upstream_job_names]
+        return upstream_jobs
+
+    @upstream.setter
+    def upstream(self, new_job_names: List[str]):
+        """
+        Overwrite the list of upstream jobs.
+        """
+        # 1. Remove from downstream jobs of all the jobs on the previous upstream jobs list
+        old_upstream_jobs = self.upstream
+        for upstream_job in old_upstream_jobs:
+            upstream_job.remove_downstream_jobs(self.name)
+        # 2. Add as a downstream job to the jobs in new_job_names
+        for new_upstream_job_name in new_job_names:
+            new_upstream_job = Job(new_upstream_job_name)
+            new_upstream_job.add_downstream_jobs(self.name)
+        # 3. Update upstream jobs with the new job
+        self.con.hset(self.registry_name, "upstream", self.serialize(new_job_names))
 
     def add_upstream_jobs(self, job_names: Union[List[str], str]):
         """Add upstream jobs
@@ -272,7 +247,6 @@ class Job:
             if self not in upstream_job.downstream:
                 upstream_job.add_downstream_jobs(self.name)
 
-
     def remove_upstream_jobs(self, job_names: Union[str, List[str]]):
         self.logger.info(f"Removing upstream jobs: {job_names}...")
         if isinstance(job_names, str):
@@ -294,7 +268,7 @@ class Job:
         # update Redis
         self.con.hset(name=self.registry_name, key="upstream", value=self.serialize(upstream_job_names))
 
-    # TRIGGERS END
+    # DOWNSTREAM/UPSTREAM END
 
     def cancel(self, scheduler_address: Union[str, None] = None):
         if not scheduler_address:
@@ -310,7 +284,7 @@ class Job:
         cron: Union[str, None] = None,
         owner: Union[str, None] = None,
         upstream: List[str] = [],
-        downstream: List[str] = []
+        downstream: List[str] = [],
     ) -> "Job":
         mapping = {
             "owner": self.serialize(owner),
@@ -336,6 +310,9 @@ class Job:
             downstream_job = Job(name=downstream_job_name)
             downstream_job.add_upstream_jobs(self.name)
         return self
+
+    def remove(self):
+        self.con.delete(self.registry_name)
 
     def submit(
         self,
@@ -384,3 +361,27 @@ class Job:
 
     def visualize(self, **kwargs):
         return self.graph.visualize(**kwargs)
+
+    @staticmethod
+    def serialize(value: Any) -> str:
+        if isinstance(value, datetime):
+            value = str(value)
+
+        if isinstance(value, list) and all(isinstance(i, Delayed) for i in value) and value != []:
+            value = str(dask_serialize(value))
+
+        return json.dumps(value)
+
+    @staticmethod
+    def deserialize(value: Any, type: Union[Literal["datetime", "dask"], None] = None) -> Any:
+        if value is None:
+            return None
+        else:
+            value = json.loads(value)
+            if value is not None:
+                if type == "datetime":
+                    value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
+                elif type == "dask":
+                    value = dask_deserialize(*eval(value))
+
+            return value
