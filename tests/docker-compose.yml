@@ -55,7 +55,7 @@ services:
     depends_on:
       - pytest_redis
     restart: "always"
-  pytest-rq-scheduler:
+  pytest_rq-scheduler:
     image: rq-scheduler
     container_name: pytest_rq-scheduler
     build:
@@ -67,20 +67,20 @@ services:
       - pytest_redis
     depends_on:
       - pytest_redis
-  pytest_grizly_scheduler:
+  pytest_dask_scheduler:
     image: acoeteam/grizly_scheduler:latest
     ports:
       - "1003:8787"
-    container_name: pytest_grizly_scheduler
+    container_name: pytest_dask_scheduler
     restart: "always"
-  pytest_grizly_worker:
+  pytest_dask_worker:
     image: acoeteam/grizly_worker:latest
     environment:
-      - SCHEDULER_ADDRESS=pytest_grizly_scheduler:8786
+      - SCHEDULER_ADDRESS=pytest_dask_scheduler:8786
     volumes:
       - ~\acoe_projects\platform\local\docker_home:/home/analyst
     depends_on:
-      - pytest_grizly_scheduler
+      - pytest_dask_scheduler
     restart: "always"
 
 volumes:
