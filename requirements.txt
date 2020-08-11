@@ -32,3 +32,4 @@ yattag==1.13.2
 redis==3.5
 rq==1.5
 rq-scheduler==0.10
+typer==0.3
