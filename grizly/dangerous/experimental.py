@@ -7,7 +7,7 @@ import pyarrow.parquet as pq
 from pyarrow import Table
 import logging
 from distributed import Client
-from typing import List, Any
+from typing import List, Any, Union
 from dask.delayed import Delayed
 import gc
 
@@ -21,6 +21,7 @@ class Extract:
         driver: QFrame,  # BaseDriver?
         store_backend: str = "local",
         data_backend: str = "s3",
+        client_str: str = None,
         logger: logging.Logger = None,
         **kwargs,
     ):
@@ -28,9 +29,8 @@ class Extract:
         self.driver = driver
         self.store_backend = store_backend
         self.data_backend = data_backend
+        self.client_str = client_str
         self.priority = 0
-        self.scheduler_address = "grizly_scheduler:8786"
-        self.client = None
         self.bucket = "acoe-s3"
         for k, v in kwargs.items():
             if not (k in self.__class__.__allowed):
@@ -39,6 +39,11 @@ class Extract:
         self.module_name = self.name.lower().replace(" - ", "_").replace(" ", "_")
         self.logger = logger or logging.getLogger("distributed.worker").getChild(self.module_name)
         self.load_store()
+
+    def _get_client(self, client_str: Union[str, None] = None):
+        if not client_str:
+            client_str = self.client_str
+        return Client(client_str)
 
     def _validate_store(self, store):
         pass
@@ -280,9 +285,9 @@ class Extract:
         download_if_older_than: int = 0,
         cache_distinct_values: bool = True,
         output_table_type: str = "external",
+        client_str: str = None,
         **kwargs,
     ):
-        client = self.client or Client(self.scheduler_address)
 
         if refresh_partitions_list:
             all_partitions = self.get_distinct_values()
@@ -306,7 +311,9 @@ class Extract:
             )  # should return json obj
 
         # compute partitions on the cluster
+        client = self._get_client(client_str)
         partitions = client.compute(partitions_to_download).result()
+        client.close()
         if not partitions:
             self.logger.warning("No partitions to download")
 
@@ -352,7 +359,8 @@ class Extract:
         --------
         Extract().submit(scheduler_address="grizly_scheduler:8786")
         """
+        client_str = kwargs.get("client_str")
+        client = self._get_client(client_str)
         wf = self.generate_workflow(**kwargs)
-        if not kwargs.get("scheduler_address"):
-            scheduler_address = self.scheduler_address
-        wf.submit(scheduler_address=scheduler_address, **kwargs)
+        wf.submit(client, **kwargs)
+        client.close()
