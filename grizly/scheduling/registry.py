@@ -41,7 +41,7 @@ class Registry:
             self.host = self.redis_host or os.getenv("GRIZLY_REDIS_DEV_HOST") or config.get("redis_dev_host")
             self.port = self.redis_port or os.getenv("GRIZLY_REDIS_DEV_HOST") or config.get("redis_dev_port")
         else:
-            raise ValueError("Only dev and prod environments are supported")
+            self.host = self.redis_host
 
         # dev host = "10.125.68.177"
         con = Redis(host=self.host, port=self.port, db=0)
