@@ -6,4 +6,4 @@ REDIS_PORT = 6379
 # REDIS_PASSWORD = 'very secret'
 
 # Queues to listen on
-QUEUES = ["checks_queue", "submit_queue"]
+QUEUES = ["system", "submit"]
