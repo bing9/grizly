@@ -126,7 +126,7 @@ class Extract:
         )
         records = partitions_qf.to_records()
         if isinstance(columns, list):
-            values = ["_".join(str(val) for val in row) for row in records]
+            values = ["|".join(str(val) for val in row) for row in records]
         else:
             values = [row[0] for row in records]
 
@@ -328,7 +328,7 @@ class Extract:
         # create the workflow
         uploads = []
         for partition in partitions:
-            partition_concatenated = partition.replace("_", "")
+            partition_concatenated = partition.replace("|", "")
             s3_key = self.s3_key + "data/staging/" + f"{partition}.parquet"
             where = f"{partition_cols}='{partition_concatenated}'"
             # where_with_null = f"{partition_cols} IS NULL"
