@@ -32,7 +32,7 @@ class BaseTool:
         if self.__class__.__name__ == "QFrame":
             self.sql = self.get_sql()
             if self.sqldb.db == "denodo":
-                self.sql += " CONTEXT('swap' = 'ON', 'swapsize' = '400', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'off')"
+                self.sql += " CONTEXT('swap' = 'ON', 'swapsize' = '400', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
 
             self.logger.info(f"Downloading data into '{basename(csv_path)}'...")
             try:

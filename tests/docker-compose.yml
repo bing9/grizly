@@ -1,0 +1,88 @@
+version: '3'
+
+services:
+  pytest_redis:
+    image: 'docker.io/bitnami/redis:6.0-debian-10'
+    environment:
+      # ALLOW_EMPTY_PASSWORD is recommended only for development.
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
+    ports:
+      - '1000:6379'
+    expose:
+      - "6379"
+    volumes:
+      - 'redis_data:/bitnami/redis/data'
+    container_name: pytest_redis
+  pytest_grizly_notebook:
+    image: grizly_notebook:latest
+    environment:
+      - GRIZLY_REDIS_HOST=pytest_redis
+    build:
+      context: .
+      args:
+        docker_user: $USERNAME
+    ports:
+      - "1001:8888"
+    volumes:
+      - ~\acoe_projects\platform\local\docker_home:/home/analyst
+    container_name: pytest_grizly_notebook
+    restart: "always"
+  pytest_rq-worker:
+    image: rq-worker
+    build:
+      context: .
+      dockerfile: rq-worker/Dockerfile
+    links:
+      - pytest_redis
+    depends_on:
+        - pytest_redis
+    volumes:
+      - ~\acoe_projects\platform\local\docker_home:/home/analyst
+    restart: "always"
+  pytest_rq-dashboard:
+    image: rq-dashboard
+    container_name: pytest_rq-dashboard
+    build:
+      context: .
+      dockerfile: rq-dashboard/Dockerfile
+    environment:
+      - REDIS_HOST=pytest_redis
+    ports:
+      - '1002:9181'
+    links:
+      - pytest_redis
+    depends_on:
+      - pytest_redis
+    restart: "always"
+  pytest_rq-scheduler:
+    image: rq-scheduler
+    container_name: pytest_rq-scheduler
+    build:
+      context: .
+      dockerfile: rq-scheduler/Dockerfile
+    environment:
+      - REDIS_HOST=pytest_redis
+    links:
+      - pytest_redis
+    depends_on:
+      - pytest_redis
+  pytest_dask_scheduler:
+    image: acoeteam/grizly_scheduler:latest
+    ports:
+      - "1003:8787"
+    container_name: pytest_dask_scheduler
+    restart: "always"
+  pytest_dask_worker:
+    image: acoeteam/grizly_worker:latest
+    environment:
+      - SCHEDULER_ADDRESS=pytest_dask_scheduler:8786
+    volumes:
+      - ~\acoe_projects\platform\local\docker_home:/home/analyst
+    depends_on:
+      - pytest_dask_scheduler
+    restart: "always"
+
+volumes:
+  redis_data:
+    driver: local

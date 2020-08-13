@@ -6,3 +6,4 @@ build
 *.egg
 .ipynb_checkpoints
 .vscode
+.hypothesis

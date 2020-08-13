@@ -1,20 +1,23 @@
+import json
+import logging
+import os
+from configparser import ConfigParser
+from csv import reader
+from datetime import datetime, timezone
+from functools import partial, wraps
+from io import StringIO
+from itertools import count
+from typing import List
+
+import deprecation
+import pyarrow.parquet as pq
 from boto3 import resource
 from botocore.exceptions import ClientError
-import os
-from datetime import datetime, timezone
-from .sqldb import SQLDB
+from pandas import DataFrame, read_csv, read_excel, read_parquet
+
+from ..utils import clean, clean_colnames, file_extension, get_path
 from .dialects import pyarrow_to_rds_type
-from ..utils import get_path, clean, clean_colnames, file_extension
-from pandas import DataFrame, read_csv, read_parquet
-import pyarrow.parquet as pq
-from io import StringIO
-from csv import reader
-from configparser import ConfigParser
-import logging
-from functools import wraps, partial
-from itertools import count
-import deprecation
-import json
+from .sqldb import SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
@@ -131,9 +134,8 @@ class S3:
         """
         print(self.__repr__())
 
-    def list(self):
-        """Returns the list of files that are in S3.s3_key
-        """
+    def list(self) -> List[str]:
+        """Returns the list of files that are in S3.s3_key"""
         files = []
         key_list = self.s3_key.split("/")[:-1]
         data = resource("s3").meta.client.list_objects(Bucket=self.bucket, Prefix=self.s3_key)
@@ -175,6 +177,7 @@ class S3:
         bucket: str = None,
         keep_file: bool = True,
         if_exists: {"fail", "skip", "replace", "archive"} = "replace",
+        versioning: bool = True,
     ):
         """Copies S3 file to another S3 file.
 
@@ -231,7 +234,7 @@ class S3:
             elif if_exists == "skip":
                 return self
             elif if_exists == "archive":
-                out_s3.archive()
+                out_s3.archive(versioning=versioning)
 
         s3_file = resource("s3").Object(bucket, s3_key + file_name)
 
@@ -248,7 +251,7 @@ class S3:
 
         return out_s3
 
-    def from_serializable(self, serializable):
+    def from_serializable(self, serializable) -> None:
         """Writes a JSON-serializable object to S3
 
         Parameters
@@ -263,11 +266,11 @@ class S3:
         """
         s3_obj = resource("s3").Object(self.bucket, self.full_s3_key)
         s3_obj.put(Body=(bytes(json.dumps(serializable).encode("UTF-8"))))
-        self.logger.info(f"Successfully uploaded '{self.file_name}' to 's3://{self.bucket}/{self.s3_key}'")
+        self.logger.info(
+            f"Successfully uploaded '{self.file_name}' to 's3://{self.bucket}/{self.s3_key}'"
+        )
 
-    def from_file(
-        self, keep_file: bool = True, if_exists: str = "replace",
-    ):
+    def from_file(self, keep_file: bool = True, if_exists: str = "replace", versioning=True):
         """Writes local file to S3.
 
         Parameters
@@ -306,7 +309,7 @@ class S3:
             elif if_exists == "skip":
                 return self
             elif if_exists == "archive":
-                self.archive()
+                self.archive(versioning=versioning)
 
         s3_file = resource("s3").Object(self.bucket, self.full_s3_key)
 
@@ -332,9 +335,7 @@ class S3:
         return self
 
     @_check_if_s3_exists
-    def to_file(
-        self, if_exists: str = None,
-    ):
+    def to_file(self, if_exists: str = None) -> None:
         r"""Writes S3 to local file.
 
         Parameters
@@ -369,19 +370,22 @@ class S3:
 
         self.logger.info(f"'{s3_key}' was successfully downloaded to '{file_path}'")
 
-    def to_df(self, **kwargs):
-
-        if not file_extension(self.file_name) in ["csv", "parquet"]:
-            raise NotImplementedError("Unsupported file format. Please use CSV or Parquet files.")
+    def to_df(self, **kwargs) -> DataFrame:
+        ext = ["csv", "parquet", "xlsx"]
+        if not file_extension(self.file_name) in ext:
+            raise NotImplementedError(
+                f"Unsupported file format. Please use files with extensions {ext}."
+            )
 
         file_path = os.path.join(self.file_dir, self.file_name)
         self.to_file(if_exists=kwargs.get("if_exists"))
 
         if file_extension(self.file_name) == "csv":
-            sep = kwargs.get("sep")
-            if not sep:
-                sep = "\t"
-            df = read_csv(file_path, sep=sep)
+            if kwargs.get("sep") is None:
+                kwargs["sep"] = "\t"
+            df = read_csv(file_path, **kwargs)
+        elif file_extension(self.file_name) == "xlsx":
+            df = read_excel(file_path, **kwargs)
         else:
             columns = kwargs.get("columns")
             df = read_parquet(file_path, columns=columns)
@@ -507,7 +511,9 @@ class S3:
                 f"Parameter redshift_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
             )
         if dsn is None and sqldb is None:
-            self.logger.warning("Please specify dsn parameter. Since version 0.3.8 it will be obligatory.")
+            self.logger.warning(
+                "Please specify dsn parameter. Since version 0.3.8 it will be obligatory."
+            )
 
         sqldb = sqldb or SQLDB(dsn=(dsn or "redshift_acoe"), **kwargs)
 
@@ -526,7 +532,9 @@ class S3:
             else:
                 pass
         else:
-            self._create_table_like_s3(table=table, schema=schema, sep=sep, sqldb=sqldb, types=types)
+            self._create_table_like_s3(
+                table=table, schema=schema, sep=sep, sqldb=sqldb, types=types
+            )
 
         config = ConfigParser()
         config.read(get_path(".aws", "credentials"))
@@ -602,14 +610,22 @@ class S3:
             last_line_pos = len(sql) - len(";commit;") - indent
             spaces = indent * " "  # print formatting
             time_format_argument = f"timeformat '{time_format}'"
-            sql = sql[:last_line_pos] + time_format_argument + "\n" + spaces[:-1] + sql[last_line_pos:]
+            sql = (
+                sql[:last_line_pos]
+                + time_format_argument
+                + "\n"
+                + spaces[:-1]
+                + sql[last_line_pos:]
+            )
 
         con = sqldb.get_connection()
         self.logger.info(f"Inserting '{self.file_name}' into {table_name}...")
         try:
             con.execute(sql)
         except:
-            self.logger.exception(f"Failed to insert '{self.file_name}' into Redshift [{table_name}]")
+            self.logger.exception(
+                f"Failed to insert '{self.file_name}' into Redshift [{table_name}]"
+            )
             self.logger.exception(sql)
             self.status = "failed"
             raise
@@ -691,7 +707,9 @@ class S3:
             else:
                 pass
         else:
-            self._create_table_like_s3(table=table, schema=schema, sep=sep, sqldb=sqldb, types=types)
+            self._create_table_like_s3(
+                table=table, schema=schema, sep=sep, sqldb=sqldb, types=types
+            )
 
         from configparser import ConfigParser
 
@@ -739,7 +757,7 @@ class S3:
         self.logger.info(f"Successfully inserted {self.file_name} into Aurora")
         self.logger.debug(f"'{self.file_name}''s Aurora location: {table_name}")
 
-    def archive(self):
+    def archive(self, versioning=True):
         """Moves S3 to 'archive/' key. It adds also the versions of the file eg. file(0).csv, file(1).csv, ...
 
         Examples
@@ -755,15 +773,33 @@ class S3:
         file_dir: '/home/analyst/'
         >>> s3_arch.delete()
         """
-        s3_archive = S3(file_name=self.file_name, s3_key="archive/" + self.s3_key, bucket=self.bucket,)
+        date_short = datetime.now().strftime("%Y-%m-%d")
+        s3_archive = S3(
+            file_name=self.file_name,
+            s3_key=f"archive/{date_short}/" + self.s3_key,
+            bucket=self.bucket,
+        )
 
         version = 0
         while True:
-            file_name = s3_archive.file_name.split(".")[0] + f"({version})." + s3_archive.file_name.split(".")[1]
-            if file_name not in s3_archive.list():
-                return self.copy_to(file_name=file_name, s3_key="archive/" + self.s3_key, keep_file=False,)
+            if versioning:
+                file_name = (
+                    s3_archive.file_name.split(".")[0]
+                    + f"({version})."
+                    + s3_archive.file_name.split(".")[1]
+                )
             else:
-                version += 1
+                file_name = s3_archive.file_name
+
+            if file_name not in s3_archive.list():
+                return self.copy_to(
+                    file_name=file_name,
+                    s3_key=f"archive/{date_short}/" + self.s3_key,
+                    keep_file=False,
+                )
+            else:
+                if versioning:
+                    version += 1
 
     def _create_table_like_s3(self, table, schema, sqldb, types, sep):
         if file_extension(self.file_name) == "csv":
@@ -775,7 +811,11 @@ class S3:
                 ExpressionType="SQL",
                 Expression="SELECT * FROM s3object LIMIT 21",
                 InputSerialization={
-                    "CSV": {"FileHeaderInfo": "None", "AllowQuotedRecordDelimiter": True, "FieldDelimiter": sep}
+                    "CSV": {
+                        "FileHeaderInfo": "None",
+                        "AllowQuotedRecordDelimiter": True,
+                        "FieldDelimiter": sep,
+                    }
                 },
                 OutputSerialization={"CSV": {}},
             )
@@ -859,7 +899,9 @@ class S3:
         s3_client = resource("s3").meta.client
 
         if file_ext == "CSV":
-            InputSerialization = {"CSV": {"FieldDelimiter": sep, "AllowQuotedRecordDelimiter": True}}
+            InputSerialization = {
+                "CSV": {"FieldDelimiter": sep, "AllowQuotedRecordDelimiter": True}
+            }
         elif file_ext == "Parquet":
             InputSerialization = {"Parquet": {}}
 
@@ -901,7 +943,9 @@ def s3_to_csv(csv_path, bucket: str = None):
     bucket : str, optional
         Bucket name, if None then 'teis-data'
     """
-    s3 = S3(file_name=os.path.basename(csv_path), bucket=bucket, file_dir=os.path.dirname(csv_path),)
+    s3 = S3(
+        file_name=os.path.basename(csv_path), bucket=bucket, file_dir=os.path.dirname(csv_path),
+    )
     s3.to_file()
 
 
@@ -919,7 +963,12 @@ def csv_to_s3(csv_path, s3_key: str = None, keep_csv=True, bucket: str = None):
     bucket : str, optional
         Bucket name, if None then 'teis-data'
     """
-    s3 = S3(file_name=os.path.basename(csv_path), s3_key=s3_key, bucket=bucket, file_dir=os.path.dirname(csv_path),)
+    s3 = S3(
+        file_name=os.path.basename(csv_path),
+        s3_key=s3_key,
+        bucket=bucket,
+        file_dir=os.path.dirname(csv_path),
+    )
     return s3.from_file(keep_file=keep_csv)
 
 
@@ -963,7 +1012,13 @@ def s3_to_rds(
         table = file_name.replace(".csv", "")
     else:
         table = table_name
-    s3 = S3(file_name=file_name, s3_key=s3_key, bucket=bucket, file_dir=os.getcwd(), redshift_str=redshift_str)
+    s3 = S3(
+        file_name=file_name,
+        s3_key=s3_key,
+        bucket=bucket,
+        file_dir=os.getcwd(),
+        redshift_str=redshift_str,
+    )
     s3.to_rds(
         table=table,
         schema=schema,
