@@ -69,6 +69,9 @@ def test_save_json_and_from_json2():
     os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.data == customers
 
+def test_from_json_s3():
+    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json("s3://acoe-s3/test/test_from_json_s3.json", subquery="test_subquery")
+    assert len(q.get_fields()) == 41
 
 def test_validation_data():
     QFrame(dsn=dsn, db="sqlite", dialect="mysql").validate_data(orders)

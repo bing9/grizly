@@ -82,6 +82,8 @@ class QFrame(BaseTool):
     def nrows(self):
         con = self.sqldb.get_connection()
         query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
+        if self.sqldb.db == "denodo":
+            query += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
         nrows = con.execute(query).fetchone()[0]
         con.close()
         return nrows
@@ -180,15 +182,21 @@ class QFrame(BaseTool):
         -------
         QFrame
         """
-        with open(json_path, "r") as f:
-            data = json.load(f)
-            if data != {}:
-                if subquery == "":
-                    self.data = self.validate_data(data)
-                else:
-                    self.data = self.validate_data(data[subquery])
+        if json_path.startswith("s3://"):
+            _, _, bucket, *s3_key_list = json_path.split("/")[:-1]
+            s3_key = "/".join(s3_key_list)
+            file_name = json_path.split("/")[-1]
+            data = S3(bucket=bucket, s3_key=s3_key, file_name=file_name).to_serializable()
+        else:
+            with open(json_path, "r") as f:
+                data = json.load(f)
+        if data:
+            if not subquery:
+                self.data = self.validate_data(data)
             else:
-                self.data = data
+                self.data = self.validate_data(data[subquery])
+        else:
+            self.data = data
         return self
 
     @deprecation.deprecated(details="Use QFrame.from_json instead",)
@@ -1098,7 +1106,7 @@ class QFrame(BaseTool):
         self.sql = _get_sql(data=self.data, sqldb=self.sqldb)
         return self.sql
 
-    def create_table(self, table, schema="", char_size=500, dsn=None, sqldb=None, if_exists=None, **kwargs):
+    def create_table(self, table, schema="", char_size=500, dsn=None, sqldb=None, if_exists: str = "skip", **kwargs):
         """Creates a new empty QFrame table in database if the table doesn't exist.
         TODO: Remove engine_str, db, dsn and dialect and leave sqldb
 
