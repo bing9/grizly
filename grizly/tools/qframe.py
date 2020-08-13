@@ -1,3 +1,4 @@
+
 import pandas as pd
 
 import re
@@ -525,13 +526,11 @@ class QFrame(BaseTool):
             )
 
         else:
-            if if_exists == "replace":
+            if "having" not in self.data["select"] or self.data["select"]["having"] == "" or if_exists == "replace":
                 self.data["select"]["having"] = having
-            else:
-                if "having" in self.data["select"]:
-                    self.data["select"]["having"] += f" {operator} {having}"
-                else:
-                    self.data["select"]["having"] = having
+            elif if_exists == "append":
+                self.data["select"]["having"] += f" {operator} {having}"
+                    
         return self
 
     def assign(self, type: str = "dim", group_by: str = "", order_by: str = "", custom_type: str = "", **kwargs):
