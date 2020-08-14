@@ -1,3 +1,4 @@
+
 import pandas as pd
 
 import re
@@ -84,7 +85,11 @@ class QFrame(BaseTool):
         query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
         if self.sqldb.db == "denodo":
             query += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
-        nrows = con.execute(query).fetchone()[0]
+        try:
+            nrows = con.execute(query).fetchone()[0]
+        except:
+            print(query)
+            raise
         con.close()
         return nrows
 
@@ -525,13 +530,11 @@ class QFrame(BaseTool):
             )
 
         else:
-            if if_exists == "replace":
+            if "having" not in self.data["select"] or self.data["select"]["having"] == "" or if_exists == "replace":
                 self.data["select"]["having"] = having
-            else:
-                if "having" in self.data["select"]:
-                    self.data["select"]["having"] += f" {operator} {having}"
-                else:
-                    self.data["select"]["having"] = having
+            elif if_exists == "append":
+                self.data["select"]["having"] += f" {operator} {having}"
+                    
         return self
 
     def assign(self, type: str = "dim", group_by: str = "", order_by: str = "", custom_type: str = "", **kwargs):
@@ -1486,6 +1489,11 @@ class QFrame(BaseTool):
         return fields_out
 
     def _build_column_strings(self):
+        # quotes wrapping fields differ depending on database (NOT ONLY DIALECT)
+        if self.sqldb.db == "mariadb":
+            quote = '`'
+        else:
+            quote = '"'
         if self.data == {}:
             return {}
 
@@ -1509,9 +1517,9 @@ class QFrame(BaseTool):
             else:
                 prefix = re.search(r"^sq\d*[.]", field)
                 if prefix is not None:
-                    expr = f'{prefix.group(0)}"{field[len(prefix.group(0)):]}"'
+                    expr = f'{prefix.group(0)}{quote}{field[len(prefix.group(0)):]}{quote}'
                 else:
-                    expr = f'"{field}"'
+                    expr = f'{quote}{field}{quote}'
 
             alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
             alias = alias.replace('"', "")
@@ -1545,7 +1553,7 @@ class QFrame(BaseTool):
                 order_by.append(f"{pos_nm}{order}")
 
             if field in selected_fields:
-                select_name = expr if expr == f'"{alias}"' else f'{expr} as "{alias}"'
+                select_name = expr if expr == f'{quote}{alias}{quote}' else f'{expr} as "{alias}"'
 
                 if "custom_type" in fields[field] and fields[field]["custom_type"] != "":
                     type = fields[field]["custom_type"].upper()

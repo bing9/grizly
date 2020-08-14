@@ -70,7 +70,7 @@ def test_save_json_and_from_json2():
     assert q.data == customers
 
 def test_from_json_s3():
-    q = QFrame(dsn=dsn).from_json("s3://acoe-s3/test/test_from_json_s3.json", subquery="test_subquery")
+    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json("s3://acoe-s3/test/test_from_json_s3.json", subquery="test_subquery")
     assert len(q.get_fields()) == 41
 
 def test_validation_data():
@@ -153,13 +153,22 @@ def test_query():
     assert q.data["select"]["where"] == testexpr
 
 
-def test_having():
+def test_having_from_dict():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(orders)
-    q.query("sum(Value)==1000")
-    q.query("sum(Value)>1000", if_exists="replace")
-    q.query("count(Customer)<=65")
+    q.having("sum(Value)=1000")
+    q.having("sum(Value)>1000", if_exists="replace")
+    q.having("count(Customer)<=65")
     testexpr = "sum(Value)>1000 and count(Customer)<=65"
-    assert q.data["select"]["where"] == testexpr
+    assert q.data["select"]["having"] == testexpr
+
+def test_having_from_table():
+    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(table="Track")
+    q.having("sum(Value)=1000")
+    assert q.data["select"]["having"] == "sum(Value)=1000"
+    q.having("sum(Value)>1000", if_exists="replace")
+    q.having("count(Customer)<=65")
+    testexpr = "sum(Value)>1000 and count(Customer)<=65"
+    assert q.data["select"]["having"] == testexpr
 
 
 def test_assign():
