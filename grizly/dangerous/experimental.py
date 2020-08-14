@@ -1,7 +1,9 @@
 import json
 import os
 import dask
-from grizly import QFrame, S3, Workflow
+from ..tools.qframe import QFrame
+from ..tools.s3 import S3
+from ..scheduling.orchestrate import Workflow
 import s3fs
 import pyarrow.parquet as pq
 from pyarrow import Table
@@ -98,32 +100,37 @@ class Extract:
 
     @dask.delayed
     def get_distinct_values(self):
-        def _validate_columns(columns: List[str], existing_columns: List[str]):
+        def _validate_columns(columns: Union[str, List[str]], existing_columns: List[str]):
             """ Check whether the provided columns exist within the table """
             if isinstance(columns, str):
-                column = columns
+                column = [columns]
+            for column in columns:
+                # column = column.replace("sq.", "")
                 if column not in existing_columns:
                     raise ValueError(f"QFrame does not contain {column}")
-            elif isinstance(columns, list):
-                for column in columns:
-                    if column not in existing_columns:
-                        raise ValueError(f"QFrame does not contain {column}")
 
         columns = self.partition_cols
-        existing_columns = self.driver.get_fields(aliased=False)
+        existing_columns = self.driver.get_fields(aliased=True)
         _validate_columns(columns, existing_columns)
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
-        schema = self.driver.data["select"]["schema"]
-        table = self.driver.data["select"]["table"]
         where = self.driver.data["select"]["where"]
-        partitions_qf = (
-            QFrame(dsn=self.driver.sqldb.dsn)
-            .from_table(table=table, schema=schema, columns=columns)
-            .query(where)
-            .groupby()
-        )
+        try:
+            # faster method, but this will fail if user is working on multiple schemas/tables
+            schema = self.driver.data["select"]["schema"]
+            table = self.driver.data["select"]["table"]
+
+            partitions_qf = (
+                QFrame(dsn=self.driver.sqldb.dsn)
+                .from_table(table=table, schema=schema, columns=columns)
+                .query(where)
+                .groupby()
+            )
+        except KeyError:
+            qf_copy = self.driver.copy()
+            partitions_qf = qf_copy.select(columns).groupby()
+
         records = partitions_qf.to_records()
         if isinstance(columns, list):
             values = ["|".join(str(val) for val in row) for row in records]

@@ -6,7 +6,10 @@ import sys
 from time import time
 from typing import Any, Dict, List, Union, Literal
 from ..config import Config
+from ..exceptions import JobNotFoundError
 from croniter import croniter
+from abc import ABC, abstractmethod
+from functools import wraps
 
 import dask
 from dask.delayed import Delayed
@@ -19,7 +22,33 @@ from redis import Redis
 config = Config().get_service("scheduling")
 
 
-class Registry:
+def _check_if_exists(raise_error=True):
+    """Checks if the job exists in the registry
+
+    Parameters
+    ----------
+    raise_error : bool, optional
+        Whether to raise error if job doesn't exist, by default True
+
+    """
+
+    def deco_wrap(f):
+        @wraps(f)
+        def wrapped(self, *args, **kwargs):
+            if not self.exists:
+                if raise_error:
+                    raise JobNotFoundError
+                else:
+                    self.logger.warning("Job not found in the registry")
+
+            return f(self, *args, **kwargs)
+
+        return wrapped
+
+    return deco_wrap
+
+
+class RedisDB:
     def __init__(
         self,
         env: Literal["dev", "prod"] = "prod",
@@ -93,25 +122,32 @@ class Registry:
         return jobs
 
 
-class RegistryObject:
+class RedisObject(ABC):
     prefix = "grizly:"
 
     def __init__(self, name: str, env: Literal["dev", "prod"] = "prod", logger: logging.Logger = None, **kwargs):
         self.name = name
         self.name_with_prefix = self.prefix + name
-        self.registry = Registry(env=env, **kwargs)
+        self.db = RedisDB(env=env, **kwargs)
         self.logger = logger or logging.getLogger(__name__)
+
+    def __eq__(self, other):
+        return self.name == other.name
 
     def __repr__(self):
         return f"{self.__class__.__name__}(name='{self.name}')"
 
+    @abstractmethod
+    def info(self):
+        pass
+
     @property
-    def getall(self):
-        return self.con.hgetall(self.name_with_prefix)
+    def created_at(self) -> datetime:
+        return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
 
     @property
     def con(self):
-        con = self.registry.con
+        con = self.db.con
         return con
 
     @property
@@ -120,6 +156,9 @@ class RegistryObject:
 
     def remove(self):
         self.con.delete(self.name_with_prefix)
+
+    def getall(self):  # to be removed
+        return self.con.hgetall(self.name_with_prefix)
 
     @staticmethod
     def serialize(value: Any) -> str:
@@ -146,15 +185,18 @@ class RegistryObject:
             return value
 
 
-class Job(RegistryObject):
-    prefix = "grizly:job:"
+class Trigger(RedisObject):
+    prefix = "grizly:registry:triggers:"
 
-    # def __init__(self, *args, **kwargs):
-    #     super(Job, self).__init__(*args, **kwargs)
+    def info(self):
+        pass
 
-    @property
-    def created_at(self) -> datetime:
-        return self.deserialize(self.con.hget(self.name_with_prefix, "created_at"), type="datetime")
+
+class JobRun(RedisObject):
+    prefix = "grizly:runs:jobs:"
+
+    def info(self):
+        pass
 
     @property
     def error(self) -> str:
@@ -165,32 +207,43 @@ class Job(RegistryObject):
         self.con.hset(self.name_with_prefix, "error", self.serialize(error))
 
     @property
-    def graph(self) -> Delayed:
-        return dask.delayed()(self.tasks, name=self.name + "_graph")
-
-    @property
-    def last_run(self) -> datetime:
-        return self.deserialize(self.con.hget(self.name_with_prefix, "last_run"), type="datetime")
-
-    @last_run.setter
-    def last_run(self, last_run: datetime):
-        self.con.hset(self.name_with_prefix, "last_run", self.serialize(last_run))
-
-    @property
-    def owner(self) -> str:
-        return self.deserialize(self.con.hget(self.name_with_prefix, "owner"))
-
-    @owner.setter
-    def owner(self, owner: str):
-        self.con.hset(self.name_with_prefix, "owner", self.serialize(owner))
-
-    @property
     def run_time(self) -> int:
         return self.deserialize(self.con.hget(self.name_with_prefix, "run_time"))
 
     @run_time.setter
     def run_time(self, run_time: int):
         self.con.hset(self.name_with_prefix, "run_time", self.serialize(run_time))
+
+
+class Job(RedisObject):
+    prefix = "grizly:registry:jobs:"
+
+    def info(self):
+        pass
+
+    @property
+    def graph(self) -> Delayed:
+        return dask.delayed()(self.tasks, name=self.name + "_graph")
+
+    # "grizly:runs:jobs:xyz:092193:"
+
+    # @property
+    # def last_run(self) -> datetime:
+    # self.job_runs.get()
+    #     return self.deserialize(self.con.hget(self.name_with_prefix, "last_run"), type="datetime")
+
+    # @last_run.setter
+    # def last_run(self, last_run: datetime):
+    #     self.con.hset(self.name_with_prefix, "last_run", self.serialize(last_run))
+
+    @property
+    def owner(self) -> str:
+        return self.deserialize(self.con.hget(self.name_with_prefix, "owner"))
+
+    @owner.setter
+    @_check_if_exists()
+    def owner(self, owner: str):
+        self.con.hset(self.name_with_prefix, "owner", self.serialize(owner))
 
     @property
     def status(self) -> Literal["fail", "running", "success"]:
@@ -205,6 +258,7 @@ class Job(RegistryObject):
         return self.deserialize(self.con.hget(self.name_with_prefix, "tasks"), type="dask")
 
     @tasks.setter
+    @_check_if_exists()
     def tasks(self, tasks: List[Delayed]):
         self.con.hset(self.name_with_prefix, "tasks", self.serialize(tasks))
 
@@ -235,11 +289,160 @@ class Job(RegistryObject):
 
     # TRIGGERS END
 
-    @property
-    def type(self) -> Literal["regular", "system"]:
-        return self.deserialize(self.con.hget(self.name_with_prefix, "type"))
+    # DOWNSTREAM/UPSTREAM
 
-    def cancel(self, scheduler_address: str = None):
+    @property
+    def downstream(self) -> List["Job"]:
+        downstream_job_names = self.deserialize(self.con.hget(self.name_with_prefix, "downstream"))
+        downstream_jobs = [Job(job_name) for job_name in downstream_job_names]
+        return downstream_jobs
+
+    @downstream.setter
+    @_check_if_exists()
+    def downstream(self, new_job_names: List[str]):
+        """
+        Overwrite the list of downstream jobs.
+        """
+        # 1. Remove from downstream jobs of all the jobs on the previous upstream jobs list
+        old_downstream_jobs = self.downstream
+        for downstream_job in old_downstream_jobs:
+            downstream_job.remove_upstream_jobs(self.name)
+        # 2. Add as a downstream job to the jobs in new_job_names
+        for new_downstream_job_name in new_job_names:
+            new_downstream_job = Job(new_downstream_job_name)
+            new_downstream_job.add_upstream_jobs(self.name)
+        # 3. Update upstream jobs with the new job
+        self.con.hset(self.name_with_prefix, "upstream", self.serialize(new_job_names))
+
+    @_check_if_exists()
+    def add_downstream_jobs(self, job_names: Union[List[str], str]):
+        """Add downstream jobs
+
+        Parameters
+        ----------
+        job_names : str or list
+            names of the downstream jobs to add
+        """
+
+        if isinstance(job_names, str):
+            job_names = [job_names]
+
+        # build the new list
+        downstream_job_names = self.deserialize(self.con.hget(self.name_with_prefix, "downstream"))
+        new_downstream_job_names = downstream_job_names + job_names
+
+        # update Redis
+        self.logger.info(f"Adding downstream jobs: {job_names}...")
+        self.con.hset(name=self.name_with_prefix, key="downstream", value=self.serialize(new_downstream_job_names))
+
+        # add the job as an upstream of the specified jobs
+        for downstream_job_name in job_names:
+            downstream_job = Job(downstream_job_name)
+            if not downstream_job.exists:
+                raise ValueError(f"Job {downstream_job_name} does not exist")
+            if self not in downstream_job.upstream:
+                downstream_job.add_upstream_jobs(self.name)
+
+    @_check_if_exists()
+    def remove_downstream_jobs(self, job_names: Union[str, List[str]]):
+        self.logger.info(f"Removing downstream jobs: {job_names}...")
+
+        if isinstance(job_names, str):
+            job_names = [job_names]
+
+        # remove the job as an upstream of the specified jobs
+        for downstream_job_name in job_names:
+            downstream_job = Job(downstream_job_name)
+            downstream_job.remove_upstream_jobs(self.name)
+
+        # build the new list
+        downstream_job_names = self.deserialize(self.con.hget(self.name_with_prefix, "downstream"))
+        for job_name in job_names:
+            try:
+                downstream_job_names.remove(job_name)
+            except ValueError:
+                self.logger.warning(f"Job {job_name} was not found in {self.name}'s downstream jobs'")
+
+        # update Redis
+        self.con.hset(name=self.name_with_prefix, key="downstream", value=self.serialize(downstream_job_names))
+
+    @property
+    def upstream(self) -> List["Job"]:
+        upstream_job_names = self.deserialize(self.con.hget(self.name_with_prefix, "upstream"))
+        upstream_jobs = [Job(job_name) for job_name in upstream_job_names]
+        return upstream_jobs
+
+    @upstream.setter
+    @_check_if_exists()
+    def upstream(self, new_job_names: List[str]):
+        """
+        Overwrite the list of upstream jobs.
+        """
+        # 1. Remove from downstream jobs of all the jobs on the previous upstream jobs list
+        old_upstream_jobs = self.upstream
+        for upstream_job in old_upstream_jobs:
+            upstream_job.remove_downstream_jobs(self.name)
+        # 2. Add as a downstream job to the jobs in new_job_names
+        for new_upstream_job_name in new_job_names:
+            new_upstream_job = Job(new_upstream_job_name)
+            new_upstream_job.add_downstream_jobs(self.name)
+        # 3. Update upstream jobs with the new job
+        self.con.hset(self.name_with_prefix, "upstream", self.serialize(new_job_names))
+
+    @_check_if_exists()
+    def add_upstream_jobs(self, job_names: Union[List[str], str]):
+        """Add upstream jobs
+
+        Parameters
+        ----------
+        job_names : str or list
+            names of the upstream jobs to add
+        """
+
+        if isinstance(job_names, str):
+            job_names = [job_names]
+
+        # build the new list
+        prev_upstream_job_names = self.deserialize(self.con.hget(self.name_with_prefix, "upstream"))
+        new_upstream_job_names = prev_upstream_job_names + job_names
+
+        # update Redis
+        self.logger.info(f"Adding upstream jobs: {job_names}...")
+        self.con.hset(self.name_with_prefix, "upstream", self.serialize(new_upstream_job_names))
+
+        # add the job as a downstream of the specified jobs
+        for upstream_job_name in job_names:
+            upstream_job = Job(upstream_job_name)
+            if not upstream_job.exists:
+                raise ValueError(f"Job {upstream_job_name} does not exist")
+            if self not in upstream_job.downstream:
+                upstream_job.add_downstream_jobs(self.name)
+
+    @_check_if_exists()
+    def remove_upstream_jobs(self, job_names: Union[str, List[str]]):
+        self.logger.info(f"Removing upstream jobs: {job_names}...")
+        if isinstance(job_names, str):
+            job_names = [job_names]
+
+        # remove the job from the downstream jobs of the specified jobs
+        for upstream_job_name in job_names:
+            upstream_job = Job(upstream_job_name)
+            upstream_job.remove_downstream_jobs(self.name)
+
+        # build the new list
+        upstream_job_names = self.deserialize(self.con.hget(self.name_with_prefix, "upstream"))
+        for job_name in job_names:
+            try:
+                upstream_job_names.remove(job_name)
+            except ValueError:
+                self.logger.warning(f"Job {job_name} was not found in {self.name}'s upstream jobs'")
+
+        # update Redis
+        self.con.hset(name=self.name_with_prefix, key="upstream", value=self.serialize(upstream_job_names))
+
+    # DOWNSTREAM/UPSTREAM END
+
+    def cancel(self, scheduler_address: Union[str, None] = None) -> None:
         if not scheduler_address:
             scheduler_address = self.scheduler_address
         client = Client(scheduler_address)
@@ -250,29 +453,38 @@ class Job(RegistryObject):
     def register(
         self,
         tasks: List[Delayed],
-        owner: str = None,
-        trigger_names: List[str] = [],
-        type: Literal["regular", "system"] = "regular",
+        cron: Union[str, None] = None,
+        owner: Union[str, None] = None,
+        upstream: List[str] = [],
+        if_exists: Literal["fail", "replace"] = "fail",
     ) -> "Job":
+        if if_exists == "fail" and self.exists:
+            raise ValueError(f"Job {self.name} already exists")
+        if self.name in upstream:
+            raise ValueError(f"Job cannot be its own upstream job !!!")
+
         mapping = {
             "owner": self.serialize(owner),
-            "trigger_names": self.serialize(trigger_names),
-            "type": self.serialize(type),
-            "last_run": "null",
-            "run_time": "null",
-            "status": "null",
-            "error": "null",
+            "upstream": self.serialize(upstream),
+            "downstream": self.serialize([]),
+            # "last_run": "null",
+            # "run_time": "null",
+            # "status": "null",
+            # "error": "null",
+            "tasks": self.serialize(tasks),
             "created_at": self.serialize(datetime.now(timezone.utc)),
         }
+        if not (cron or upstream):
+            raise ValueError("One of ['cron', 'upstream'] is required")
+
         self.con.hset(name=self.name_with_prefix, key=None, value=None, mapping=mapping)
-        for trigger_name in trigger_names:
-            Trigger(name=trigger_name).add_job(job_name=self.name)
-        tasks = tasks or self.tasks
-        if tasks is None:
-            raise ValueError("Please specify tasks.")
-        self.tasks = tasks
+        # add the job as downstream in all upstream jobs
+        for upstream_job_name in upstream:
+            upstream_job = Job(name=upstream_job_name)
+            upstream_job.add_downstream_jobs(self.name)
         return self
 
+    @_check_if_exists()
     def submit(
         self,
         client: Client = None,
@@ -318,11 +530,12 @@ class Job(RegistryObject):
         client.close()
         return result
 
+    @_check_if_exists()
     def visualize(self, **kwargs):
         return self.graph.visualize(**kwargs)
 
 
-class Trigger(RegistryObject):
+class Trigger(RedisObject):
     prefix = "grizly:trigger:"
 
     # def __init__(self, *args, **kwargs):
