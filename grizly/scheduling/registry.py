@@ -131,7 +131,7 @@ class RedisDB:
             for job_name in values:
                 job = Job(job_name)
                 if not job.exists:
-                    raise ValueError(f"Job {job_name} does not exist")
+                    raise JobNotFoundError
 
 
 class RedisObject(ABC):
@@ -598,7 +598,8 @@ class Job(RedisObject):
 
         mapping = {
             "owner": self.serialize(owner),
-            "cron": self.serialize(crons),
+            "crons": self.serialize(crons),
+            "rq_job_ids": "null",
             "upstream": self.serialize(upstream),
             "downstream": self.serialize([]),
             "triggers": self.serialize(triggers),
@@ -608,17 +609,28 @@ class Job(RedisObject):
             "created_at": self.serialize(datetime.now(timezone.utc)),
         }
         if not (crons or upstream or triggers):
-            raise ValueError("One of ['cron', 'upstream', 'triggers'] is required")
+            raise ValueError("One of ['crons', 'upstream', 'triggers'] is required")
 
         self.con.hset(
             name=self.hash_name, key=None, value=None, mapping=mapping,
         )
 
-        for cron in crons:
-            queue = Queue("submit", connection=self.con)
-            scheduler = Scheduler(queue=queue)
-            scheduler.cron(
-                cron, func=self.submit, kwargs=kwargs, repeat=None, queue_name="submit",
+        if crons:
+            # TODO: put below in method
+            rq_job_ids = []
+            queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+            scheduler = Scheduler(queue=queue, connection=self.con)
+            for cron in crons:
+                rq_job = scheduler.cron(
+                    cron,
+                    func=self.submit,
+                    kwargs=kwargs,
+                    repeat=None,
+                    queue_name=RedisDB.submit_queue_name,
+                )
+                rq_job_ids.append(rq_job.id)
+            self.con.hset(
+                name=self.hash_name, key="rq_job_ids", value=self.serialize(rq_job_ids),
             )
 
         # add the job as downstream in all upstream jobs
@@ -636,6 +648,40 @@ class Job(RedisObject):
         self.logger.info(f"Job {self.name} successfully registered")
         return self
 
+    def unregister(self, remove_job_runs: bool = False) -> None:
+
+        # for cron in crons:
+        #     queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+        #     scheduler = Scheduler(queue=queue, connection=self.con)
+        #     scheduler.cron(
+        #         cron,
+        #         func=self.submit,
+        #         kwargs=kwargs,
+        #         repeat=None,
+        #         queue_name=RedisDB.submit_queue_name,
+        #     )
+
+        # remove job from downstream in all upstream jobs
+        for upstream_job in self.upstream:
+            upstream_job.remove_downstream_jobs(self.name)
+
+        # remove job from upstream in all downstream jobs
+        for downstream_job in self.downstream:
+            downstream_job.remove_upstream_jobs(self.name)
+
+        # remove job from all triggers
+        for trigger in self.triggers:
+            trigger.remove_jobs(self.name)
+
+        if remove_job_runs:
+            # remove job run id increment
+            self.con.delete(f"{JobRun.prefix}{self.name}:id")
+            for job_run in self.db.get_job_runs(job_name=self.name):
+                job_run.remove()
+
+        self.logger.info(f"Job {self.name} successfully registered")
+        return self
+
     @_check_if_exists()
     def submit(
         self,
@@ -648,7 +694,7 @@ class Job(RedisObject):
 
         if self.last_run.status == "running":
             self.logger.warning(
-                f"Job {self.name} is already running." f" To stop the process please use ..."
+                f"Job {self.name} is already running. To stop the process please use ..."
             )
         else:
             priority = priority or 1
