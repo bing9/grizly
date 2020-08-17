@@ -8,7 +8,7 @@ import redis
 
 from hypothesis.strategies import integers, text, lists
 
-from ..grizly.scheduling.job import Job
+from ..grizly.scheduling.registry import Job
 from ..grizly.exceptions import JobNotFoundError
 
 
@@ -29,7 +29,7 @@ con = redis.Redis(host="pytest_redis")
 @given(text())
 def test_job_exists(name):
     job = Job(name)
-    job.register(tasks=tasks, cron="* * * * *", if_exists="replace")
+    job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
     assert job.exists
 
     job.remove()
@@ -39,7 +39,7 @@ def test_job_exists(name):
 @given(text(), text(), text())
 def test_job_owner(name, owner_1, owner_2):
     job = Job(name)
-    job.register(tasks=tasks, cron="* * * * *", owner=owner_1, if_exists="replace")
+    job.register(tasks=tasks, crons="* * * * *", owner=owner_1, if_exists="replace")
     assert job.owner == owner_1
 
     job.owner = owner_2
@@ -51,7 +51,7 @@ def test_job_owner(name, owner_1, owner_2):
 @given(text())
 def test_job_tasks(name):
     job = Job(name)
-    job.register(tasks=tasks, cron="* * * * *", if_exists="replace")
+    job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
     assert job.tasks == tasks
 
     job.remove()
@@ -60,7 +60,7 @@ def test_job_tasks(name):
 @given(text(), text())
 def test_job_downstream(job_name, downstream_job_name):
     job = Job(job_name)
-    job.register(tasks=tasks, cron="* * * * *", if_exists="replace")
+    job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
     assert job.downstream == []
 
     # trying to set not existing job as downstream should raise error
@@ -68,7 +68,7 @@ def test_job_downstream(job_name, downstream_job_name):
         job.downstream = ["not_found_job"]
 
     downstream_job = Job(downstream_job_name)
-    downstream_job.register(tasks=tasks, cron="* * * * *", if_exists="replace")
+    downstream_job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
     job.downstream = [downstream_job_name]
     assert job.downstream == [downstream_job]
 
@@ -79,7 +79,7 @@ def test_job_downstream(job_name, downstream_job_name):
 @given(text(), text())
 def test_job_upstream(job_name, upstream_job_name):
     job = Job(job_name)
-    job.register(tasks=tasks, cron="* * * * *", if_exists="replace")
+    job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
     assert job.upstream == []
 
     # trying to set not existing job as downstream should raise error
@@ -87,7 +87,7 @@ def test_job_upstream(job_name, upstream_job_name):
         job.upstream = ["not_found_job"]
 
     upstream_job = Job(upstream_job_name)
-    upstream_job.register(tasks=tasks, cron="* * * * *", if_exists="replace")
+    upstream_job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
     job.upstream = [upstream_job_name]
     assert job.upstream == [upstream_job]
 
@@ -103,7 +103,7 @@ def test_job_upstream(job_name, upstream_job_name):
 def test_job_register_cron(name):
     """test if job with any name is registred"""
     job = Job(name)
-    job.register(tasks=tasks, cron="* * * * *", if_exists="replace")
+    job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
     assert job.exists
 
     job.remove()
@@ -112,17 +112,18 @@ def test_job_register_cron(name):
 @given(text(), text())
 def test_job_register_upstream(job_name, upstream_job_name):
     upstream_job = Job(upstream_job_name)
-    upstream_job.register(tasks=tasks, cron="* * * * *", if_exists="replace")
+    upstream_job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
 
     job = Job(job_name)
+    # trying to set a job as it's own upstream should raise error
     if job_name == upstream_job_name:
         with pytest.raises(ValueError):
             job.register(tasks=tasks, upstream=[upstream_job_name], if_exists="replace")
     else:
         job.register(tasks=tasks, upstream=[upstream_job_name], if_exists="replace")
-    assert job.upstream == [upstream_job]
+        assert job.upstream == [upstream_job]
 
-    job.remove()
+        job.remove()
     upstream_job.remove()
 
 
