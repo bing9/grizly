@@ -12,7 +12,7 @@
 #
 import os
 import sys
-from grizly import __version__
+# from grizly import __version__
 
 sys.path.insert(0, os.path.abspath("../.."))
 
@@ -24,7 +24,8 @@ copyright = "2019, Alessio"
 author = "Alessio"
 
 # The full version, including alpha/beta/rc tags
-release = __version__
+# release = __version__
+release = "0.3.7rc2"
 
 
 # -- General configuration ---------------------------------------------------
