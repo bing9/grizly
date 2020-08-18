@@ -22,117 +22,70 @@ tasks = [task1]
 
 con = redis.Redis(host="pytest_redis")
 
+
+def test_job_register():
+    pass
+
+
+# creating test jobs - they have different scopes so that they are not unregistered at the same time
+@pytest.fixture(scope="module")
+def job_1():
+    job_1 = Job(name="test1")
+    job_1.register(tasks=tasks, crons="* * * * *", if_exists="replace")
+    yield job_1
+    job_1.unregister()
+
+
+@pytest.fixture(scope="session")
+def job_2():
+    job_2 = Job(name="test2")
+    job_2.register(tasks=tasks, upstream="test1", if_exists="replace")
+    yield job_2
+    job_2.unregister()
+
+
 # PROPERTIES
 # ----------
 
 
-@given(text())
-def test_job_exists(name):
-    job = Job(name)
-    job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
-    assert job.exists
-
-    job.remove()
-    assert not job.exists
-
-
-@given(text(), text(), text())
-def test_job_owner(name, owner_1, owner_2):
-    job = Job(name)
-    job.register(tasks=tasks, crons="* * * * *", owner=owner_1, if_exists="replace")
-    assert job.owner == owner_1
-
-    job.owner = owner_2
-    assert job.owner == owner_2
-
-    job.remove()
+def test_job_exists(job_1):
+    assert job_1.exists
 
 
 @given(text())
-def test_job_tasks(name):
-    job = Job(name)
-    job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
-    assert job.tasks == tasks
-
-    job.remove()
+def test_job_owner(job_1, owner):
+    job_1.owner = owner
+    assert job_1.owner == owner
 
 
-@given(text(), text())
-def test_job_downstream(job_name, downstream_job_name):
-    job = Job(job_name)
-    job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
-    assert job.downstream == []
+def test_job_tasks(job_1):
+    assert dask.delayed(job_1.tasks).compute() == dask.delayed(tasks).compute()
+
+
+def test_job_downstream(job_1, job_2):
+    assert job_1.downstream == [job_2]
 
     # trying to set not existing job as downstream should raise error
     with pytest.raises(JobNotFoundError):
-        job.downstream = ["not_found_job"]
+        job_1.downstream = ["not_found_job"]
 
-    downstream_job = Job(downstream_job_name)
-    downstream_job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
-    job.downstream = [downstream_job_name]
-    assert job.downstream == [downstream_job]
+    job_1.downstream = []
+    assert job_1.downstream == []
 
-    job.remove()
-    downstream_job.remove()
+    job_1.downstream = [job_2.name]
+    assert job_1.downstream == [job_2]
 
 
-@given(text(), text())
-def test_job_upstream(job_name, upstream_job_name):
-    job = Job(job_name)
-    job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
-    assert job.upstream == []
+def test_job_upstream(job_1, job_2):
+    assert job_2.upstream == [job_1]
 
     # trying to set not existing job as downstream should raise error
     with pytest.raises(JobNotFoundError):
-        job.upstream = ["not_found_job"]
+        job_1.upstream = ["not_found_job"]
 
-    upstream_job = Job(upstream_job_name)
-    upstream_job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
-    job.upstream = [upstream_job_name]
-    assert job.upstream == [upstream_job]
+    job_2.upstream = []
+    assert job_2.upstream == []
 
-    job.remove()
-    upstream_job.remove()
-
-
-# METHODS
-# -------
-
-
-@given(text())
-def test_job_register_cron(name):
-    """test if job with any name is registred"""
-    job = Job(name)
-    job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
-    assert job.exists
-
-    job.remove()
-
-
-@given(text(), text())
-def test_job_register_upstream(job_name, upstream_job_name):
-    upstream_job = Job(upstream_job_name)
-    upstream_job.register(tasks=tasks, crons="* * * * *", if_exists="replace")
-
-    job = Job(job_name)
-    # trying to set a job as it's own upstream should raise error
-    if job_name == upstream_job_name:
-        with pytest.raises(ValueError):
-            job.register(tasks=tasks, upstream=[upstream_job_name], if_exists="replace")
-    else:
-        job.register(tasks=tasks, upstream=[upstream_job_name], if_exists="replace")
-        assert job.upstream == [upstream_job]
-
-        job.remove()
-    upstream_job.remove()
-
-
-@given(text())
-def test_job_add_downstream_jobs(name):
-    j = Job(name)
-
-
-@given(text())
-def test_job_remove_upstream_jobs(name):
-    j = Job(name)
+    job_2.upstream = [job_1.name]
+    assert job_2.upstream == [job_1]
 

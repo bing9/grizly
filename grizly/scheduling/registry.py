@@ -249,7 +249,7 @@ class RedisObject(ABC):
                 out_values.remove(value)
                 removed_values.append(value)
             except ValueError:
-                self.logger.warning(f"{value} was not found in {self.name}'s {key}'")
+                self.logger.warning(f"Value '{value}' was not found in {self}'s {key}")
 
         # update Redis
         if removed_values:
@@ -624,7 +624,7 @@ class Job(RedisObject):
         )
 
         if crons:
-            self.__add_to_scheduler(crons)
+            self.__add_to_scheduler(crons, *args, **kwargs)
 
         # add the job as downstream in all upstream jobs
         for upstream_job_name in upstream:
@@ -725,7 +725,7 @@ class Job(RedisObject):
     def visualize(self, **kwargs):
         return self.graph.visualize(**kwargs)
 
-    def __add_to_scheduler(self, crons: List[str]):
+    def __add_to_scheduler(self, crons: List[str], *args, **kwargs):
         rq_job_ids = []
         queue = Queue(RedisDB.submit_queue_name, connection=self.con)
         scheduler = Scheduler(queue=queue, connection=self.con)
@@ -733,6 +733,7 @@ class Job(RedisObject):
             rq_job = scheduler.cron(
                 cron,
                 func=self.submit,
+                args=args,
                 kwargs=kwargs,
                 repeat=None,
                 queue_name=RedisDB.submit_queue_name,
