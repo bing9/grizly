@@ -124,7 +124,7 @@ class RedisDB:
     def _check_if_exists(
         self, values: Union[List[str], str], object_type: Literal["job"] = "job",
     ):
-        """Iterate through list of objects and check if they exist - if not raise error"""
+        """Iterate through list of names of objects and check if they exist - if not raise error"""
         if isinstance(values, str):
             values = [values]
         if object_type == "job":

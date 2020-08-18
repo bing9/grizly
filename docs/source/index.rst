@@ -17,6 +17,8 @@ Welcome to grizly's documentation!
    content/api_Config
    content/api_SQLDB
    content/api_Crosstab
+   content/api_RedisDB
+   content/api_Job
 
 
 Indices and tables
