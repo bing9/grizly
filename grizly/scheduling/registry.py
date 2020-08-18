@@ -155,9 +155,17 @@ class RedisObject(ABC):
     def info(self):
         pass
 
+    @abstractmethod
+    def register(self):
+        pass
+
+    @abstractmethod
+    def unregister(self):
+        pass
+
     @property
     def created_at(self) -> datetime:
-        return self.deserialize(self.con.hget(self.hash_name, "created_at"), type="datetime",)
+        return self._deserialize(self.con.hget(self.hash_name, "created_at"), type="datetime",)
 
     @property
     def con(self):
@@ -171,11 +179,8 @@ class RedisObject(ABC):
     def getall(self):  # to be removed
         return self.con.hgetall(self.hash_name)
 
-    def remove(self):
-        self.con.delete(self.hash_name)
-
     @staticmethod
-    def serialize(value: Any) -> str:
+    def _serialize(value: Any) -> str:
         if isinstance(value, datetime):
             value = str(value)
 
@@ -185,7 +190,7 @@ class RedisObject(ABC):
         return json.dumps(value)
 
     @staticmethod
-    def deserialize(value: Any, type: Union[Literal["datetime", "dask"], None] = None,) -> Any:
+    def _deserialize(value: Any, type: Union[Literal["datetime", "dask"], None] = None,) -> Any:
         if value is None:
             return None
         else:
@@ -206,7 +211,7 @@ class RedisObject(ABC):
         new_values = list(set(new_values))
 
         # load existing values
-        out_values = self.deserialize(self.con.hget(name=self.hash_name, key=key))
+        out_values = self._deserialize(self.con.hget(name=self.hash_name, key=key))
         added_values = []
 
         # append existing values
@@ -223,7 +228,7 @@ class RedisObject(ABC):
         if added_values:
             self.logger.info(f"Adding {added_values} to {key}...")
             self.con.hset(
-                name=self.hash_name, key=key, value=self.serialize(out_values),
+                name=self.hash_name, key=key, value=self._serialize(out_values),
             )
         return added_values
 
@@ -235,7 +240,7 @@ class RedisObject(ABC):
         values = list(set(values))
 
         # load existing values
-        out_values = self.deserialize(self.con.hget(name=self.hash_name, key=key))
+        out_values = self._deserialize(self.con.hget(name=self.hash_name, key=key))
         removed_values = []
 
         # remove values
@@ -250,7 +255,7 @@ class RedisObject(ABC):
         if removed_values:
             self.logger.info(f"Removing {removed_values} from {key}...")
             self.con.hset(
-                name=self.hash_name, key=key, value=self.serialize(out_values),
+                name=self.hash_name, key=key, value=self._serialize(out_values),
             )
         return removed_values
 
@@ -276,65 +281,65 @@ class JobRun(RedisObject):
 
     @property
     def duration(self) -> int:
-        return self.deserialize(self.con.hget(self.hash_name, "duration"))
+        return self._deserialize(self.con.hget(self.hash_name, "duration"))
 
     @duration.setter
     @_check_if_exists()
     def duration(self, duration: int):
         self.con.hset(
-            self.hash_name, "duration", self.serialize(duration),
+            self.hash_name, "duration", self._serialize(duration),
         )
 
     @property
     def error(self) -> str:
-        return self.deserialize(self.con.hget(self.hash_name, "error"))
+        return self._deserialize(self.con.hget(self.hash_name, "error"))
 
     @error.setter
     @_check_if_exists()
     def error(self, error: str):
         self.con.hset(
-            self.hash_name, "error", self.serialize(error),
+            self.hash_name, "error", self._serialize(error),
         )
 
     @property
     def finished_at(self) -> datetime:
-        return self.deserialize(self.con.hget(self.hash_name, "finished_at"))
+        return self._deserialize(self.con.hget(self.hash_name, "finished_at"))
 
     @finished_at.setter
     @_check_if_exists()
     def finished_at(self, finished_at: datetime):
         self.con.hset(
-            self.hash_name, "finished_at", self.serialize(finished_at),
+            self.hash_name, "finished_at", self._serialize(finished_at),
         )
 
     @property
     def name(self) -> str:
-        return self.deserialize(self.con.hget(self.hash_name, "name"))
+        return self._deserialize(self.con.hget(self.hash_name, "name"))
 
     @name.setter
     @_check_if_exists()
     def name(self, name: str):
         self.con.hset(
-            self.hash_name, "name", self.serialize(name),
+            self.hash_name, "name", self._serialize(name),
         )
 
     @property
     def status(self,) -> Literal["fail", "running", "success", None]:
-        return self.deserialize(self.con.hget(self.hash_name, "status"))
+        return self._deserialize(self.con.hget(self.hash_name, "status"))
 
     @status.setter
     @_check_if_exists()
     def status(self, status: Literal["fail", "running", "success"]):
         self.con.hset(
-            self.hash_name, "status", self.serialize(status),
+            self.hash_name, "status", self._serialize(status),
         )
 
     def register(self):
 
         mapping = {
-            "id": self.serialize(self._id),
+            "id": self._serialize(self._id),
             "name": "null",
-            "created_at": self.serialize(datetime.now(timezone.utc)),
+            "created_at": self._serialize(datetime.now(timezone.utc)),
             "finished_at": "null",
             "duration": "null",
             "status": "null",
@@ -345,6 +350,9 @@ class JobRun(RedisObject):
         )
         return self
 
+    def unregister(self):
+        self.con.delete(self.hash_name)
+
 
 class Job(RedisObject):
     prefix = "grizly:registry:jobs:"
@@ -354,13 +362,13 @@ class Job(RedisObject):
 
     @property
     def cron(self) -> str:
-        return self.deserialize(self.con.hget(self.hash_name, "cron"))
+        return self._deserialize(self.con.hget(self.hash_name, "cron"))
 
     @cron.setter
     @_check_if_exists()
     def cron(self, cron: str):
         self.con.hset(
-            self.hash_name, "cron", self.serialize(cron),
+            self.hash_name, "cron", self._serialize(cron),
         )
 
     @property
@@ -373,13 +381,13 @@ class Job(RedisObject):
 
     @property
     def owner(self) -> str:
-        return self.deserialize(self.con.hget(self.hash_name, "owner"))
+        return self._deserialize(self.con.hget(self.hash_name, "owner"))
 
     @owner.setter
     @_check_if_exists()
     def owner(self, owner: str):
         self.con.hset(
-            self.hash_name, "owner", self.serialize(owner),
+            self.hash_name, "owner", self._serialize(owner),
         )
 
     @property
@@ -388,19 +396,19 @@ class Job(RedisObject):
 
     @property
     def tasks(self) -> List[Delayed]:
-        return self.deserialize(self.con.hget(self.hash_name, "tasks"), type="dask",)
+        return self._deserialize(self.con.hget(self.hash_name, "tasks"), type="dask",)
 
     @tasks.setter
     @_check_if_exists()
     def tasks(self, tasks: List[Delayed]):
         self.con.hset(
-            self.hash_name, "tasks", self.serialize(tasks),
+            self.hash_name, "tasks", self._serialize(tasks),
         )
 
     # TRIGGERS
     @property
     def triggers(self) -> List["Trigger"]:
-        trigger_names = self.deserialize(self.con.hget(self.hash_name, "triggers"))
+        trigger_names = self._deserialize(self.con.hget(self.hash_name, "triggers"))
         triggers = [Trigger(name=trigger_name) for trigger_name in trigger_names]
         return triggers
 
@@ -416,7 +424,7 @@ class Job(RedisObject):
             new_trigger.add_jobs(self.name)
         # 3. Update job with new triggers
         self.con.hset(
-            self.hash_name, "triggers", self.serialize(triggers),
+            self.hash_name, "triggers", self._serialize(triggers),
         )
 
     def add_triggers(self, trigger_names: str):
@@ -443,7 +451,7 @@ class Job(RedisObject):
 
     @property
     def downstream(self) -> List["Job"]:
-        downstream_job_names = self.deserialize(self.con.hget(self.hash_name, "downstream"))
+        downstream_job_names = self._deserialize(self.con.hget(self.hash_name, "downstream"))
         downstream_jobs = [Job(job_name) for job_name in downstream_job_names]
         return downstream_jobs
 
@@ -465,7 +473,7 @@ class Job(RedisObject):
             new_downstream_job.add_upstream_jobs(self.name)
         # 3. Update upstream jobs with the new job
         self.con.hset(
-            self.hash_name, "upstream", self.serialize(new_job_names),
+            self.hash_name, "upstream", self._serialize(new_job_names),
         )
 
     @_check_if_exists()
@@ -500,7 +508,7 @@ class Job(RedisObject):
 
     @property
     def upstream(self) -> List["Job"]:
-        upstream_job_names = self.deserialize(self.con.hget(self.hash_name, "upstream"))
+        upstream_job_names = self._deserialize(self.con.hget(self.hash_name, "upstream"))
         upstream_jobs = [Job(job_name) for job_name in upstream_job_names]
         return upstream_jobs
 
@@ -522,7 +530,7 @@ class Job(RedisObject):
             new_upstream_job.add_downstream_jobs(self.name)
         # 3. Update upstream jobs with the new job
         self.con.hset(
-            self.hash_name, "upstream", self.serialize(new_job_names),
+            self.hash_name, "upstream", self._serialize(new_job_names),
         )
 
     @_check_if_exists()
@@ -597,16 +605,16 @@ class Job(RedisObject):
             triggers = [triggers]
 
         mapping = {
-            "owner": self.serialize(owner),
-            "crons": self.serialize(crons),
+            "owner": self._serialize(owner),
+            "crons": self._serialize(crons),
             "rq_job_ids": "null",
-            "upstream": self.serialize(upstream),
-            "downstream": self.serialize([]),
-            "triggers": self.serialize(triggers),
-            "tasks": self.serialize(tasks),
-            "args": self.serialize(args),
-            "kwargs": self.serialize(kwargs),
-            "created_at": self.serialize(datetime.now(timezone.utc)),
+            "upstream": self._serialize(upstream),
+            "downstream": self._serialize([]),
+            "triggers": self._serialize(triggers),
+            "tasks": self._serialize(tasks),
+            "args": self._serialize(args),
+            "kwargs": self._serialize(kwargs),
+            "created_at": self._serialize(datetime.now(timezone.utc)),
         }
         if not (crons or upstream or triggers):
             raise ValueError("One of ['crons', 'upstream', 'triggers'] is required")
@@ -616,22 +624,7 @@ class Job(RedisObject):
         )
 
         if crons:
-            # TODO: put below in method
-            rq_job_ids = []
-            queue = Queue(RedisDB.submit_queue_name, connection=self.con)
-            scheduler = Scheduler(queue=queue, connection=self.con)
-            for cron in crons:
-                rq_job = scheduler.cron(
-                    cron,
-                    func=self.submit,
-                    kwargs=kwargs,
-                    repeat=None,
-                    queue_name=RedisDB.submit_queue_name,
-                )
-                rq_job_ids.append(rq_job.id)
-            self.con.hset(
-                name=self.hash_name, key="rq_job_ids", value=self.serialize(rq_job_ids),
-            )
+            self.__add_to_scheduler(crons)
 
         # add the job as downstream in all upstream jobs
         for upstream_job_name in upstream:
@@ -680,7 +673,24 @@ class Job(RedisObject):
                 job_run.remove()
 
         self.logger.info(f"Job {self.name} successfully registered")
-        return self
+
+    def __add_to_scheduler(self, crons: List[str]):
+        rq_job_ids = []
+        queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+        scheduler = Scheduler(queue=queue, connection=self.con)
+        for cron in crons:
+            rq_job = scheduler.cron(
+                cron,
+                func=self.submit,
+                kwargs=kwargs,
+                repeat=None,
+                queue_name=RedisDB.submit_queue_name,
+            )
+            rq_job_ids.append(rq_job.id)
+        self.con.hset(
+            name=self.hash_name, key="rq_job_ids", value=self._serialize(rq_job_ids),
+        )
+        self.logger.debug(f"Job {self.name}")
 
     @_check_if_exists()
     def submit(
@@ -747,29 +757,29 @@ class Trigger(RedisObject):
 
     @property
     def is_triggered(self) -> bool:
-        return self.deserialize(self.con.hget(self.hash_name, "is_triggered"))
+        return self._deserialize(self.con.hget(self.hash_name, "is_triggered"))
 
     @_check_if_exists()
     @is_triggered.setter
     def is_triggered(self, value: bool):
         self.con.hset(
-            self.hash_name, "is_triggered", self.serialize(value),
+            self.hash_name, "is_triggered", self._serialize(value),
         )
 
     @property
     def jobs(self) -> List[Union["Job", None]]:
-        job_names = self.deserialize(self.con.hget(self.hash_name, "jobs"))
+        job_names = self._deserialize(self.con.hget(self.hash_name, "jobs"))
         return [Job(name=job) for job in job_names]
 
     # @property
     # def last_run(self) -> datetime:
-    #     return self.deserialize(
+    #     return self._deserialize(
     #         self.con.hget(self.hash_name, "last_run"), type="datetime"
     #     )
 
     # @last_run.setter
     # def last_run(self, value: datetime):
-    #     self.con.hset(self.hash_name, "last_run", self.serialize(value))
+    #     self.con.hset(self.hash_name, "last_run", self._serialize(value))
 
     # @property
     # def next_run(self) -> datetime:
@@ -781,15 +791,15 @@ class Trigger(RedisObject):
 
     # @property
     # def type(self) -> Literal["cron", "listener"]:
-    #     return self.deserialize(self.con.hget(self.hash_name, "type"))
+    #     return self._deserialize(self.con.hget(self.hash_name, "type"))
 
     # @property
     # def value(self) -> str:
-    #     return self.deserialize(self.con.hget(self.hash_name, "value"))
+    #     return self._deserialize(self.con.hget(self.hash_name, "value"))
 
     # @value.setter
     # def value(self, value: str):
-    #     self.con.hset(self.hash_name, "value", self.serialize(value))
+    #     self.con.hset(self.hash_name, "value", self._serialize(value))
 
     def add_jobs(self, job_names: Union[List[str], str]):
         if not self.exists:
@@ -803,8 +813,8 @@ class Trigger(RedisObject):
 
         mapping = {
             "is_triggered": "null",
-            "jobs": self.serialize([]),
-            "created_at": self.serialize(datetime.now(timezone.utc)),
+            "jobs": self._serialize([]),
+            "created_at": self._serialize(datetime.now(timezone.utc)),
         }
         self.con.hset(
             name=self.hash_name, key=None, value=None, mapping=mapping,
