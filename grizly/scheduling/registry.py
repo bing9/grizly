@@ -643,16 +643,8 @@ class Job(RedisObject):
 
     def unregister(self, remove_job_runs: bool = False) -> None:
 
-        # for cron in crons:
-        #     queue = Queue(RedisDB.submit_queue_name, connection=self.con)
-        #     scheduler = Scheduler(queue=queue, connection=self.con)
-        #     scheduler.cron(
-        #         cron,
-        #         func=self.submit,
-        #         kwargs=kwargs,
-        #         repeat=None,
-        #         queue_name=RedisDB.submit_queue_name,
-        #     )
+        # remove for rq scheduler
+        self.__remove_from_scheduler()
 
         # remove job from downstream in all upstream jobs
         for upstream_job in self.upstream:
@@ -669,28 +661,13 @@ class Job(RedisObject):
         if remove_job_runs:
             # remove job run id increment
             self.con.delete(f"{JobRun.prefix}{self.name}:id")
+            # remove job runs
             for job_run in self.db.get_job_runs(job_name=self.name):
-                job_run.remove()
+                job_run.unregister()
 
-        self.logger.info(f"Job {self.name} successfully registered")
+        self.con.delete(self.hash_name)
 
-    def __add_to_scheduler(self, crons: List[str]):
-        rq_job_ids = []
-        queue = Queue(RedisDB.submit_queue_name, connection=self.con)
-        scheduler = Scheduler(queue=queue, connection=self.con)
-        for cron in crons:
-            rq_job = scheduler.cron(
-                cron,
-                func=self.submit,
-                kwargs=kwargs,
-                repeat=None,
-                queue_name=RedisDB.submit_queue_name,
-            )
-            rq_job_ids.append(rq_job.id)
-        self.con.hset(
-            name=self.hash_name, key="rq_job_ids", value=self._serialize(rq_job_ids),
-        )
-        self.logger.debug(f"Job {self.name}")
+        self.logger.info(f"Job {self.name} successfully removed from registry")
 
     @_check_if_exists()
     def submit(
@@ -748,6 +725,40 @@ class Job(RedisObject):
     def visualize(self, **kwargs):
         return self.graph.visualize(**kwargs)
 
+    def __add_to_scheduler(self, crons: List[str]):
+        rq_job_ids = []
+        queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+        scheduler = Scheduler(queue=queue, connection=self.con)
+        for cron in crons:
+            rq_job = scheduler.cron(
+                cron,
+                func=self.submit,
+                kwargs=kwargs,
+                repeat=None,
+                queue_name=RedisDB.submit_queue_name,
+            )
+            self.logger.debug(
+                f"Job {self.name} cron {cron} has been added to rq sheduler with id {rq_job.id}"
+            )
+            rq_job_ids.append(rq_job.id)
+        self.con.hset(
+            name=self.hash_name, key="rq_job_ids", value=self._serialize(rq_job_ids),
+        )
+        self.logger.info(f"Job has been added to the scheduler")
+
+    def __remove_from_scheduler(self):
+        rq_job_ids = self.con.hget(name=self.hash_name, key="rq_job_ids")
+        if rq_job_ids:
+            queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+            scheduler = Scheduler(queue=queue, connection=self.con)
+            for rq_job_id in rq_job_ids:
+                scheduler.cancel(rq_job_id)
+                self.logger.debug(f"Rq job {rq_job_id} removed from the scheduler")
+            self.con.hset(
+                name=self.hash_name, key="rq_job_ids", value=self._serialize([]),
+            )
+            self.logger.info(f"Job has been removed from the scheduler")
+
 
 class Trigger(RedisObject):
     prefix = "grizly:registry:triggers:"
@@ -781,26 +792,6 @@ class Trigger(RedisObject):
     # def last_run(self, value: datetime):
     #     self.con.hset(self.hash_name, "last_run", self._serialize(value))
 
-    # @property
-    # def next_run(self) -> datetime:
-    #     start_date = self.last_run or self.created_at
-    #     cron_str = self.value
-    #     cron = croniter(cron_str, start_date)
-    #     next_run = cron.get_next(datetime).replace(tzinfo=timezone.utc)
-    #     return next_run
-
-    # @property
-    # def type(self) -> Literal["cron", "listener"]:
-    #     return self._deserialize(self.con.hget(self.hash_name, "type"))
-
-    # @property
-    # def value(self) -> str:
-    #     return self._deserialize(self.con.hget(self.hash_name, "value"))
-
-    # @value.setter
-    # def value(self, value: str):
-    #     self.con.hset(self.hash_name, "value", self._serialize(value))
-
     def add_jobs(self, job_names: Union[List[str], str]):
         if not self.exists:
             self.register()
@@ -826,3 +817,13 @@ class Trigger(RedisObject):
             return None
 
         self._remove_values(key="jobs", values=job_names)
+
+    def unregister(self) -> None:
+
+        # remove trigger from all jobs
+        for job in self.jobs:
+            job.remove_triggers(self.name)
+
+        self.con.delete(self.hash_name)
+
+        self.logger.info(f"Job {self.name} successfully removed from registry")
