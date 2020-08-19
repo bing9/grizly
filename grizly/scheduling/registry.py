@@ -105,11 +105,12 @@ class RedisDB:
         job_runs = []
 
         if job_name is not None:
-            prefix = f"{JobRun.prefix}:{job_name}"
+            prefix = f"{JobRun.prefix}{job_name}:"
             job_run_hash_names = [val.decode("utf-8") for val in self.con.keys(f"{prefix}*")]
             for job_run_hash_name in job_run_hash_names:
                 job_run_id = job_run_hash_name[len(f"{prefix}") :]
-                job_runs.append(JobRun(job_name, job_run_id, logger=self.logger,))
+                if job_run_id != "id":
+                    job_runs.append(JobRun(job_name, job_run_id, logger=self.logger,))
         else:
             jobs = self.get_jobs()
             for job in jobs:
@@ -140,8 +141,10 @@ class RedisObject(ABC):
     def __init__(
         self, name: Union[str, None], logger: logging.Logger = None, **kwargs,
     ):
-        self.name = name or ""
-        self.hash_name = self.prefix + self.name
+        # TODO: fix this workaround
+        if self.__class__.__name__ != "JobRun":
+            self.name = name or ""
+            self.hash_name = self.prefix + self.name
         self.db = RedisDB(**kwargs)
         self.logger = logger or logging.getLogger(__name__)
 
@@ -176,7 +179,7 @@ class RedisObject(ABC):
     def exists(self):
         return self.con.exists(self.hash_name)
 
-    def getall(self):  # to be removed
+    def getall(self):  # to be removed or replaced git get_all()
         return self.con.hgetall(self.hash_name)
 
     @staticmethod
@@ -276,6 +279,12 @@ class JobRun(RedisObject):
             self.hash_name = f"{self.prefix}{self.job_name}:{self._id}"
             self.register()
 
+    def __repr__(self):
+        return f"{self.__class__.__name__}(job_name='{self.job_name}, id='{self._id}')"
+
+    def __lt__(self, other):
+        return self._id < other._id
+
     def info(self):
         pass
 
@@ -361,14 +370,35 @@ class Job(RedisObject):
         pass
 
     @property
-    def cron(self) -> str:
-        return self._deserialize(self.con.hget(self.hash_name, "cron"))
+    def crons(self) -> List[str]:
+        return self._deserialize(self.con.hget(self.hash_name, "crons"))
 
-    @cron.setter
+    @crons.setter
     @_check_if_exists()
-    def cron(self, cron: str):
+    def crons(self, crons: Union[List[str], str]):
+        # VALIDATIONS
+        if isinstance(crons, str):
+            crons = [crons]
+        for cron in crons:
+            if not croniter.is_valid(cron):
+                raise ValueError(f"Invalid cron string {cron}")
+
+        self.__remove_from_scheduler()
+        self._rq_job_ids = []
+        self._rq_job_ids = self.__add_to_scheduler(crons)
+
         self.con.hset(
-            self.hash_name, "cron", self._serialize(cron),
+            self.hash_name, "crons", self._serialize(crons),
+        )
+
+    @property
+    def _rq_job_ids(self):
+        return self._deserialize(self.con.hget(self.hash_name, "rq_job_ids"))
+
+    @_rq_job_ids.setter
+    def _rq_job_ids(self, _rq_job_ids: List[str]):
+        self.con.hset(
+            self.hash_name, "_rq_job_ids", self._serialize(_rq_job_ids),
         )
 
     @property
@@ -376,8 +406,10 @@ class Job(RedisObject):
         return dask.delayed()(self.tasks, name=self.name + "_graph")
 
     @property
-    def last_run(self) -> JobRun:
-        return self.runs[-1]
+    def last_run(self) -> Union[JobRun, None]:
+        runs = self.runs
+        if runs:
+            return max(runs)
 
     @property
     def owner(self) -> str:
@@ -413,7 +445,10 @@ class Job(RedisObject):
         return triggers
 
     @triggers.setter
-    def triggers(self, triggers):
+    def triggers(self, triggers: Union[List[str], str]):
+        if isinstance(triggers, str):
+            triggers = [triggers]
+
         # 1. Remove job from previous triggers
         old_triggers = self.triggers
         for trigger in old_triggers:
@@ -427,7 +462,7 @@ class Job(RedisObject):
             self.hash_name, "triggers", self._serialize(triggers),
         )
 
-    def add_triggers(self, trigger_names: str):
+    def add_triggers(self, trigger_names: Union[List[str], str]):
 
         added_trigger_names = self._add_values(key="triggers", new_values=trigger_names)
 
@@ -436,7 +471,7 @@ class Job(RedisObject):
             if self not in trigger.jobs:
                 trigger.add_jobs(self.name)
 
-    def remove_triggers(self, trigger_names: str):
+    def remove_triggers(self, trigger_names: Union[List[str], str]):
         removed_trigger_names = self._remove_values(key="triggers", values=trigger_names)
 
         # remove the job from old triggers
@@ -457,11 +492,13 @@ class Job(RedisObject):
 
     @downstream.setter
     @_check_if_exists()
-    def downstream(self, new_job_names: List[str]):
+    def downstream(self, new_job_names: Union[List[str], str]):
         """
         Overwrite the list of downstream jobs.
         """
         self.db._check_if_jobs_exist(new_job_names)
+        if isinstance(new_job_names, str):
+            new_job_names = [new_job_names]
         # 1. Remove from downstream jobs of all the jobs on the previous
         #    upstream jobs list
         old_downstream_jobs = self.downstream
@@ -473,7 +510,7 @@ class Job(RedisObject):
             new_downstream_job.add_upstream_jobs(self.name)
         # 3. Update upstream jobs with the new job
         self.con.hset(
-            self.hash_name, "upstream", self._serialize(new_job_names),
+            self.hash_name, "downstream", self._serialize(new_job_names),
         )
 
     @_check_if_exists()
@@ -514,11 +551,13 @@ class Job(RedisObject):
 
     @upstream.setter
     @_check_if_exists()
-    def upstream(self, new_job_names: List[str]):
+    def upstream(self, new_job_names: Union[List[str], str]):
         """
         Overwrite the list of upstream jobs.
         """
         self.db._check_if_jobs_exist(new_job_names)
+        if isinstance(new_job_names, str):
+            new_job_names = [new_job_names]
         # 1. Remove from downstream jobs of all the jobs on the previous
         #    upstream jobs list
         old_upstream_jobs = self.upstream
@@ -607,7 +646,7 @@ class Job(RedisObject):
         mapping = {
             "owner": self._serialize(owner),
             "crons": self._serialize(crons),
-            "rq_job_ids": "null",
+            "rq_job_ids": self._serialize([]),
             "upstream": self._serialize(upstream),
             "downstream": self._serialize([]),
             "triggers": self._serialize(triggers),
@@ -623,8 +662,7 @@ class Job(RedisObject):
             name=self.hash_name, key=None, value=None, mapping=mapping,
         )
 
-        if crons:
-            self.__add_to_scheduler(crons, *args, **kwargs)
+        self.rq_job_ids = self.__add_to_scheduler(crons, *args, **kwargs)
 
         # add the job as downstream in all upstream jobs
         for upstream_job_name in upstream:
@@ -645,6 +683,7 @@ class Job(RedisObject):
 
         # remove for rq scheduler
         self.__remove_from_scheduler()
+        self._rq_job_ids = []
 
         # remove job from downstream in all upstream jobs
         for upstream_job in self.upstream:
@@ -679,7 +718,7 @@ class Job(RedisObject):
         to_dask=True,
     ) -> Any:
 
-        if self.last_run.status == "running":
+        if self.last_run and self.last_run.status == "running":
             self.logger.warning(
                 f"Job {self.name} is already running. To stop the process please use ..."
             )
@@ -698,7 +737,7 @@ class Job(RedisObject):
                     raise ValueError("distributed.Client/scheduler address was not provided")
 
             self.logger.info(f"Submitting job {self.name}...")
-            job_run = JobRun(job_name=self.name).register()
+            job_run = JobRun(job_name=self.name)
             job_run.status = "running"
 
             start = time()
@@ -718,7 +757,8 @@ class Job(RedisObject):
 
             self.logger.info(f"Job {self.name} finished with status {status}")
 
-            client.close()
+            if to_dask:
+                client.close()
             return result
 
     @_check_if_exists()
@@ -727,37 +767,35 @@ class Job(RedisObject):
 
     def __add_to_scheduler(self, crons: List[str], *args, **kwargs):
         rq_job_ids = []
-        queue = Queue(RedisDB.submit_queue_name, connection=self.con)
-        scheduler = Scheduler(queue=queue, connection=self.con)
-        for cron in crons:
-            rq_job = scheduler.cron(
-                cron,
-                func=self.submit,
-                args=args,
-                kwargs=kwargs,
-                repeat=None,
-                queue_name=RedisDB.submit_queue_name,
-            )
-            self.logger.debug(
-                f"Job {self.name} cron {cron} has been added to rq sheduler with id {rq_job.id}"
-            )
-            rq_job_ids.append(rq_job.id)
-        self.con.hset(
-            name=self.hash_name, key="rq_job_ids", value=self._serialize(rq_job_ids),
-        )
-        self.logger.info(f"Job has been added to the scheduler")
+        if crons:
+            queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+            scheduler = Scheduler(queue=queue, connection=self.con)
+            for cron in crons:
+                rq_job = scheduler.cron(
+                    cron,
+                    func=self.submit,
+                    args=args,
+                    kwargs=kwargs,
+                    repeat=None,
+                    queue_name=RedisDB.submit_queue_name,
+                )
+                self.logger.debug(
+                    f"Job {self.name} cron {cron} has been added to rq sheduler with id {rq_job.id}"
+                )
+                rq_job_ids.append(rq_job.id)
+            self.logger.info(f"Job has been added to the scheduler")
+
+        return rq_job_ids
 
     def __remove_from_scheduler(self):
-        rq_job_ids = self.con.hget(name=self.hash_name, key="rq_job_ids")
+        rq_job_ids = self._rq_job_ids
         if rq_job_ids:
             queue = Queue(RedisDB.submit_queue_name, connection=self.con)
             scheduler = Scheduler(queue=queue, connection=self.con)
             for rq_job_id in rq_job_ids:
                 scheduler.cancel(rq_job_id)
                 self.logger.debug(f"Rq job {rq_job_id} removed from the scheduler")
-            self.con.hset(
-                name=self.hash_name, key="rq_job_ids", value=self._serialize([]),
-            )
+
             self.logger.info(f"Job has been removed from the scheduler")
 
 
