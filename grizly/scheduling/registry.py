@@ -141,7 +141,7 @@ class RedisObject(ABC):
     def __init__(
         self, name: Union[str, None], logger: logging.Logger = None, **kwargs,
     ):
-        # TODO: fix this workaround
+        # TODO: fix this workaround - we need this cause JobRun has name property
         if self.__class__.__name__ != "JobRun":
             self.name = name or ""
             self.hash_name = self.prefix + self.name
@@ -366,8 +366,17 @@ class JobRun(RedisObject):
 class Job(RedisObject):
     prefix = "grizly:registry:jobs:"
 
+    @_check_if_exists()
     def info(self):
-        pass
+        s = (
+            f"name: {self.name}\n"
+            f"owner: {self.owner}\n"
+            f"crons: {self.crons}\n"
+            f"downstream: {self.downstream}\n"
+            f"upstream: {self.upstream}\n"
+            f"triggers: {self.triggers}"
+        )
+        print(s)
 
     @property
     def crons(self) -> List[str]:
@@ -398,7 +407,7 @@ class Job(RedisObject):
     @_rq_job_ids.setter
     def _rq_job_ids(self, _rq_job_ids: List[str]):
         self.con.hset(
-            self.hash_name, "_rq_job_ids", self._serialize(_rq_job_ids),
+            self.hash_name, "rq_job_ids", self._serialize(_rq_job_ids),
         )
 
     @property
@@ -662,7 +671,7 @@ class Job(RedisObject):
             name=self.hash_name, key=None, value=None, mapping=mapping,
         )
 
-        self.rq_job_ids = self.__add_to_scheduler(crons, *args, **kwargs)
+        self._rq_job_ids = self.__add_to_scheduler(crons, *args, **kwargs)
 
         # add the job as downstream in all upstream jobs
         for upstream_job_name in upstream:
@@ -744,6 +753,7 @@ class Job(RedisObject):
             try:
                 result = self.graph.compute()
                 status = "success"
+                self.__submit_downstream_jobs()
             except Exception:
                 result = None
                 status = "fail"
@@ -777,7 +787,7 @@ class Job(RedisObject):
                     args=args,
                     kwargs=kwargs,
                     repeat=None,
-                    queue_name=RedisDB.submit_queue_name,
+                    queue_name=queue.name,
                 )
                 self.logger.debug(
                     f"Job {self.name} cron {cron} has been added to rq sheduler with id {rq_job.id}"
@@ -797,6 +807,12 @@ class Job(RedisObject):
                 self.logger.debug(f"Rq job {rq_job_id} removed from the scheduler")
 
             self.logger.info(f"Job has been removed from the scheduler")
+
+    def __submit_downstream_jobs(self):
+        self.logger.warning("Submitting downstream_jobs...")
+        queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+        for job in self.downstream:
+            queue.enqueue(job.submit)
 
 
 class Trigger(RedisObject):

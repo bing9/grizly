@@ -27,7 +27,7 @@ def job_with_cron():
     job_with_cron = Job(name="job_with_cron")
     job_with_cron.register(tasks=tasks, crons="* * * * *", if_exists="replace")
     yield job_with_cron
-    # job_with_cron.unregister()
+    job_with_cron.unregister()
 
 
 @pytest.fixture(scope="module")
@@ -54,22 +54,31 @@ def job_with_trigger(trigger):
     job_with_trigger.unregister()
 
 
+# REDISDB PROPERTIES
+# ------------------
+
+
+# REDISDB METHODS
+# ---------------
+
+
 # JOB PROPERTIES
 # --------------
 
 
 def test_job_cron(job_with_cron):
     assert job_with_cron.crons == ["* * * * *"]
-    assert len(job_with_cron._rq_job_ids) == 1
 
     with pytest.raises(ValueError):
         job_with_cron.crons = ["invalid_cron_string"]
 
     job_with_cron.crons = []
     assert job_with_cron.crons == []
+    assert len(job_with_cron._rq_job_ids) == 0
 
     job_with_cron.crons = "* * * * *"
     assert job_with_cron.crons == ["* * * * *"]
+    assert len(job_with_cron._rq_job_ids) == 1
 
 
 def test_job_exists(job_with_cron):
@@ -124,7 +133,7 @@ def test_job_downstream(job_with_cron, job_with_upstream):
 def test_job_upstream(job_with_cron, job_with_upstream):
     assert job_with_upstream.upstream == [job_with_cron]
 
-    # trying to set not existing job as downstream should raise error
+    # trying to set not existing job as upstream should raise error
     with pytest.raises(JobNotFoundError):
         job_with_cron.upstream = ["not_found_job"]
 
@@ -171,3 +180,19 @@ def test_job_register(job_with_cron):
 
     rq_job_ids = job_with_cron._rq_job_ids
     assert len(rq_job_ids) == 1
+
+
+# JOBRUN PROPERTIES
+# -----------------
+
+
+# JOBRUN METHODS
+# --------------
+
+
+# TRIGGER PROPERTIES
+# ------------------
+
+
+# TRIGGER METHODS
+# ---------------

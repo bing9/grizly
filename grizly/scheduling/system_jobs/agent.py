@@ -18,7 +18,7 @@ def run():
 
         for trigger in triggers:
             if trigger.is_triggered:
-                for job in trigger.downstream_jobs:
+                for job in trigger.jobs:
                     submit_queue.enqueue(job.submit)
     except:
         raise ValueError("Something went wrong.")
