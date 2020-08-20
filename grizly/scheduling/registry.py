@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 from time import time
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, Dict, List, Literal, Union, Optional
 
 from croniter import croniter
 import dask
@@ -39,7 +39,7 @@ def _check_if_exists(raise_error=True):
                 if raise_error:
                     raise JobNotFoundError
                 else:
-                    self.logger.warning(f"{self.hash_name} not found in the registry")
+                    self.logger.warning(f"{self} not found in the registry")
 
             return f(self, *args, **kwargs)
 
@@ -53,7 +53,10 @@ class RedisDB:
     system_queue_name = "system"
 
     def __init__(
-        self, redis_host: str = None, redis_port: int = None, logger: logging.Logger = None,
+        self,
+        redis_host: Optional[str] = None,
+        redis_port: Optional[int] = None,
+        logger: Optional[logging.Logger] = None,
     ):
         self.logger = logger or logging.getLogger(__name__)
         self.config = Config().get_service("scheduling")
@@ -63,7 +66,7 @@ class RedisDB:
             or self.config.get("redis_host")
             or "localhost"
         )
-        self.redis_port = (
+        self.redis_port = int(
             redis_port or os.getenv("GRIZLY_REDIS_PORT") or self.config.get("redis_port") or 6379
         )
 
@@ -72,25 +75,43 @@ class RedisDB:
         con = Redis(host=self.redis_host, port=self.redis_port, db=0)
         return con
 
-    def add_trigger(self, name: str, type: str, value: str):
-        Trigger(name=name).register()
+    def add_trigger(self, name: str):
+        tr = Trigger(name=name, logger=self.logger, db=self)
+        tr.register()
 
     def get_triggers(self) -> List["Trigger"]:
         triggers = []
         prefix = Trigger.prefix
-        for trigger_name_with_prefix in self.con.keys(f"{prefix}*"):
-            trigger_name = trigger_name_with_prefix.decode("utf-8")[len(prefix) :]
-            triggers.append(Trigger(trigger_name, logger=self.logger,))
+        tr_hash_names = [val.decode("utf-8") for val in self.con.keys(f"{prefix}*")]
+        for tr_hash_name in tr_hash_names:
+            trigger_name = tr_hash_name[len(prefix) :]
+            tr = Trigger(name=trigger_name, logger=self.logger, db=self)
+            triggers.append(tr)
         return triggers
 
     def add_job(
         self,
         name: str,
-        owner: str = None,
-        trigger_names: list = [],
-        tasks: List[dask.delayed] = None,
+        tasks: List[Delayed],
+        owner: Optional[str] = None,
+        crons: Union[List[str], str] = [],
+        upstream: Union[List[str], str] = [],
+        triggers: Union[List[str], str] = [],
+        if_exists: Literal["fail", "replace"] = "fail",
+        *args,
+        **kwargs,
     ):
-        Job(name=name).register(owner=owner, tasks=tasks)
+        job = Job(name=name, logger=self.logger, db=self)
+        job.register(
+            owner=owner,
+            tasks=tasks,
+            crons=crons,
+            upstream=upstream,
+            triggers=triggers,
+            if_exists=if_exists,
+            *args,
+            **kwargs,
+        )
 
     def get_jobs(self) -> List["Job"]:
         jobs = []
@@ -98,10 +119,11 @@ class RedisDB:
         job_hash_names = [val.decode("utf-8") for val in self.con.keys(f"{prefix}*")]
         for job_hash_name in job_hash_names:
             job_name = job_hash_name[len(prefix) :]
-            jobs.append(Job(job_name, logger=self.logger,))
+            job = Job(name=job_name, logger=self.logger, db=self)
+            jobs.append(job)
         return jobs
 
-    def get_job_runs(self, job_name: Union[str, None] = None) -> List["JobRun"]:
+    def get_job_runs(self, job_name: Optional[str] = None) -> List["JobRun"]:
         job_runs = []
 
         if job_name is not None:
@@ -110,7 +132,8 @@ class RedisDB:
             for job_run_hash_name in job_run_hash_names:
                 job_run_id = job_run_hash_name[len(f"{prefix}") :]
                 if job_run_id != "id":
-                    job_runs.append(JobRun(job_name, job_run_id, logger=self.logger,))
+                    job_run = JobRun(job_name=job_name, id=job_run_id, logger=self.logger, db=self)
+                    job_runs.append(job_run)
         else:
             jobs = self.get_jobs()
             for job in jobs:
@@ -130,7 +153,7 @@ class RedisDB:
             values = [values]
         if object_type == "job":
             for job_name in values:
-                job = Job(job_name)
+                job = Job(name=job_name, logger=self.logger, db=self)
                 if not job.exists:
                     raise JobNotFoundError
 
@@ -139,13 +162,18 @@ class RedisObject(ABC):
     prefix = "grizly:"
 
     def __init__(
-        self, name: Union[str, None], logger: logging.Logger = None, **kwargs,
+        self,
+        name: Optional[str],
+        logger: Optional[logging.Logger] = None,
+        db: Optional[RedisDB] = None,
+        redis_host: Optional[str] = None,
+        redis_port: Optional[int] = None,
     ):
         # TODO: fix this workaround - we need this cause JobRun has name property
         if self.__class__.__name__ != "JobRun":
             self.name = name or ""
             self.hash_name = self.prefix + self.name
-        self.db = RedisDB(**kwargs)
+        self.db = db or RedisDB(logger=logger, redis_host=redis_host, redis_port=redis_port)
         self.logger = logger or logging.getLogger(__name__)
 
     def __eq__(self, other):
@@ -193,14 +221,14 @@ class RedisObject(ABC):
         return json.dumps(value)
 
     @staticmethod
-    def _deserialize(value: Any, type: Union[Literal["datetime", "dask"], None] = None,) -> Any:
+    def _deserialize(value: Any, type: Optional[Literal["datetime", "dask"]] = None,) -> Any:
         if value is None:
             return None
         else:
             value = json.loads(value)
             if value is not None:
                 if type == "datetime":
-                    value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
+                    value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f%z")
                 elif type == "dask":
                     value = dask_deserialize(*eval(value))
 
@@ -220,16 +248,14 @@ class RedisObject(ABC):
         # append existing values
         for new_value in new_values:
             if new_value in out_values:
-                self.logger.warning(
-                    f"{new_value} already exists in" f" the list of {self.name}'s {key}"
-                )
+                self.logger.warning(f"'{new_value}' already exists in {self}.{key}")
             else:
                 out_values.append(new_value)
                 added_values.append(new_value)
 
         # update Redis
         if added_values:
-            self.logger.info(f"Adding {added_values} to {key}...")
+            self.logger.info(f"Adding {added_values} to {self}.{key}...")
             self.con.hset(
                 name=self.hash_name, key=key, value=self._serialize(out_values),
             )
@@ -252,11 +278,11 @@ class RedisObject(ABC):
                 out_values.remove(value)
                 removed_values.append(value)
             except ValueError:
-                self.logger.warning(f"Value '{value}' was not found in {self}'s {key}")
+                self.logger.warning(f"Value '{value}' was not found in {self}.{key}")
 
         # update Redis
         if removed_values:
-            self.logger.info(f"Removing {removed_values} from {key}...")
+            self.logger.info(f"Removing {removed_values} from {self}.{key}...")
             self.con.hset(
                 name=self.hash_name, key=key, value=self._serialize(out_values),
             )
@@ -266,7 +292,7 @@ class RedisObject(ABC):
 class JobRun(RedisObject):
     prefix = "grizly:runs:jobs:"
 
-    def __init__(self, job_name: str, id: Union[int, None] = None, *args, **kwargs):
+    def __init__(self, job_name: str, id: Optional[int] = None, *args, **kwargs):
         super().__init__(name=None, *args, **kwargs)
         self.job_name = job_name
         if id is not None:
@@ -285,8 +311,18 @@ class JobRun(RedisObject):
     def __lt__(self, other):
         return self._id < other._id
 
+    @_check_if_exists()
     def info(self):
-        pass
+        s = (
+            f"id: {self._id}\n"
+            f"name: {self.name}\n"
+            f"created_at: {self.created_at}\n"
+            f"finished_at: {self.finished_at}\n"
+            f"duration: {self.duration}\n"
+            f"status: {self.status}\n"
+            f"error: {self.error}"
+        )
+        print(s)
 
     @property
     def duration(self) -> int:
@@ -333,7 +369,7 @@ class JobRun(RedisObject):
         )
 
     @property
-    def status(self,) -> Literal["fail", "running", "success", None]:
+    def status(self) -> Literal["fail", "running", "success", None]:
         return self._deserialize(self.con.hget(self.hash_name, "status"))
 
     @status.setter
@@ -371,6 +407,7 @@ class Job(RedisObject):
         s = (
             f"name: {self.name}\n"
             f"owner: {self.owner}\n"
+            f"created_at: {self.created_at}\n"
             f"crons: {self.crons}\n"
             f"downstream: {self.downstream}\n"
             f"upstream: {self.upstream}\n"
@@ -415,7 +452,7 @@ class Job(RedisObject):
         return dask.delayed()(self.tasks, name=self.name + "_graph")
 
     @property
-    def last_run(self) -> Union[JobRun, None]:
+    def last_run(self) -> Optional[JobRun]:
         runs = self.runs
         if runs:
             return max(runs)
@@ -613,7 +650,7 @@ class Job(RedisObject):
 
     # DOWNSTREAM/UPSTREAM END
 
-    def cancel(self, scheduler_address: Union[str, None] = None) -> None:
+    def cancel(self, scheduler_address: Optional[str] = None) -> None:
         if not scheduler_address:
             scheduler_address = self.scheduler_address
         client = Client(scheduler_address)
@@ -624,7 +661,7 @@ class Job(RedisObject):
     def register(
         self,
         tasks: List[Delayed],
-        owner: Union[str, None] = None,
+        owner: Optional[str] = None,
         crons: Union[List[str], str] = [],
         upstream: Union[List[str], str] = [],
         triggers: Union[List[str], str] = [],
@@ -633,7 +670,7 @@ class Job(RedisObject):
         **kwargs,
     ) -> "Job":
         if if_exists == "fail" and self.exists:
-            raise ValueError(f"Job {self.name} already exists")
+            raise ValueError(f"{self} already exists")
 
         # VALIDATIONS
         # cron
@@ -685,7 +722,7 @@ class Job(RedisObject):
 
         self.con.set(f"{JobRun.prefix}{self.name}:id", "0")
 
-        self.logger.info(f"Job {self.name} successfully registered")
+        self.logger.info(f"{self} successfully registered")
         return self
 
     def unregister(self, remove_job_runs: bool = False) -> None:
@@ -715,7 +752,7 @@ class Job(RedisObject):
 
         self.con.delete(self.hash_name)
 
-        self.logger.info(f"Job {self.name} successfully removed from registry")
+        self.logger.info(f"{self} successfully removed from registry")
 
     @_check_if_exists()
     def submit(
@@ -745,7 +782,7 @@ class Job(RedisObject):
                 if not client and not self.scheduler_address:
                     raise ValueError("distributed.Client/scheduler address was not provided")
 
-            self.logger.info(f"Submitting job {self.name}...")
+            self.logger.info(f"Submitting {self}...")
             job_run = JobRun(job_name=self.name)
             job_run.status = "running"
 
@@ -753,19 +790,19 @@ class Job(RedisObject):
             try:
                 result = self.graph.compute()
                 status = "success"
+                self.logger.info(f"{self} finished with status {status}")
                 self.__submit_downstream_jobs()
             except Exception:
                 result = None
                 status = "fail"
                 _, exc_value, _ = sys.exc_info()
                 job_run.error = str(exc_value)
+                self.logger.info(f"{self} finished with status {status}")
 
             end = time()
             job_run.finished_at = datetime.now(timezone.utc)
             job_run.duration = int(end - start)
             job_run.status = status
-
-            self.logger.info(f"Job {self.name} finished with status {status}")
 
             if to_dask:
                 client.close()
@@ -790,10 +827,10 @@ class Job(RedisObject):
                     queue_name=queue.name,
                 )
                 self.logger.debug(
-                    f"Job {self.name} cron {cron} has been added to rq sheduler with id {rq_job.id}"
+                    f"{self} with cron '{cron}' has been added to rq sheduler with id {rq_job.id}"
                 )
                 rq_job_ids.append(rq_job.id)
-            self.logger.info(f"Job has been added to the scheduler")
+            self.logger.info(f"{self} has been added to the scheduler")
 
         return rq_job_ids
 
@@ -806,13 +843,15 @@ class Job(RedisObject):
                 scheduler.cancel(rq_job_id)
                 self.logger.debug(f"Rq job {rq_job_id} removed from the scheduler")
 
-            self.logger.info(f"Job has been removed from the scheduler")
+            self.logger.info(f"{self} has been removed from the scheduler")
 
     def __submit_downstream_jobs(self):
-        self.logger.warning("Submitting downstream_jobs...")
+        self.logger.info(f"Enqueueing {self}.downstream...")
         queue = Queue(RedisDB.submit_queue_name, connection=self.con)
         for job in self.downstream:
+            # TODO: should read downstream *args ad **kwargs from registry
             queue.enqueue(job.submit)
+            self.logger.info(f"{job} has been enqueued")
 
 
 class Trigger(RedisObject):
@@ -833,7 +872,7 @@ class Trigger(RedisObject):
         )
 
     @property
-    def jobs(self) -> List[Union["Job", None]]:
+    def jobs(self) -> List[Optional["Job"]]:
         job_names = self._deserialize(self.con.hget(self.hash_name, "jobs"))
         return [Job(name=job) for job in job_names]
 
@@ -881,4 +920,4 @@ class Trigger(RedisObject):
 
         self.con.delete(self.hash_name)
 
-        self.logger.info(f"Job {self.name} successfully removed from registry")
+        self.logger.info(f"{self} successfully removed from registry")
