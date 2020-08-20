@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) 
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [0.3.7rc1](https://github.com/kfk/grizly/compare/v0.3.7rc0...v0.3.7rc1) - 13-08-2020
+
+### QFrame
+- Fixed bug in `having` method [#472](https://github.com/acivitillo/grizly/issues/472)
+
 ## [0.3.7rc0](https://github.com/kfk/grizly/compare/v0.3.6...v0.3.7rc0) - 22-07-2020
 
 ### Overall changes
