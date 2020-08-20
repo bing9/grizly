@@ -671,8 +671,11 @@ class Job(RedisObject):
         *args,
         **kwargs,
     ) -> "Job":
-        if if_exists == "fail" and self.exists:
-            raise ValueError(f"{self} already exists")
+        if self.exists:
+            if if_exists == "fail":
+                raise ValueError(f"{self} already exists")
+            else:
+                self.unregister()
 
         # VALIDATIONS
         # cron
@@ -785,7 +788,7 @@ class Job(RedisObject):
                     raise ValueError("distributed.Client/scheduler address was not provided")
 
             self.logger.info(f"Submitting {self}...")
-            job_run = JobRun(job_name=self.name)
+            job_run = JobRun(job_name=self.name, db=self.db)
             job_run.status = "running"
 
             start = time()
