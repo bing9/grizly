@@ -457,7 +457,7 @@ class Job(RedisObject):
     def last_run(self) -> Optional[JobRun]:
         _id = self._deserialize(self.con.get(f"{JobRun.prefix}{self.name}:id"))
         if _id:
-            return JobRun(job_name=self.name, id=_id)
+            return JobRun(job_name=self.name, id=_id, db=self.db)
 
     @property
     def owner(self) -> str:
