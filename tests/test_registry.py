@@ -27,7 +27,7 @@ def job_with_cron():
     job_with_cron = Job(name="job_with_cron")
     job_with_cron.register(tasks=tasks, crons="* * * * *", if_exists="replace")
     yield job_with_cron
-    job_with_cron.unregister()
+    job_with_cron.unregister(remove_job_runs=True)
 
 
 @pytest.fixture(scope="module")
@@ -35,7 +35,25 @@ def job_with_upstream(job_with_cron):
     job_with_upstream = Job(name="job_with_upstream")
     job_with_upstream.register(tasks=tasks, upstream=job_with_cron.name, if_exists="replace")
     yield job_with_upstream
-    job_with_upstream.unregister()
+    job_with_upstream.unregister(remove_job_runs=True)
+
+
+@pytest.fixture(scope="module")
+def job_with_trigger(trigger):
+    job_with_trigger = Job(name="job_with_trigger")
+    job_with_trigger.register(tasks=tasks, triggers=trigger.name, if_exists="replace")
+    yield job_with_trigger
+    job_with_trigger.unregister(remove_job_runs=True)
+
+
+@pytest.fixture(scope="module", params=["job_with_cron", "job_with_upstream", "job_with_trigger"])
+def job(job_with_cron, job_with_upstream, job_with_trigger, request):
+    if request.param == "job_with_cron":
+        return job_with_cron
+    elif request.param == "job_with_upstream":
+        return job_with_upstream
+    elif request.param == "job_with_trigger":
+        return job_with_trigger
 
 
 @pytest.fixture(scope="session")
@@ -47,22 +65,42 @@ def trigger():
 
 
 @pytest.fixture(scope="module")
-def job_with_trigger(trigger):
-    job_with_trigger = Job(name="job_with_trigger")
-    job_with_trigger.register(tasks=tasks, triggers=trigger.name, if_exists="replace")
-    yield job_with_trigger
-    job_with_trigger.unregister()
+def job_run(job):
+    job.submit(to_dask=False)
+    yield job.last_run
 
 
-# REDISDB PROPERTIES
+@pytest.fixture(scope="module", params=["job_with_cron", "trigger"])
+def redis_object(job_with_cron, trigger, request):
+    # if request.param == "job_with_cron":
+    #     return job_with_cron
+    # elif request.param == "trigger":
+    #     return trigger
+    return eval(request.param)
+
+
+# RedisDB PROPERTIES
 # ------------------
 
 
-# REDISDB METHODS
+# RedisDB METHODS
 # ---------------
 
 
-# JOB PROPERTIES
+# RedisObject PROPERTIES
+# ---------------------
+
+
+def test_redis_object_exists(redis_object):
+    assert redis_object.exists
+    assert False
+
+
+# RedisObject METHODS
+# -------------------
+
+
+# Job PROPERTIES
 # --------------
 
 
@@ -81,23 +119,19 @@ def test_job_cron(job_with_cron):
     assert len(job_with_cron._rq_job_ids) == 1
 
 
-def test_job_exists(job_with_cron):
-    assert job_with_cron.exists
-
-
 @given(text())
-def test_job_owner(job_with_cron, owner):
-    assert job_with_cron.owner is None
+def test_job_owner(job, owner):
+    assert job.owner is None
 
-    job_with_cron.owner = owner
-    assert job_with_cron.owner == owner
+    job.owner = owner
+    assert job.owner == owner
 
-    job_with_cron.owner = None
-    assert job_with_cron.owner is None
+    job.owner = None
+    assert job.owner is None
 
 
-def test_job_tasks(job_with_cron):
-    tasks = job_with_cron.tasks
+def test_job_tasks(job):
+    tasks = job.tasks
     assert len(tasks) == 1
     assert dask.delayed(tasks).compute() == [3]
 
@@ -146,7 +180,7 @@ def test_job_upstream(job_with_cron, job_with_upstream):
     assert job_with_upstream in job_with_cron.downstream
 
 
-# JOB METHODS
+# Job METHODS
 # -----------
 
 
@@ -182,17 +216,41 @@ def test_job_register(job_with_cron):
     assert len(rq_job_ids) == 1
 
 
-# JOBRUN PROPERTIES
+# JobRun PROPERTIES
 # -----------------
 
 
-# JOBRUN METHODS
+def test_job_run_duration(job_run):
+    assert job_run.duration == 0
+
+
+def test_job_run_id(job_run):
+    assert job_run._id == 1
+
+
+def test_job_run_error(job_run):
+    assert job_run.error is None
+
+
+def test_job_run_created_finished_at(job_run):
+    assert job_run.created_at < job_run.finished_at
+
+
+def test_job_run_name(job_run):
+    assert job_run.name is None
+
+
+def test_job_run_status(job_run):
+    assert job_run.status == "success"
+
+
+# JobRun METHODS
 # --------------
 
 
-# TRIGGER PROPERTIES
+# Trigger PROPERTIES
 # ------------------
 
 
-# TRIGGER METHODS
+# Trigger METHODS
 # ---------------

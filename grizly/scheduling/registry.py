@@ -132,7 +132,9 @@ class RedisDB:
             for job_run_hash_name in job_run_hash_names:
                 job_run_id = job_run_hash_name[len(f"{prefix}") :]
                 if job_run_id != "id":
-                    job_run = JobRun(job_name=job_name, id=job_run_id, logger=self.logger, db=self)
+                    job_run = JobRun(
+                        job_name=job_name, id=int(job_run_id), logger=self.logger, db=self
+                    )
                     job_runs.append(job_run)
         else:
             jobs = self.get_jobs()
@@ -301,7 +303,7 @@ class JobRun(RedisObject):
             if not self.exists:
                 raise JobRunNotFoundError
         else:
-            self._id = self.con.incr(f"{self.prefix}{self.job_name}:id")
+            self._id = int(self.con.incr(f"{self.prefix}{self.job_name}:id"))
             self.hash_name = f"{self.prefix}{self.job_name}:{self._id}"
             self.register()
 
@@ -348,7 +350,7 @@ class JobRun(RedisObject):
 
     @property
     def finished_at(self) -> datetime:
-        return self._deserialize(self.con.hget(self.hash_name, "finished_at"))
+        return self._deserialize(self.con.hget(self.hash_name, "finished_at"), type="datetime")
 
     @finished_at.setter
     @_check_if_exists()
@@ -701,8 +703,8 @@ class Job(RedisObject):
             "kwargs": self._serialize(kwargs),
             "created_at": self._serialize(datetime.now(timezone.utc)),
         }
-        if not (crons or upstream or triggers):
-            raise ValueError("One of ['crons', 'upstream', 'triggers'] is required")
+        # if not (crons or upstream or triggers):
+        #     raise ValueError("One of ['crons', 'upstream', 'triggers'] is required")
 
         self.con.hset(
             name=self.hash_name, key=None, value=None, mapping=mapping,
