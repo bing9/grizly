@@ -48,20 +48,15 @@ def job_with_trigger(trigger):
 
 @pytest.fixture(scope="module", params=["job_with_cron", "job_with_upstream", "job_with_trigger"])
 def job(job_with_cron, job_with_upstream, job_with_trigger, request):
-    if request.param == "job_with_cron":
-        return job_with_cron
-    elif request.param == "job_with_upstream":
-        return job_with_upstream
-    elif request.param == "job_with_trigger":
-        return job_with_trigger
+    return eval(request.param)
 
 
 @pytest.fixture(scope="session")
 def trigger():
-    trigger = Trigger(name="test_trigger")
-    trigger.register()
-    yield trigger
-    trigger.unregister()
+    _trigger = Trigger(name="test_trigger")
+    _trigger.register()
+    yield _trigger
+    _trigger.unregister()
 
 
 @pytest.fixture(scope="module")
@@ -70,12 +65,8 @@ def job_run(job):
     yield job.last_run
 
 
-@pytest.fixture(scope="module", params=["job_with_cron", "trigger"])
+@pytest.fixture(scope="session", params=["job_with_cron", "trigger"])
 def redis_object(job_with_cron, trigger, request):
-    # if request.param == "job_with_cron":
-    #     return job_with_cron
-    # elif request.param == "trigger":
-    #     return trigger
     return eval(request.param)
 
 
@@ -93,7 +84,7 @@ def redis_object(job_with_cron, trigger, request):
 
 def test_redis_object_exists(redis_object):
     assert redis_object.exists
-    assert False
+    # assert False
 
 
 # RedisObject METHODS
@@ -226,6 +217,7 @@ def test_job_run_duration(job_run):
 
 def test_job_run_id(job_run):
     assert job_run._id == 1
+    # assert False
 
 
 def test_job_run_error(job_run):

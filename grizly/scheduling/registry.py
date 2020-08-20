@@ -37,7 +37,7 @@ def _check_if_exists(raise_error=True):
         def wrapped(self, *args, **kwargs):
             if not self.exists:
                 if raise_error:
-                    raise JobNotFoundError
+                    raise JobNotFoundError(self)
                 else:
                     self.logger.warning(f"{self} not found in the registry")
 
@@ -301,7 +301,7 @@ class JobRun(RedisObject):
             self._id = id
             self.hash_name = f"{self.prefix}{self.job_name}:{self._id}"
             if not self.exists:
-                raise JobRunNotFoundError
+                raise JobRunNotFoundError(self)
         else:
             self._id = int(self.con.incr(f"{self.prefix}{self.job_name}:id"))
             self.hash_name = f"{self.prefix}{self.job_name}:{self._id}"
@@ -455,9 +455,9 @@ class Job(RedisObject):
 
     @property
     def last_run(self) -> Optional[JobRun]:
-        runs = self.runs
-        if runs:
-            return max(runs)
+        _id = self._deserialize(self.con.get(f"{JobRun.prefix}{self.name}:id"))
+        if _id:
+            return JobRun(job_name=self.name, id=_id)
 
     @property
     def owner(self) -> str:
