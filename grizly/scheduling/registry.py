@@ -37,7 +37,10 @@ def _check_if_exists(raise_error=True):
         def wrapped(self, *args, **kwargs):
             if not self.exists:
                 if raise_error:
-                    raise JobNotFoundError(self)
+                    if self.__class__.__name__ == "Job":
+                        raise JobNotFoundError(self)
+                    elif self.__class__.__name__ == "JobRun":
+                        raise JobRunNotFoundError(self)
                 else:
                     self.logger.warning(f"{self} not found in the registry")
 
@@ -300,15 +303,15 @@ class JobRun(RedisObject):
         if id is not None:
             self._id = id
             self.hash_name = f"{self.prefix}{self.job_name}:{self._id}"
-            if not self.exists:
-                raise JobRunNotFoundError(self)
+            # if not self.exists:
+            #     raise JobRunNotFoundError(self)
         else:
             self._id = int(self.con.incr(f"{self.prefix}{self.job_name}:id"))
             self.hash_name = f"{self.prefix}{self.job_name}:{self._id}"
             self.register()
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(job_name='{self.job_name}, id='{self._id}')"
+        return f"{self.__class__.__name__}(job_name='{self.job_name}', id='{self._id}')"
 
     def __lt__(self, other):
         return self._id < other._id
@@ -457,7 +460,7 @@ class Job(RedisObject):
     def last_run(self) -> Optional[JobRun]:
         _id = self._deserialize(self.con.get(f"{JobRun.prefix}{self.name}:id"))
         if _id:
-            return JobRun(job_name=self.name, id=_id, db=self.db)
+            return JobRun(job_name=self.name, id=_id, logger=self.logger, db=self.db)
 
     @property
     def owner(self) -> str:
@@ -489,7 +492,10 @@ class Job(RedisObject):
     @property
     def triggers(self) -> List["Trigger"]:
         trigger_names = self._deserialize(self.con.hget(self.hash_name, "triggers"))
-        triggers = [Trigger(name=trigger_name) for trigger_name in trigger_names]
+        triggers = [
+            Trigger(name=trigger_name, logger=self.logger, db=self.db)
+            for trigger_name in trigger_names
+        ]
         return triggers
 
     @triggers.setter
@@ -515,7 +521,7 @@ class Job(RedisObject):
         added_trigger_names = self._add_values(key="triggers", new_values=trigger_names)
 
         for trigger_name in added_trigger_names:
-            trigger = Trigger(name=trigger_name)
+            trigger = Trigger(name=trigger_name, logger=self.logger, db=self.db)
             if self not in trigger.jobs:
                 trigger.add_jobs(self.name)
 
@@ -576,7 +582,7 @@ class Job(RedisObject):
 
         # add the job as an upstream of the specified jobs
         for job_name in added_job_names:
-            downstream_job = Job(name=job_name)
+            downstream_job = Job(name=job_name, logger=self.logger, db=self.db)
             if self not in downstream_job.upstream:
                 downstream_job.add_upstream_jobs(self.name)
 
@@ -635,7 +641,7 @@ class Job(RedisObject):
 
         # add the job as a downstream of the specified jobs
         for job_name in added_job_names:
-            upstream_job = Job(name=job_name)
+            upstream_job = Job(name=job_name, logger=self.logger, db=self.db)
             if self not in upstream_job.downstream:
                 upstream_job.add_downstream_jobs(self.name)
 
@@ -675,7 +681,7 @@ class Job(RedisObject):
             if if_exists == "fail":
                 raise ValueError(f"{self} already exists")
             else:
-                self.unregister()
+                self.unregister(remove_job_runs=True)
 
         # VALIDATIONS
         # cron
@@ -717,12 +723,12 @@ class Job(RedisObject):
 
         # add the job as downstream in all upstream jobs
         for upstream_job_name in upstream:
-            upstream_job = Job(name=upstream_job_name)
+            upstream_job = Job(name=upstream_job_name, logger=self.logger, db=self.db)
             upstream_job.add_downstream_jobs(self.name)
 
         # add the job in all triggers
         for trigger_name in triggers:
-            trigger = Trigger(name=trigger_name)
+            trigger = Trigger(name=trigger_name, logger=self.logger, db=self.db)
             trigger.add_jobs(self.name)
 
         self.con.set(f"{JobRun.prefix}{self.name}:id", "0")
@@ -754,6 +760,7 @@ class Job(RedisObject):
             # remove job runs
             for job_run in self.db.get_job_runs(job_name=self.name):
                 job_run.unregister()
+            self.logger.info(f"{self}'s runs have been removed from registry")
 
         self.con.delete(self.hash_name)
 
@@ -778,7 +785,7 @@ class Job(RedisObject):
             if to_dask:
                 if not client:
                     self.scheduler_address = scheduler_address or os.getenv(
-                        "GRIZLY_DEV_DASK_SCHEDULER_ADDRESS"
+                        "GRIZLY_DASK_SCHEDULER_ADDRESS"
                     )
                     client = Client(self.scheduler_address)
                 else:
@@ -788,7 +795,7 @@ class Job(RedisObject):
                     raise ValueError("distributed.Client/scheduler address was not provided")
 
             self.logger.info(f"Submitting {self}...")
-            job_run = JobRun(job_name=self.name, db=self.db)
+            job_run = JobRun(job_name=self.name, logger=self.logger, db=self.db)
             job_run.status = "running"
 
             start = time()
@@ -803,15 +810,15 @@ class Job(RedisObject):
                 _, exc_value, _ = sys.exc_info()
                 job_run.error = str(exc_value)
                 self.logger.info(f"{self} finished with status {status}")
+            finally:
+                end = time()
+                job_run.finished_at = datetime.now(timezone.utc)
+                job_run.duration = int(end - start)
+                job_run.status = status
 
-            end = time()
-            job_run.finished_at = datetime.now(timezone.utc)
-            job_run.duration = int(end - start)
-            job_run.status = status
-
-            if to_dask:
-                client.close()
-            return result
+                if to_dask:
+                    client.close()
+                return result
 
     @_check_if_exists()
     def visualize(self, **kwargs):
@@ -879,7 +886,7 @@ class Trigger(RedisObject):
     @property
     def jobs(self) -> List[Optional["Job"]]:
         job_names = self._deserialize(self.con.hget(self.hash_name, "jobs"))
-        return [Job(name=job) for job in job_names]
+        return [Job(name=job, logger=self.logger, db=self.db) for job in job_names]
 
     # @property
     # def last_run(self) -> datetime:
