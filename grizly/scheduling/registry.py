@@ -810,7 +810,8 @@ class Job(RedisObject):
                 result = self.graph.compute()
                 status = "success"
                 self.logger.info(f"{self} finished with status {status}")
-                self.__submit_downstream_jobs()
+                if self.downstream:
+                    self.__submit_downstream_jobs()
             except Exception:
                 result = None
                 status = "fail"
@@ -866,7 +867,7 @@ class Job(RedisObject):
 
     def __submit_downstream_jobs(self):
         self.logger.info(f"Enqueueing {self}.downstream...")
-        self.logger.info(f"Host: {self.db.redis_host}, Port: {self.db.redis_port}")
+        self.logger.warning(f"Host: {self.db.redis_host}, Port: {self.db.redis_port}")
         queue = Queue(RedisDB.submit_queue_name, connection=self.con)
         for job in self.downstream:
             # TODO: should read downstream *args ad **kwargs from registry
