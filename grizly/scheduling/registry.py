@@ -61,7 +61,12 @@ class RedisDB:
         redis_port: Optional[int] = None,
         logger: Optional[logging.Logger] = None,
     ):
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = logger or logging.getLogger(f"rq.worker.{__name__}")
+        logging.basicConfig(
+            format="%(asctime)s | %(levelname)s : %(message)s",
+            level=logging.INFO,
+            stream=sys.stderr,
+        )
         self.config = Config().get_service("scheduling")
         self.redis_host = (
             redis_host
@@ -180,6 +185,11 @@ class RedisObject(ABC):
             self.hash_name = self.prefix + self.name
         self.db = db or RedisDB(logger=logger, redis_host=redis_host, redis_port=redis_port)
         self.logger = logger or logging.getLogger(__name__)
+        logging.basicConfig(
+            format="%(asctime)s | %(levelname)s : %(message)s",
+            level=logging.INFO,
+            stream=sys.stderr,
+        )
 
     def __eq__(self, other):
         return self.hash_name == other.hash_name
@@ -738,7 +748,7 @@ class Job(RedisObject):
 
     def unregister(self, remove_job_runs: bool = False) -> None:
 
-        # remove for rq scheduler
+        # remove from rq scheduler
         self.__remove_from_scheduler()
         self._rq_job_ids = []
 
@@ -783,16 +793,13 @@ class Job(RedisObject):
         else:
             priority = priority or 1
             if to_dask:
-                if not client:
+                if client is None:
                     self.scheduler_address = scheduler_address or os.getenv(
                         "GRIZLY_DASK_SCHEDULER_ADDRESS"
                     )
                     client = Client(self.scheduler_address)
                 else:
                     self.scheduler_address = client.scheduler.address
-
-                if not client and not self.scheduler_address:
-                    raise ValueError("distributed.Client/scheduler address was not provided")
 
             self.logger.info(f"Submitting {self}...")
             job_run = JobRun(job_name=self.name, logger=self.logger, db=self.db)
@@ -859,6 +866,7 @@ class Job(RedisObject):
 
     def __submit_downstream_jobs(self):
         self.logger.info(f"Enqueueing {self}.downstream...")
+        self.logger.info(f"Host: {self.db.redis_host}, Port: {self.db.redis_port}")
         queue = Queue(RedisDB.submit_queue_name, connection=self.con)
         for job in self.downstream:
             # TODO: should read downstream *args ad **kwargs from registry
