@@ -2,8 +2,10 @@
 Class Crosstab
 ==============
 
-.. autoautosummary :: grizly.Crosstab
+.. currentmodule:: grizly.tools.crosstab
+
+.. autoautosummary :: Crosstab
     :methods:
 
-.. autoclass:: grizly.Crosstab
+.. autoclass:: Crosstab
    :members:
