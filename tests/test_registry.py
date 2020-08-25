@@ -1,14 +1,15 @@
 from datetime import datetime, timezone
 import json
 import pytest
-
+import time
 import dask
+from redis import Redis
 from hypothesis import given
 import redis
 
 from hypothesis.strategies import integers, text, lists
 
-from ..grizly.scheduling.registry import Job, Trigger
+from ..grizly.scheduling.registry import Job, SchedulerDB, SchedulerObject, Trigger
 from ..grizly.exceptions import JobNotFoundError
 
 
@@ -60,11 +61,14 @@ def trigger():
     yield _trigger
     _trigger.unregister()
 
+# Just using job_with_cron (otherwise multiple execution)
+
 
 @pytest.fixture(scope="module")
-def job_run(job):
-    job.submit(to_dask=False)
-    yield job.last_run
+def job_run(job_with_cron):
+    job_with_cron.submit(to_dask=False)
+    job_run = job_with_cron.last_run
+    yield job_run
 
 
 @pytest.fixture(scope="session", params=["job_with_cron", "trigger"])
@@ -72,40 +76,79 @@ def redis_object(job_with_cron, trigger, request):
     return eval(request.param)
 
 
-# RedisDB PROPERTIES
+@pytest.fixture(scope="module")
+def scheduler_db():
+    return SchedulerDB()
+
+
+# SchedulerDB PROPERTIES
 # ------------------
 ### TODO @marius
 
-def test_redis_db_con():
+
+def test_scheduler_db_con(scheduler_db):
+    con = scheduler_db.con
+    assert isinstance(con, Redis)
 
 
-def test_redis_db_add_trigger():
+# SchedulerDB METHODS
+# ---------------
 
 
-def test_redis_db_get_triggers():
+def test_scheduler_db_add_trigger(scheduler_db, trigger):
+    # TODO: Size of trigger-list will not increase
+    # if else structure / unregister manual trigger (maybe fixture)
+    length_1 = len(scheduler_db.get_triggers())
+    scheduler_db.add_trigger('test123')
+    length_2 = len(scheduler_db.get_triggers())
+
+    trigger_list = scheduler_db.get_triggers()
+    assert trigger_list == [trigger, Trigger("test123")]
+
+    # assert length_1 == 1
+    # assert length_1 + 1 == length_2
+
+    Trigger("test123").unregister()
+    # pass
 
 
-def test_redis_db_add_job():
+def test_scheduler_db_get_triggers(scheduler_db, trigger):
+    triggers = scheduler_db.get_triggers()
+    assert trigger in triggers
 
 
-def test_redis_db_get_jobs():
+def test_scheduler_db_add_job(scheduler_db):
+    # TODO: Checking the properties (exists)
+    length_1 = len(scheduler_db.get_jobs())
+    test_name = 'test_job'+str(datetime.now())
+    scheduler_db.add_job(test_name, [], None, [], [], [], 'fail')
+    length_2 = len(scheduler_db.get_jobs())
+    assert length_1 + 1 == length_2
+    # TODO: assert job.exists
+    Job(test_name).unregister()
 
 
-def test_redis_db_get_job_runs():
+def test_scheduler_db_get_jobs(scheduler_db, job):
+    jobs = scheduler_db.get_jobs()
+    assert job in jobs
 
 
-def test_redis_db__check_if_jobs_exist():
-    # private function
+def test_scheduler_db_get_job_runs(scheduler_db, job_run):
+    # TODO: Checking the fixture job_run (only job_with_crons)
+    job_runs = scheduler_db.get_job_runs()
+    assert job_run in job_runs
 
 
-def test_redis_db__check_if_exists():
-    # private function
+def test_scheduler_db__check_if_jobs_exist():
+    pass
 
-    # RedisDB METHODS
-    # ---------------
 
-    # RedisObject PROPERTIES
-    # ---------------------
+def test_scheduler_db__check_if_exists():
+    pass
+
+
+# SchedulerObject PROPERTIES
+# ---------------------
 
 
 def test_redis_object_exists(redis_object):
@@ -113,7 +156,7 @@ def test_redis_object_exists(redis_object):
     # assert False
 
 
-# RedisObject METHODS
+# SchedulerObject METHODS
 # -------------------
 
 
@@ -270,25 +313,36 @@ def test_job_run_status(job_run):
 # ------------------
 ### TODO @marius
 
-def test_trigger_is_triggered():
+def test_trigger_is_triggered(trigger):
+    assert trigger.is_triggered is None
+    trigger.is_triggered = True
+    assert trigger.is_triggered == True
 
 
-def test_trigger_if_exists():
+def test_trigger_jobs(trigger, job_with_trigger):
+    # TODO: list object is not callable
+    jobs = trigger.jobs
+    assert job_with_trigger in jobs
 
 
-def test_trigger_jobs():
+def test_trigger_add_remove_jobs(trigger, job_with_cron):
+    # TODO: how to access the name of the jobs?
+    trigger.add_jobs(job_with_cron.name)
+    assert job_with_cron in trigger.jobs
+
+    trigger.remove_jobs([job_with_cron.name])
+    assert job_with_cron not in trigger.jobs
 
 
-def test_trigger_add_jobs():
+def test_trigger_register(trigger):
+    # TODO: Already tested within the fixture
+    assert isinstance(trigger.register(), Trigger)
 
 
-def test_trigger_register():
+def test_trigger_unregister(trigger):
+    trigger.unregister()
+    assert not trigger.exists
+    trigger.register()
 
-
-def test_trigger_remove_jobs():
-
-
-def test_trigger_unregister():
-
-    # Trigger METHODS
-    # ---------------
+# Trigger METHODS
+# # ---------------

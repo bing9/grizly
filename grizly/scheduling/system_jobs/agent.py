@@ -10,18 +10,14 @@ submit_queue = Queue("submit", connection=registry.con)
 
 def run():
 
-    try:
+    logger.info("Loading triggers...")
+    triggers = registry.get_triggers()
+    logger.info("Triggers loaded successfully")
 
-        logger.info("Loading triggers...")
-        triggers = registry.get_triggers()
-        logger.info("Triggers loaded successfully")
-
-        for trigger in triggers:
-            if trigger.is_triggered:
-                for job in trigger.jobs:
-                    submit_queue.enqueue(job.submit)
-    except:
-        raise ValueError("Something went wrong.")
+    for trigger in triggers:
+        if trigger.is_triggered:
+            for job in trigger.jobs:
+                submit_queue.enqueue(job.submit)
 
 
 if __name__ == "__main__":

@@ -51,7 +51,7 @@ def _check_if_exists(raise_error=True):
     return deco_wrap
 
 
-class RedisDB:
+class SchedulerDB:
     submit_queue_name = "submit"
     system_queue_name = "system"
 
@@ -61,7 +61,12 @@ class RedisDB:
         redis_port: Optional[int] = None,
         logger: Optional[logging.Logger] = None,
     ):
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = logger or logging.getLogger(f"rq.worker.{__name__}")
+        logging.basicConfig(
+            format="%(asctime)s | %(levelname)s : %(message)s",
+            level=logging.INFO,
+            stream=sys.stderr,
+        )
         self.config = Config().get_service("scheduling")
         self.redis_host = (
             redis_host
@@ -70,7 +75,8 @@ class RedisDB:
             or "localhost"
         )
         self.redis_port = int(
-            redis_port or os.getenv("GRIZLY_REDIS_PORT") or self.config.get("redis_port") or 6379
+            redis_port or os.getenv("GRIZLY_REDIS_PORT") or self.config.get(
+                "redis_port") or 6379
         )
 
     @property
@@ -85,9 +91,10 @@ class RedisDB:
     def get_triggers(self) -> List["Trigger"]:
         triggers = []
         prefix = Trigger.prefix
-        tr_hash_names = [val.decode("utf-8") for val in self.con.keys(f"{prefix}*")]
+        tr_hash_names = [val.decode("utf-8")
+                         for val in self.con.keys(f"{prefix}*")]
         for tr_hash_name in tr_hash_names:
-            trigger_name = tr_hash_name[len(prefix) :]
+            trigger_name = tr_hash_name[len(prefix):]
             tr = Trigger(name=trigger_name, logger=self.logger, db=self)
             triggers.append(tr)
         return triggers
@@ -119,9 +126,10 @@ class RedisDB:
     def get_jobs(self) -> List["Job"]:
         jobs = []
         prefix = Job.prefix
-        job_hash_names = [val.decode("utf-8") for val in self.con.keys(f"{prefix}*")]
+        job_hash_names = [val.decode("utf-8")
+                          for val in self.con.keys(f"{prefix}*")]
         for job_hash_name in job_hash_names:
-            job_name = job_hash_name[len(prefix) :]
+            job_name = job_hash_name[len(prefix):]
             job = Job(name=job_name, logger=self.logger, db=self)
             jobs.append(job)
         return jobs
@@ -131,9 +139,10 @@ class RedisDB:
 
         if job_name is not None:
             prefix = f"{JobRun.prefix}{job_name}:"
-            job_run_hash_names = [val.decode("utf-8") for val in self.con.keys(f"{prefix}*")]
+            job_run_hash_names = [val.decode("utf-8")
+                                  for val in self.con.keys(f"{prefix}*")]
             for job_run_hash_name in job_run_hash_names:
-                job_run_id = job_run_hash_name[len(f"{prefix}") :]
+                job_run_id = job_run_hash_name[len(f"{prefix}"):]
                 if job_run_id != "id":
                     job_run = JobRun(
                         job_name=job_name, id=int(job_run_id), logger=self.logger, db=self
@@ -163,14 +172,14 @@ class RedisDB:
                     raise JobNotFoundError
 
 
-class RedisObject(ABC):
+class SchedulerObject(ABC):
     prefix = "grizly:"
 
     def __init__(
         self,
         name: Optional[str],
         logger: Optional[logging.Logger] = None,
-        db: Optional[RedisDB] = None,
+        db: Optional[SchedulerDB] = None,
         redis_host: Optional[str] = None,
         redis_port: Optional[int] = None,
     ):
@@ -178,8 +187,14 @@ class RedisObject(ABC):
         if self.__class__.__name__ != "JobRun":
             self.name = name or ""
             self.hash_name = self.prefix + self.name
-        self.db = db or RedisDB(logger=logger, redis_host=redis_host, redis_port=redis_port)
+        self.db = db or SchedulerDB(
+            logger=logger, redis_host=redis_host, redis_port=redis_port)
         self.logger = logger or logging.getLogger(__name__)
+        logging.basicConfig(
+            format="%(asctime)s | %(levelname)s : %(message)s",
+            level=logging.INFO,
+            stream=sys.stderr,
+        )
 
     def __eq__(self, other):
         return self.hash_name == other.hash_name
@@ -247,13 +262,15 @@ class RedisObject(ABC):
         new_values = list(set(new_values))
 
         # load existing values
-        out_values = self._deserialize(self.con.hget(name=self.hash_name, key=key))
+        out_values = self._deserialize(
+            self.con.hget(name=self.hash_name, key=key))
         added_values = []
 
         # append existing values
         for new_value in new_values:
             if new_value in out_values:
-                self.logger.warning(f"'{new_value}' already exists in {self}.{key}")
+                self.logger.warning(
+                    f"'{new_value}' already exists in {self}.{key}")
             else:
                 out_values.append(new_value)
                 added_values.append(new_value)
@@ -262,7 +279,8 @@ class RedisObject(ABC):
         if added_values:
             self.logger.info(f"Adding {added_values} to {self}.{key}...")
             self.con.hset(
-                name=self.hash_name, key=key, value=self._serialize(out_values),
+                name=self.hash_name, key=key, value=self._serialize(
+                    out_values),
             )
         return added_values
 
@@ -274,7 +292,8 @@ class RedisObject(ABC):
         values = list(set(values))
 
         # load existing values
-        out_values = self._deserialize(self.con.hget(name=self.hash_name, key=key))
+        out_values = self._deserialize(
+            self.con.hget(name=self.hash_name, key=key))
         removed_values = []
 
         # remove values
@@ -283,18 +302,20 @@ class RedisObject(ABC):
                 out_values.remove(value)
                 removed_values.append(value)
             except ValueError:
-                self.logger.warning(f"Value '{value}' was not found in {self}.{key}")
+                self.logger.warning(
+                    f"Value '{value}' was not found in {self}.{key}")
 
         # update Redis
         if removed_values:
             self.logger.info(f"Removing {removed_values} from {self}.{key}...")
             self.con.hset(
-                name=self.hash_name, key=key, value=self._serialize(out_values),
+                name=self.hash_name, key=key, value=self._serialize(
+                    out_values),
             )
         return removed_values
 
 
-class JobRun(RedisObject):
+class JobRun(SchedulerObject):
     prefix = "grizly:runs:jobs:"
 
     def __init__(self, job_name: str, id: Optional[int] = None, *args, **kwargs):
@@ -404,7 +425,7 @@ class JobRun(RedisObject):
         self.con.delete(self.hash_name)
 
 
-class Job(RedisObject):
+class Job(SchedulerObject):
     prefix = "grizly:registry:jobs:"
 
     @_check_if_exists()
@@ -491,7 +512,8 @@ class Job(RedisObject):
     # TRIGGERS
     @property
     def triggers(self) -> List["Trigger"]:
-        trigger_names = self._deserialize(self.con.hget(self.hash_name, "triggers"))
+        trigger_names = self._deserialize(
+            self.con.hget(self.hash_name, "triggers"))
         triggers = [
             Trigger(name=trigger_name, logger=self.logger, db=self.db)
             for trigger_name in trigger_names
@@ -518,15 +540,18 @@ class Job(RedisObject):
 
     def add_triggers(self, trigger_names: Union[List[str], str]):
 
-        added_trigger_names = self._add_values(key="triggers", new_values=trigger_names)
+        added_trigger_names = self._add_values(
+            key="triggers", new_values=trigger_names)
 
         for trigger_name in added_trigger_names:
-            trigger = Trigger(name=trigger_name, logger=self.logger, db=self.db)
+            trigger = Trigger(name=trigger_name,
+                              logger=self.logger, db=self.db)
             if self not in trigger.jobs:
                 trigger.add_jobs(self.name)
 
     def remove_triggers(self, trigger_names: Union[List[str], str]):
-        removed_trigger_names = self._remove_values(key="triggers", values=trigger_names)
+        removed_trigger_names = self._remove_values(
+            key="triggers", values=trigger_names)
 
         # remove the job from old triggers
         for trigger_name in removed_trigger_names:
@@ -540,7 +565,8 @@ class Job(RedisObject):
 
     @property
     def downstream(self) -> List["Job"]:
-        downstream_job_names = self._deserialize(self.con.hget(self.hash_name, "downstream"))
+        downstream_job_names = self._deserialize(
+            self.con.hget(self.hash_name, "downstream"))
         downstream_jobs = [Job(job_name) for job_name in downstream_job_names]
         return downstream_jobs
 
@@ -578,7 +604,8 @@ class Job(RedisObject):
         """
         self.db._check_if_jobs_exist(job_names)
 
-        added_job_names = self._add_values(key="downstream", new_values=job_names)
+        added_job_names = self._add_values(
+            key="downstream", new_values=job_names)
 
         # add the job as an upstream of the specified jobs
         for job_name in added_job_names:
@@ -589,7 +616,8 @@ class Job(RedisObject):
     @_check_if_exists()
     def remove_downstream_jobs(self, job_names: Union[str, List[str]]):
 
-        removed_job_names = self._remove_values(key="downstream", values=job_names)
+        removed_job_names = self._remove_values(
+            key="downstream", values=job_names)
 
         # remove the job as an upstream of the specified jobs
         for job_name in removed_job_names:
@@ -599,7 +627,8 @@ class Job(RedisObject):
 
     @property
     def upstream(self) -> List["Job"]:
-        upstream_job_names = self._deserialize(self.con.hget(self.hash_name, "upstream"))
+        upstream_job_names = self._deserialize(
+            self.con.hget(self.hash_name, "upstream"))
         upstream_jobs = [Job(job_name) for job_name in upstream_job_names]
         return upstream_jobs
 
@@ -637,7 +666,8 @@ class Job(RedisObject):
         """
         self.db._check_if_jobs_exist(job_names)
 
-        added_job_names = self._add_values(key="upstream", new_values=job_names)
+        added_job_names = self._add_values(
+            key="upstream", new_values=job_names)
 
         # add the job as a downstream of the specified jobs
         for job_name in added_job_names:
@@ -648,7 +678,8 @@ class Job(RedisObject):
     @_check_if_exists()
     def remove_upstream_jobs(self, job_names: Union[str, List[str]]):
 
-        removed_job_names = self._remove_values(key="upstream", values=job_names)
+        removed_job_names = self._remove_values(
+            key="upstream", values=job_names)
 
         # remove the job from the downstream jobs of the specified jobs
         for job_name in removed_job_names:
@@ -723,12 +754,14 @@ class Job(RedisObject):
 
         # add the job as downstream in all upstream jobs
         for upstream_job_name in upstream:
-            upstream_job = Job(name=upstream_job_name, logger=self.logger, db=self.db)
+            upstream_job = Job(name=upstream_job_name,
+                               logger=self.logger, db=self.db)
             upstream_job.add_downstream_jobs(self.name)
 
         # add the job in all triggers
         for trigger_name in triggers:
-            trigger = Trigger(name=trigger_name, logger=self.logger, db=self.db)
+            trigger = Trigger(name=trigger_name,
+                              logger=self.logger, db=self.db)
             trigger.add_jobs(self.name)
 
         self.con.set(f"{JobRun.prefix}{self.name}:id", "0")
@@ -738,7 +771,7 @@ class Job(RedisObject):
 
     def unregister(self, remove_job_runs: bool = False) -> None:
 
-        # remove for rq scheduler
+        # remove from rq scheduler
         self.__remove_from_scheduler()
         self._rq_job_ids = []
 
@@ -783,19 +816,18 @@ class Job(RedisObject):
         else:
             priority = priority or 1
             if to_dask:
-                if not client:
+                if client is None:
                     self.scheduler_address = scheduler_address or os.getenv(
                         "GRIZLY_DASK_SCHEDULER_ADDRESS"
                     )
+                    self.logger.warning(scheduler_address)
                     client = Client(self.scheduler_address)
                 else:
                     self.scheduler_address = client.scheduler.address
 
-                if not client and not self.scheduler_address:
-                    raise ValueError("distributed.Client/scheduler address was not provided")
-
             self.logger.info(f"Submitting {self}...")
-            job_run = JobRun(job_name=self.name, logger=self.logger, db=self.db)
+            job_run = JobRun(job_name=self.name,
+                             logger=self.logger, db=self.db)
             job_run.status = "running"
 
             start = time()
@@ -803,7 +835,8 @@ class Job(RedisObject):
                 result = self.graph.compute()
                 status = "success"
                 self.logger.info(f"{self} finished with status {status}")
-                self.__submit_downstream_jobs()
+                if self.downstream:
+                    self.__submit_downstream_jobs()
             except Exception:
                 result = None
                 status = "fail"
@@ -827,7 +860,7 @@ class Job(RedisObject):
     def __add_to_scheduler(self, crons: List[str], *args, **kwargs):
         rq_job_ids = []
         if crons:
-            queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+            queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
             scheduler = Scheduler(queue=queue, connection=self.con)
             for cron in crons:
                 rq_job = scheduler.cron(
@@ -849,24 +882,27 @@ class Job(RedisObject):
     def __remove_from_scheduler(self):
         rq_job_ids = self._rq_job_ids
         if rq_job_ids:
-            queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+            queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
             scheduler = Scheduler(queue=queue, connection=self.con)
             for rq_job_id in rq_job_ids:
                 scheduler.cancel(rq_job_id)
-                self.logger.debug(f"Rq job {rq_job_id} removed from the scheduler")
+                self.logger.debug(
+                    f"Rq job {rq_job_id} removed from the scheduler")
 
             self.logger.info(f"{self} has been removed from the scheduler")
 
     def __submit_downstream_jobs(self):
         self.logger.info(f"Enqueueing {self}.downstream...")
-        queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+        self.logger.warning(
+            f"Host: {self.db.redis_host}, Port: {self.db.redis_port}")
+        queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
         for job in self.downstream:
             # TODO: should read downstream *args ad **kwargs from registry
             queue.enqueue(job.submit)
             self.logger.info(f"{job} has been enqueued")
 
 
-class Trigger(RedisObject):
+class Trigger(SchedulerObject):
     prefix = "grizly:registry:triggers:"
 
     def info(self):
@@ -876,8 +912,8 @@ class Trigger(RedisObject):
     def is_triggered(self) -> bool:
         return self._deserialize(self.con.hget(self.hash_name, "is_triggered"))
 
-    @_check_if_exists()
     @is_triggered.setter
+    @_check_if_exists()
     def is_triggered(self, value: bool):
         self.con.hset(
             self.hash_name, "is_triggered", self._serialize(value),
