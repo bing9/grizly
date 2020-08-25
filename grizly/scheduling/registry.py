@@ -797,6 +797,7 @@ class Job(SchedulerObject):
                     self.scheduler_address = scheduler_address or os.getenv(
                         "GRIZLY_DASK_SCHEDULER_ADDRESS"
                     )
+                    self.logger.warning(scheduler_address)
                     client = Client(self.scheduler_address)
                 else:
                     self.scheduler_address = client.scheduler.address
