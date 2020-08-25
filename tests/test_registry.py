@@ -33,7 +33,8 @@ def job_with_cron():
 @pytest.fixture(scope="module")
 def job_with_upstream(job_with_cron):
     job_with_upstream = Job(name="job_with_upstream")
-    job_with_upstream.register(tasks=tasks, upstream=job_with_cron.name, if_exists="replace")
+    job_with_upstream.register(
+        tasks=tasks, upstream=job_with_cron.name, if_exists="replace")
     yield job_with_upstream
     job_with_upstream.unregister(remove_job_runs=True)
 
@@ -41,7 +42,8 @@ def job_with_upstream(job_with_cron):
 @pytest.fixture(scope="module")
 def job_with_trigger(trigger):
     job_with_trigger = Job(name="job_with_trigger")
-    job_with_trigger.register(tasks=tasks, triggers=trigger.name, if_exists="replace")
+    job_with_trigger.register(
+        tasks=tasks, triggers=trigger.name, if_exists="replace")
     yield job_with_trigger
     job_with_trigger.unregister(remove_job_runs=True)
 
@@ -72,14 +74,38 @@ def redis_object(job_with_cron, trigger, request):
 
 # RedisDB PROPERTIES
 # ------------------
+### TODO @marius
+
+def test_redis_db_con():
 
 
-# RedisDB METHODS
-# ---------------
+def test_redis_db_add_trigger():
 
 
-# RedisObject PROPERTIES
-# ---------------------
+def test_redis_db_get_triggers():
+
+
+def test_redis_db_add_job():
+
+
+def test_redis_db_get_jobs():
+
+
+def test_redis_db_get_job_runs():
+
+
+def test_redis_db__check_if_jobs_exist():
+    # private function
+
+
+def test_redis_db__check_if_exists():
+    # private function
+
+    # RedisDB METHODS
+    # ---------------
+
+    # RedisObject PROPERTIES
+    # ---------------------
 
 
 def test_redis_object_exists(redis_object):
@@ -110,7 +136,7 @@ def test_job_cron(job_with_cron):
     assert len(job_with_cron._rq_job_ids) == 1
 
 
-@given(text())
+@given(text())  # hypothesis
 def test_job_owner(job, owner):
     assert job.owner is None
 
@@ -242,7 +268,27 @@ def test_job_run_status(job_run):
 
 # Trigger PROPERTIES
 # ------------------
+### TODO @marius
+
+def test_trigger_is_triggered():
 
 
-# Trigger METHODS
-# ---------------
+def test_trigger_if_exists():
+
+
+def test_trigger_jobs():
+
+
+def test_trigger_add_jobs():
+
+
+def test_trigger_register():
+
+
+def test_trigger_remove_jobs():
+
+
+def test_trigger_unregister():
+
+    # Trigger METHODS
+    # ---------------
