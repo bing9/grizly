@@ -51,7 +51,7 @@ def _check_if_exists(raise_error=True):
     return deco_wrap
 
 
-class RedisDB:
+class SchedulerDB:
     submit_queue_name = "submit"
     system_queue_name = "system"
 
@@ -168,14 +168,14 @@ class RedisDB:
                     raise JobNotFoundError
 
 
-class RedisObject(ABC):
+class SchedulerObject(ABC):
     prefix = "grizly:"
 
     def __init__(
         self,
         name: Optional[str],
         logger: Optional[logging.Logger] = None,
-        db: Optional[RedisDB] = None,
+        db: Optional[SchedulerDB] = None,
         redis_host: Optional[str] = None,
         redis_port: Optional[int] = None,
     ):
@@ -183,7 +183,7 @@ class RedisObject(ABC):
         if self.__class__.__name__ != "JobRun":
             self.name = name or ""
             self.hash_name = self.prefix + self.name
-        self.db = db or RedisDB(logger=logger, redis_host=redis_host, redis_port=redis_port)
+        self.db = db or SchedulerDB(logger=logger, redis_host=redis_host, redis_port=redis_port)
         self.logger = logger or logging.getLogger(__name__)
         logging.basicConfig(
             format="%(asctime)s | %(levelname)s : %(message)s",
@@ -304,7 +304,7 @@ class RedisObject(ABC):
         return removed_values
 
 
-class JobRun(RedisObject):
+class JobRun(SchedulerObject):
     prefix = "grizly:runs:jobs:"
 
     def __init__(self, job_name: str, id: Optional[int] = None, *args, **kwargs):
@@ -414,7 +414,7 @@ class JobRun(RedisObject):
         self.con.delete(self.hash_name)
 
 
-class Job(RedisObject):
+class Job(SchedulerObject):
     prefix = "grizly:registry:jobs:"
 
     @_check_if_exists()
@@ -835,7 +835,7 @@ class Job(RedisObject):
     def __add_to_scheduler(self, crons: List[str], *args, **kwargs):
         rq_job_ids = []
         if crons:
-            queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+            queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
             scheduler = Scheduler(queue=queue, connection=self.con)
             for cron in crons:
                 rq_job = scheduler.cron(
@@ -857,7 +857,7 @@ class Job(RedisObject):
     def __remove_from_scheduler(self):
         rq_job_ids = self._rq_job_ids
         if rq_job_ids:
-            queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+            queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
             scheduler = Scheduler(queue=queue, connection=self.con)
             for rq_job_id in rq_job_ids:
                 scheduler.cancel(rq_job_id)
@@ -868,14 +868,14 @@ class Job(RedisObject):
     def __submit_downstream_jobs(self):
         self.logger.info(f"Enqueueing {self}.downstream...")
         self.logger.warning(f"Host: {self.db.redis_host}, Port: {self.db.redis_port}")
-        queue = Queue(RedisDB.submit_queue_name, connection=self.con)
+        queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
         for job in self.downstream:
             # TODO: should read downstream *args ad **kwargs from registry
             queue.enqueue(job.submit)
             self.logger.info(f"{job} has been enqueued")
 
 
-class Trigger(RedisObject):
+class Trigger(SchedulerObject):
     prefix = "grizly:registry:triggers:"
 
     def info(self):

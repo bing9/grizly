@@ -70,15 +70,15 @@ def redis_object(job_with_cron, trigger, request):
     return eval(request.param)
 
 
-# RedisDB PROPERTIES
+# SchedulerDB PROPERTIES
 # ------------------
 
 
-# RedisDB METHODS
+# SchedulerDB METHODS
 # ---------------
 
 
-# RedisObject PROPERTIES
+# SchedulerObject PROPERTIES
 # ---------------------
 
 
@@ -87,7 +87,7 @@ def test_redis_object_exists(redis_object):
     # assert False
 
 
-# RedisObject METHODS
+# SchedulerObject METHODS
 # -------------------
 
 
