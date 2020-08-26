@@ -1,20 +1,12 @@
-FROM python:3.8-buster AS base
+FROM python:3.8-buster AS odbc_drivers
 
-ARG HTTP_PROXY
 ARG HTTPS_PROXY
-ARG ALTERNATIVE_PROXY
+ARG HTTP_PROXY
 ARG docker_user
 ENV DOCKER_USER=$docker_user
-ENV JUPYTER_ALLOW_INSECURE_WRITES=1
-ENV DASK_SCHEDULER_ADDRESS="tcp://dask_scheduler:8786"
 
-# create and give priviledges to the analyst user
-RUN useradd --create-home analyst && \
-    usermod -aG sudo analyst && \
-    find /usr/local/lib -type d -exec chmod 777 {} \; && \
-    find /usr/local/bin -type d -exec chmod 777 {} \;
 
-# make apt and wget work behind proxy
+# Make apt and wget work behind proxy
 RUN touch /etc/apt/apt.conf.d/proxy.conf && \
     echo 'Acquire::http::Proxy' '"'${HTTP_PROXY}'"'';' > /etc/apt/apt.conf.d/proxy.conf
 
@@ -30,9 +22,9 @@ RUN apt-get update &&\
     fonts-font-awesome nodejs graphviz sudo ca-certificates npm && \
     rm -rf /var/lib/apt/lists/*
 
-
 ## External packages
 WORKDIR /opt
+
 #Creating PDFs from HTML
 RUN wget https://github.com/wkhtmltopdf/wkhtmltopdf/releases/download/0.12.3/wkhtmltox-0.12.3_linux-generic-amd64.tar.xz --no-check-certificate && \
     tar -vxf wkhtmltox-0.12.3_linux-generic-amd64.tar.xz && \
@@ -46,18 +38,14 @@ RUN wget https://redshift-downloads.s3.amazonaws.com/drivers/odbc/1.4.10.1000/Am
 
 # Denodo
 ENV DENODO_HOME="/opt/denodo"
-COPY Denodo Denodo/
+COPY src/Denodo Denodo/
 RUN tar -vxf Denodo/denodo-vdp-odbcdriver.tar.gz && \
     rm -rf Denodo
 
-# appdend odbcini configs
-COPY config/odbcinst.ini .
-RUN echo "" >> /etc/odbcinst.ini && \
-    cat odbcinst.ini >> /etc/odbcinst.ini && \
-    rm -f odbcinst.ini
 
-COPY config/requirements.txt .
-COPY config/requirements-dev.txt .
+
+FROM odbc_drivers AS python_env
+
 RUN export https_proxy=$HTTPS_PROXY && \
     pip3 install --upgrade pip && \
     pip3 install -r requirements.txt && \
@@ -65,7 +53,11 @@ RUN export https_proxy=$HTTPS_PROXY && \
     rm -f requirements.txt requirements-dev.txt
 
 
-WORKDIR /code/start
+
+FROM python_env AS jupyter_extensions
+
+ARG ALTERNATIVE_PROXY
+ENV JUPYTER_ALLOW_INSECURE_WRITES=1
 
 #Install jupyterlab extensions
 #Set NPM proxy
@@ -74,8 +66,8 @@ RUN npm config set proxy $HTTPS_PROXY &&\
     npm config set strict-ssl=false
 
 # Set YARN proxy inside jupyterlab
-# Note to adjust the path when new version of python is installed
-ENV YARN_PATH=/usr/local/lib/python3.8/site-packages/jupyterlab/staging/yarn.js
+ENV PYTHON_VERSION=$(python -V 2>&1 | awk {'print $2'})
+ENV YARN_PATH="/usr/local/lib/$PYTHON_VERSION/site-packages/jupyterlab/staging/yarn.js"
 RUN node $YARN_PATH install --non-interactive && \
     node $YARN_PATH config set proxy $ALTERNATIVE_PROXY && \
     node $YARN_PATH config set https-proxy $ALTERNATIVE_PROXY && \
@@ -97,14 +89,27 @@ RUN jupyter labextension install @jupyterlab/toc --no-build && \
 
 
 
-FROM base
+FROM jupyter_extensions AS grizly_notebook
 
-
-USER analyst
+ENV DASK_SCHEDULER_ADDRESS="tcp://dask_scheduler:8786"
 ENV HOME="/home/analyst"
+
+# create and give priviledges to the analyst user
+RUN useradd --create-home analyst && \
+    usermod -aG sudo analyst && \
+    find /usr/local/lib -type d -exec chmod 777 {} \; && \
+    find /usr/local/bin -type d -exec chmod 777 {} \;
+USER analyst
 
 
 WORKDIR ${HOME}
+
+COPY .config/* .
+# appdend odbcini configs
+# COPY .config/odbcinst.ini .
+# RUN echo "" >> /etc/odbcinst.ini && \
+#     cat odbcinst.ini >> /etc/odbcinst.ini && \
+#     rm -f odbcinst.ini
 
 
 COPY .config/odbc.ini /etc
