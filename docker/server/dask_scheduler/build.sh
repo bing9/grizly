@@ -1,0 +1,3 @@
+docker-compose build
+docker tag grizly_scheduler:latest acoeteam/grizly_scheduler
+docker push acoeteam/grizly_scheduler

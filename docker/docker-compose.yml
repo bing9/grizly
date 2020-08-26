@@ -1,0 +1,35 @@
+version: '3'
+services:
+  grizly_notebook:
+    build: .
+      args:
+        GITHUB_TOKEN: "${GITHUB_TOKEN}"
+        HTTP_PROXY: http://restrictedproxy.tycoelectronics.com:80
+        HTTPS_PROXY: http://restrictedproxy.tycoelectronics.com:80
+        ALTERNATIVE_PROXY: http://165.225.38.160:10156    
+    environment:
+      - HTTP_PROXY=http://restrictedproxy.tycoelectronics.com:80
+      - HTTPS_PROXY=http://restrictedproxy.tycoelectronics.com:80
+      - GRIZLY_PROXY=http://restrictedproxy.tycoelectronics.com:80
+      - GRIZLY_DASK_SCHEDULER_ADDRESS=acoe.connect.te.com:8786
+      - GRIZLY_DEV_DASK_SCHEDULER_ADDRESS=10.125.68.177:8786
+      - GRIZLY_REDIS_HOST=acoe.connect.te.com
+      - GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA=acoe_spectrum
+      - GRIZLY_EXTRACT_STAGING_SCHEMA=data_loads
+    ports:
+      - "8889:8888"
+    volumes:
+      - ./docker_home:/home/analyst
+      - ./docker_home/.config/odbc.ini:/etc/odbc.ini
+    container_name: grizly_notebook
+    restart: "always"
+  sqlmanager:
+    image: sqlpad/sqlpad:latest
+    volumes:
+      - ./docker_home/sqlpad:/var/lib/sqlpad
+    environment:
+      - SQLPAD_SESSION_MINUTES=999999
+    ports:
+      - "3000:3000"
+    container_name: sqlpad
+    restart: "always"
