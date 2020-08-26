@@ -21,7 +21,6 @@ services:
     volumes:
       - ./docker_home:/home/analyst
       - ./docker_home/.config/odbc.ini:/etc/odbc.ini
-      - .config:/home/analyst
     container_name: grizly_notebook
     restart: "always"
   sqlmanager:

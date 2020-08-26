@@ -42,9 +42,18 @@ COPY src/Denodo Denodo/
 RUN tar -vxf Denodo/denodo-vdp-odbcdriver.tar.gz && \
     rm -rf Denodo
 
+# Appdend odbcini configs
+COPY .config/odbcinst.ini .
+RUN echo "" >> /etc/odbcinst.ini && \
+    cat odbcinst.ini >> /etc/odbcinst.ini && \
+    rm -f odbcinst.ini
 
 
-FROM odbc_drivers AS python_env
+
+FROM odbc_drivers AS dependencies
+
+COPY .config/requirements.txt .
+COPY .config/requirements-dev.txt .
 
 RUN export https_proxy=$HTTPS_PROXY && \
     pip3 install --upgrade pip && \
@@ -54,18 +63,18 @@ RUN export https_proxy=$HTTPS_PROXY && \
 
 
 
-FROM python_env AS jupyter_extensions
+FROM dependencies AS jupyter_setup
 
 ARG ALTERNATIVE_PROXY
 ENV JUPYTER_ALLOW_INSECURE_WRITES=1
 
-#Install jupyterlab extensions
-#Set NPM proxy
+# Install jupyterlab extensions
+# Set npm proxy
 RUN npm config set proxy $HTTPS_PROXY &&\
     npm config set https-proxy $HTTPS_PROXY &&\
     npm config set strict-ssl=false
 
-# Set YARN proxy inside jupyterlab
+# Set Yarn proxy
 ENV PYTHON_VERSION=$(python -V 2>&1 | awk {'print $2'})
 ENV YARN_PATH="/usr/local/lib/$PYTHON_VERSION/site-packages/jupyterlab/staging/yarn.js"
 RUN node $YARN_PATH install --non-interactive && \
@@ -73,7 +82,7 @@ RUN node $YARN_PATH install --non-interactive && \
     node $YARN_PATH config set https-proxy $ALTERNATIVE_PROXY && \
     node $YARN_PATH config set "strict-ssl" false -g
 
-# #Install jupyterlab extensions
+# JupyterLab extensions
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN jupyter labextension install @jupyterlab/toc --no-build && \
     jupyter labextension install dask-labextension --no-build &&\
@@ -89,7 +98,7 @@ RUN jupyter labextension install @jupyterlab/toc --no-build && \
 
 
 
-FROM jupyter_extensions AS grizly_notebook
+FROM jupyter_setup AS grizly_notebook
 
 ENV DASK_SCHEDULER_ADDRESS="tcp://dask_scheduler:8786"
 ENV HOME="/home/analyst"
@@ -104,23 +113,12 @@ USER analyst
 
 WORKDIR ${HOME}
 
-COPY .config/* .
-# appdend odbcini configs
-# COPY .config/odbcinst.ini .
-# RUN echo "" >> /etc/odbcinst.ini && \
-#     cat odbcinst.ini >> /etc/odbcinst.ini && \
-#     rm -f odbcinst.ini
-
-
-COPY .config/odbc.ini /etc
-# COPY .config/pip .config/pip
-
-
 # grizly
 ARG GITHUB_TOKEN
 RUN git clone $GITHUB_TOKEN/tedcs/grizly.git -b 0.3.7 && \
     cd grizly && \
     python setup.py install && \
+    export https_proxy=$HTTPS_PROXY && \
     pip install -r requirements.txt && \
     cd ../ && \
     rm -rf grizly
