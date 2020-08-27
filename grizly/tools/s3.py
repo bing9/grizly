@@ -14,6 +14,7 @@ import pyarrow.parquet as pq
 from boto3 import resource
 from botocore.exceptions import ClientError
 from pandas import DataFrame, read_csv, read_excel, read_parquet
+from io import BytesIO
 
 from ..utils import clean, clean_colnames, file_extension, get_path
 from .dialects import pyarrow_to_rds_type
@@ -51,7 +52,6 @@ class S3:
         bucket: str = None,
         file_dir: str = None,
         min_time_window: int = 0,
-        interface: str = None,
         logger=None,
         **kwargs,
     ):
@@ -370,25 +370,29 @@ class S3:
 
         self.logger.info(f"'{s3_key}' was successfully downloaded to '{file_path}'")
 
-    def to_df(self, **kwargs) -> DataFrame:
+    @_check_if_s3_exists
+    def to_df(self, to_file=True, **kwargs) -> DataFrame:
         ext = ["csv", "parquet", "xlsx"]
-        if not file_extension(self.file_name) in ext:
+        file_ext = file_extension(self.file_name)
+        if not file_ext in ext:
             raise NotImplementedError(
                 f"Unsupported file format. Please use files with extensions {ext}."
             )
 
-        file_path = os.path.join(self.file_dir, self.file_name)
-        self.to_file(if_exists=kwargs.get("if_exists"))
+        if to_file:
+            filepath_or_buffer = os.path.join(self.file_dir, self.file_name)
+            self.to_file(if_exists=kwargs.get("if_exists"))
+        else:
+            filepath_or_buffer = BytesIO(self._to_bytes())
 
-        if file_extension(self.file_name) == "csv":
+        if file_ext == "csv":
             if kwargs.get("sep") is None:
                 kwargs["sep"] = "\t"
-            df = read_csv(file_path, **kwargs)
-        elif file_extension(self.file_name) == "xlsx":
-            df = read_excel(file_path, **kwargs)
+            df = read_csv(filepath_or_buffer, **kwargs)
+        elif file_ext == "xlsx":
+            df = read_excel(filepath_or_buffer, **kwargs)
         else:
-            columns = kwargs.get("columns")
-            df = read_parquet(file_path, columns=columns)
+            df = read_parquet(filepath_or_buffer, **kwargs)
 
         return df
 
@@ -397,9 +401,11 @@ class S3:
         df: DataFrame,
         sep: str = "\t",
         clean_df: bool = False,
-        keep_file: bool = True,
         chunksize: int = 10000,
         if_exists: {"fail", "skip", "replace", "archive"} = "replace",
+        to_file: bool = True,
+        index: bool = False,
+        **kwargs,
     ):
         r"""Saves DataFrame in S3.
 
@@ -437,20 +443,28 @@ class S3:
         if not isinstance(df, DataFrame):
             raise ValueError("'df' must be DataFrame object")
 
-        file_path = os.path.join(self.file_dir, self.file_name)
-
         if clean_df:
             df = clean(df)
         df = clean_colnames(df)
 
-        extension = self.file_name.split(".")[-1]
-        if extension == "csv":
-            df.to_csv(file_path, index=False, sep=sep, chunksize=chunksize)
-        elif extension == "parquet":
-            df.to_parquet(file_path, index=False)
-        self.logger.info(f"DataFrame saved in '{file_path}'")
+        file_ext = file_extension(self.file_name)
 
-        return self.from_file(keep_file=keep_file, if_exists=if_exists)
+        if to_file:
+            filepath_or_buffer = os.path.join(self.file_dir, self.file_name)
+        else:
+            filepath_or_buffer = BytesIO()
+
+        if file_ext == "csv":
+            df.to_csv(filepath_or_buffer, index=index, sep=sep, chunksize=chunksize, **kwargs)
+        elif file_ext == "xlsx":
+            df.to_excel(filepath_or_buffer, index=index, **kwargs)
+        else:
+            df.to_parquet(filepath_or_buffer, index=index, **kwargs)
+
+        if to_file:
+            return self.from_file(keep_file=kwargs.get("keep_file", False), if_exists=if_exists)
+        else:
+            return self._from_bytes(filepath_or_buffer.getvalue())
 
     @_check_if_s3_exists
     def to_rds(
@@ -929,6 +943,19 @@ class S3:
         column_names = [r.rstrip() for r in records]
 
         return column_names, is_null
+
+    @_check_if_s3_exists
+    def _to_bytes(self) -> bytes:
+        s3_obj = resource("s3").Object(self.bucket, self.full_s3_key)
+        s3_obj_bytes = s3_obj.get()["Body"].read()
+
+        return s3_obj_bytes
+
+    def _from_bytes(self, _bytes: bytes):
+        s3_obj = resource("s3").Object(self.bucket, self.full_s3_key)
+        s3_obj.put(Body=_bytes)
+
+        return self
 
 
 @deprecation.deprecated(details="Use S3.to_file function instead",)
