@@ -371,10 +371,10 @@ class S3:
         self.logger.info(f"'{s3_key}' was successfully downloaded to '{file_path}'")
 
     @_check_if_s3_exists
-    def to_df(self, to_file=True, **kwargs) -> DataFrame:
+    def to_df(self, to_file=False, **kwargs) -> DataFrame:
         ext = ["csv", "parquet", "xlsx"]
         file_ext = file_extension(self.file_name)
-        if not file_ext in ext:
+        if file_ext not in ext:
             raise NotImplementedError(
                 f"Unsupported file format. Please use files with extensions {ext}."
             )
@@ -403,7 +403,7 @@ class S3:
         clean_df: bool = False,
         chunksize: int = 10000,
         if_exists: {"fail", "skip", "replace", "archive"} = "replace",
-        to_file: bool = True,
+        to_file: bool = False,
         index: bool = False,
         **kwargs,
     ):
@@ -443,11 +443,16 @@ class S3:
         if not isinstance(df, DataFrame):
             raise ValueError("'df' must be DataFrame object")
 
+        ext = ["csv", "parquet", "xlsx"]
+        file_ext = file_extension(self.file_name)
+        if file_ext not in ext:
+            raise NotImplementedError(
+                f"Unsupported file format. Please use files with extensions {ext}."
+            )
+
         if clean_df:
             df = clean(df)
         df = clean_colnames(df)
-
-        file_ext = file_extension(self.file_name)
 
         if to_file:
             filepath_or_buffer = os.path.join(self.file_dir, self.file_name)
