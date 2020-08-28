@@ -1,20 +1,19 @@
-import json
-import logging
-import os
 from configparser import ConfigParser
 from csv import reader
 from datetime import datetime, timezone
 from functools import partial, wraps
-from io import StringIO
+from io import BytesIO, StringIO
 from itertools import count
-from typing import List
+import json
+import logging
+import os
+from typing import List, Union, Literal, Optional
 
-import deprecation
-import pyarrow.parquet as pq
 from boto3 import resource
 from botocore.exceptions import ClientError
+import deprecation
 from pandas import DataFrame, read_csv, read_excel, read_parquet
-from io import BytesIO
+import pyarrow.parquet as pq
 
 from ..utils import clean, clean_colnames, file_extension, get_path
 from .dialects import pyarrow_to_rds_type
@@ -22,9 +21,24 @@ from .sqldb import SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
-logger = logging.getLogger(
-    __name__
-)  # TODO: change to a single logger accross the who grizly library, so that it can be set in one place
+logger = logging.getLogger(__name__)
+# TODO: change to a single logger accross the who grizly library, so that it
+# can be set in one place
+
+
+def _check_if_s3_exists(f):
+    @wraps(f)
+    def wrapped(self, *args, **kwargs):
+        s3_key = self.s3_key + self.file_name
+        try:
+            resource("s3").Object(self.bucket, s3_key).load()
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                raise FileNotFoundError(f"{s3_key} file not found")
+
+        return f(self, *args, **kwargs)
+
+    return wrapped
 
 
 class S3:
@@ -47,92 +61,62 @@ class S3:
 
     def __init__(
         self,
-        file_name: str = None,
-        s3_key: str = None,
-        bucket: str = None,
-        file_dir: str = None,
+        file_name: Optional[str] = None,
+        s3_key: Optional[str] = None,
+        bucket: Optional[str] = None,
+        url: Optional[str] = None,
+        file_dir: Optional[str] = None,
         min_time_window: int = 0,
         logger=None,
         **kwargs,
     ):
         self.id = next(self._ids)
-        self.file_name = file_name or f"s3_tmp_{self.id}.csv"
-        self.s3_key = s3_key if s3_key else ""
-        if not self.s3_key.endswith("/") and self.s3_key != "":
-            self.s3_key += "/"
+
+        if url:
+            self.url = url
+            _, _, self.bucket, *s3_key_list = url.split("/")[:-1]
+            self.s3_key = "/".join(s3_key_list)
+            self.file_name = url.split("/")[-1]
+        else:
+            self.file_name = file_name or f"s3_tmp_{self.id}.csv"
+            self.s3_key = s3_key or ""
+            if not self.s3_key.endswith("/") and self.s3_key != "":
+                self.s3_key += "/"
+            self.bucket = bucket or "acoe-s3"
+            self.url = f"s3://{self.bucket}/{self.s3_key}{self.file_name}"
+
+        self.file_ext = file_extension(self.file_name)
         self.full_s3_key = self.s3_key + self.file_name
-        self.bucket = bucket if bucket else "acoe-s3"
-        self.file_dir = file_dir if file_dir else get_path("s3_loads")
-        self.min_time_window = min_time_window
+        self.file_dir = file_dir or get_path("s3_loads")
         os.makedirs(self.file_dir, exist_ok=True)
+        self.file_path = os.path.join(self.file_dir, self.file_name)
+
+        self.min_time_window = min_time_window
         self.logger = logger or logging.getLogger(__name__)
         self.status = "initiated"
 
-        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
-        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
-        if http_proxy is not None:
-            os.environ["HTTPS_PROXY"] = https_proxy
-            os.environ["HTTP_PROXY"] = http_proxy
+        self.__set_proxy()
 
         if kwargs.get("redshift_str") is not None:
             self.logger.warning(
-                f"Parameter redshift_str will be ignored. If you are going to use S3.to_rds method, "
-                "please specify dsn parameter there.",
+                f"Parameter redshift_str will be ignored. If you are going to use "
+                "S3.to_rds method, please specify dsn parameter there.",
             )
 
     def __repr__(self):
-        info_list = [
-            f"file_name: '{self.file_name}'",
-            f"s3_key: '{self.s3_key}'",
-            f"bucket: '{self.bucket}'",
-            f"file_dir: '{self.file_dir}'",
-        ]
-        info = "\n".join(info_list)
-        return info
-
-    def _check_if_s3_exists(f):
-        @wraps(f)
-        def wrapped(self, *args, **kwargs):
-            s3_key = self.s3_key + self.file_name
-            try:
-                resource("s3").Object(self.bucket, s3_key).load()
-            except ClientError as e:
-                if e.response["Error"]["Code"] == "404":
-                    raise FileNotFoundError(f"{s3_key} file not found")
-
-            return f(self, *args, **kwargs)
-
-        return wrapped
-
-    def _can_upload(self):
-
-        try:
-            last_modified = resource("s3").Object(self.bucket, self.full_s3_key).last_modified
-        except:
-            last_modified = None
-
-        if not last_modified or self.min_time_window == 0:
-            return True
-
-        now_utc = datetime.now(timezone.utc)
-        diff = now_utc - last_modified
-        diff_seconds = diff.seconds
-        if diff_seconds < self.min_time_window:
-            return False
-        return True
+        return f"{self.__class__.__name__}(url='{self.url}')"
 
     def info(self):
-        """Print a concise summary of a S3.
+        """Print a concise summary of a S3
 
         Examples
         --------
         >>> S3('test_grizly.csv', 'test/', file_dir=r'/home/analyst/').info()
-        file_name: 'test_grizly.csv'
-        s3_key: 'test/'
-        bucket: 'acoe-s3'
-        file_dir: '/home/analyst/'
+        file_name: test_grizly.csv
+        s3_key: test/
         """
-        print(self.__repr__())
+        s = f"file_name: {self.file_name}\n" f"s3_key: {self.s3_key}\n" f"bucket: {self.bucket}\n"
+        print(s)
 
     def list(self) -> List[str]:
         """Returns the list of files that are in S3.s3_key"""
@@ -142,7 +126,7 @@ class S3:
         if "Contents" in data:
             for file in data["Contents"]:
                 file_list = file["Key"].split("/")
-                for item in key_list:
+                for _ in key_list:
                     file_list.pop(0)
                 if len(file_list) == 1:
                     files.append(file_list[0])
@@ -151,23 +135,14 @@ class S3:
         return files
 
     def exists(self):
-        """Check if the S3 file exists.
-        """
+        """Check if the S3 file exists"""
         return self.file_name in self.list()
 
     @_check_if_s3_exists
     def delete(self):
-        """Removes S3 file.
-        """
+        """Remove S3 file"""
         resource("s3").Object(self.bucket, self.full_s3_key).delete()
         self.logger.info(f"'{self.full_s3_key}' has been successfully removed")
-
-    @_check_if_s3_exists
-    def to_serializable(self):
-        content_object = resource("s3").Object(self.bucket, self.full_s3_key)
-        file_content = content_object.get()["Body"].read().decode("utf-8")
-        serializable = json.loads(file_content)
-        return serializable
 
     @_check_if_s3_exists
     def copy_to(
@@ -176,7 +151,7 @@ class S3:
         s3_key: str = None,
         bucket: str = None,
         keep_file: bool = True,
-        if_exists: {"fail", "skip", "replace", "archive"} = "replace",
+        if_exists: Literal["fail", "skip", "replace", "archive"] = "replace",
         versioning: bool = True,
     ):
         """Copies S3 file to another S3 file.
@@ -190,7 +165,8 @@ class S3:
         bucket : str, optional
             New bucket, if None then the same as in class
         keep_file : bool, optional
-            Whether to keep the original S3 file after copying it to another S3 file, by default True
+            Whether to keep the original S3 file after copying it to another 
+            S3 file, by default True
         if_exists : str, optional
             How to behave if the output S3 already exists.
 
@@ -202,17 +178,7 @@ class S3:
         Examples
         --------
         >>> s3 = S3('test_grizly.csv', 'test/test/', file_dir=r'/home/analyst/')
-        >>> s3
-        file_name: 'test_grizly.csv'
-        s3_key: 'test/test/'
-        bucket: 'acoe-s3'
-        file_dir: '/home/analyst/'
         >>> s3 = s3.copy_to('test_old.csv', s3_key='test/')
-        >>> s3
-        file_name: 'test_old.csv'
-        s3_key: 'test/'
-        bucket: 'acoe-s3'
-        file_dir: '/home/analyst/'
 
         Returns
         -------
@@ -221,9 +187,9 @@ class S3:
         """
         if if_exists not in ("fail", "skip", "replace", "archive"):
             raise ValueError(f"'{if_exists}' is not valid for if_exists")
-        file_name = file_name if file_name else self.file_name
-        s3_key = s3_key if s3_key else self.s3_key
-        bucket = bucket if bucket else self.bucket
+        file_name = file_name or self.file_name
+        s3_key = s3_key or self.s3_key
+        bucket = bucket or self.bucket
 
         out_s3 = S3(file_name=file_name, s3_key=s3_key, bucket=bucket, file_dir=self.file_dir,)
         exists = self.exists()
@@ -243,13 +209,149 @@ class S3:
 
         s3_file.copy(copy_source)
         self.logger.info(
-            f"'{source_s3_key}' copied from '{self.bucket}' to '{bucket}' bucket as '{s3_key + file_name}'"
+            f"'{source_s3_key}' copied from '{self.bucket}' to '{bucket}' bucket "
+            f"as '{s3_key + file_name}'"
         )
 
         if not keep_file:
             self.delete()
 
         return out_s3
+
+    def from_df(
+        self,
+        df: DataFrame,
+        sep: str = "\t",
+        clean_df: bool = True,
+        if_exists: Literal["fail", "skip", "replace", "archive"] = "replace",
+        to_file: bool = False,
+        index: bool = False,
+        **kwargs,
+    ):
+        r"""Saves DataFrame in S3.
+
+        Examples
+        --------
+        >>> from pandas import DataFrame
+        >>> df = DataFrame({'col1': [1, 2], 'col2': [3, 4]})
+        >>> s3 = S3('test_grizly.csv', 'test/').from_df(df)
+
+        Parameters
+        ----------
+        df : DataFrame
+            DataFrame object
+        sep : str, optional
+            Separator, by default '\t'
+        clean_df : bool, optional
+            Whether to clean DataFrame before loading to s3, by default True
+        if_exists : str, optional
+            How to behave if the S3 already exists.
+
+            * fail: Raise ValueError
+            * skip: Abort without throwing an error
+            * replace: Overwrite existing file
+            * archive: Move old S3 to archive/s3_key/file_name(version)
+        """
+        if not isinstance(df, DataFrame):
+            raise ValueError("'df' must be DataFrame object")
+
+        ext = ["csv", "parquet", "xlsx"]
+        if self.file_ext not in ext:
+            raise NotImplementedError(
+                f"Unsupported file format. Please use files with extensions {ext}."
+            )
+
+        if clean_df:
+            df = clean(df)
+            df = clean_colnames(df)
+
+        if to_file:
+            filepath_or_buffer = os.path.join(self.file_dir, self.file_name)
+
+            if self.file_ext == "csv":
+                df.to_csv(filepath_or_buffer, index=index, sep=sep, **kwargs)
+            elif self.file_ext == "xlsx":
+                df.to_excel(filepath_or_buffer, index=index, **kwargs)
+            else:
+                df.to_parquet(filepath_or_buffer, index=index, **kwargs)
+
+            return self.from_file(keep_file=kwargs.get("keep_file", False), if_exists=if_exists)
+
+        else:
+            if self.file_ext == "csv":
+                filepath_or_buffer = StringIO()
+                df.to_csv(filepath_or_buffer, index=index, sep=sep, **kwargs)
+            elif self.file_ext == "xlsx":
+                filepath_or_buffer = BytesIO()
+                df.to_excel(filepath_or_buffer, index=index, **kwargs)
+            else:
+                filepath_or_buffer = BytesIO()
+                df.to_parquet(filepath_or_buffer, index=index, **kwargs)
+
+            return self._from_buffer(filepath_or_buffer)
+
+    def from_file(self, keep_file: bool = True, if_exists: str = "replace", versioning=True):
+        """Writes local file to S3.
+
+        Parameters
+        ----------
+        min_time_window:
+            The minimum time required to pass between the last and current upload
+            for the file to be uploaded. This allows the uploads to be robust
+            to retrying (retries will not re-upload the same file,
+            making the upload almost-idempotent)
+        keep_file:
+            Whether to keep the local file copy after uploading it to Amazon S3, by default True
+        if_exists : str, optional
+            How to behave if the S3 already exists.
+
+            * fail: Raise ValueError
+            * skip: Abort without throwing an error
+            * replace: Overwrite existing file
+            * archive: Move old S3 to archive/s3_key/file_name(version)
+
+        Examples
+        --------
+        >>> s3 = S3('test_grizly.csv', s3_key='test/test/', file_dir='/home/analyst/')
+        >>> s3 = s3.from_file()
+        """
+        if if_exists not in ("fail", "skip", "replace", "archive"):
+            raise ValueError(f"'{if_exists}' is not valid for if_exists")
+
+        if not os.path.exists(self.file_path):
+            raise FileNotFoundError(f"File '{self.file_path}' does not exist.")
+
+        if self.exists():
+            if if_exists == "fail":
+                raise ValueError(f"{self.s3_key + self.file_name} already exists")
+            elif if_exists == "skip":
+                return self
+            elif if_exists == "archive":
+                self.archive(versioning=versioning)
+
+        s3_file = resource("s3").Object(self.bucket, self.full_s3_key)
+
+        if not self._can_upload():
+            msg = (
+                f"File {self.file_name} was not uploaded to {self.s3_key} "
+                "because a recent version exists.\nSet S3.min_time_window to 0 "
+                f"to force the upload (currently set to: {self.min_time_window})."
+            )
+            self.logger.warning(msg)
+            self.status = "skipped"
+            return self
+
+        s3_file.upload_file(self.file_path)
+        self.status = "uploaded"
+
+        self.logger.info(f"Successfully uploaded '{self.file_name}' to S3")
+        self.logger.debug(f"{self.file_name}'s S3 location: 's3://{self.bucket}/{self.s3_key}'")
+
+        if not keep_file:
+            os.remove(self.file_path)
+            self.logger.debug(f"Successfully removed '{self.file_path}'")
+
+        return self
 
     def from_serializable(self, serializable) -> None:
         """Writes a JSON-serializable object to S3
@@ -270,72 +372,34 @@ class S3:
             f"Successfully uploaded '{self.file_name}' to 's3://{self.bucket}/{self.s3_key}'"
         )
 
-    def from_file(self, keep_file: bool = True, if_exists: str = "replace", versioning=True):
-        """Writes local file to S3.
+    @_check_if_s3_exists
+    def to_df(self, to_file=False, **kwargs) -> DataFrame:
+        ext = ["csv", "parquet", "xlsx"]
 
-        Parameters
-        ----------
-        min_time_window:
-            The minimum time required to pass between the last and current upload for the file to be uploaded.
-            This allows the uploads to be robust to retrying (retries will not re-upload the same file,
-            making the upload almost-idempotent)
-        keep_file:
-            Whether to keep the local file copy after uploading it to Amazon S3, by default True
-        if_exists : str, optional
-            How to behave if the S3 already exists.
-
-            * fail: Raise ValueError
-            * skip: Abort without throwing an error
-            * replace: Overwrite existing file
-            * archive: Move old S3 to archive/s3_key/file_name(version)
-
-        Examples
-        --------
-        >>> s3 = S3('test_grizly.csv', s3_key='test/test/', file_dir='/home/analyst/')
-        >>> s3 = s3.from_file()
-        """
-        if if_exists not in ("fail", "skip", "replace", "archive"):
-            raise ValueError(f"'{if_exists}' is not valid for if_exists")
-        file_path = os.path.join(self.file_dir, self.file_name)
-
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File '{file_path}' does not exist.")
-
-        exists = True if self.file_name in self.list() else False
-
-        if exists:
-            if if_exists == "fail":
-                raise ValueError(f"{self.s3_key + self.file_name} already exists")
-            elif if_exists == "skip":
-                return self
-            elif if_exists == "archive":
-                self.archive(versioning=versioning)
-
-        s3_file = resource("s3").Object(self.bucket, self.full_s3_key)
-
-        if not self._can_upload():
-            msg = (
-                f"File {self.file_name} was not uploaded to {self.s3_key} because a recent version exists."
-                + f"\nSet S3.min_time_window to 0 to force the upload (currently set to: {self.min_time_window})."
+        if self.file_ext not in ext:
+            raise NotImplementedError(
+                f"Unsupported file format. Please use files with extensions {ext}."
             )
-            self.logger.warning(msg)
-            self.status = "skipped"
-            return self
 
-        s3_file.upload_file(file_path)
-        self.status = "uploaded"
+        if to_file:
+            filepath_or_buffer = os.path.join(self.file_dir, self.file_name)
+            self.to_file(if_exists=kwargs.get("if_exists"))
+        else:
+            filepath_or_buffer = BytesIO(self._to_bytes())
 
-        self.logger.info(f"Successfully uploaded '{self.file_name}' to S3")
-        self.logger.debug(f"{self.file_name}'s S3 location: 's3://{self.bucket}/{self.s3_key}'")
+        if self.file_ext == "csv":
+            if kwargs.get("sep") is None:
+                kwargs["sep"] = "\t"
+            df = read_csv(filepath_or_buffer, **kwargs)
+        elif self.file_ext == "xlsx":
+            df = read_excel(filepath_or_buffer, **kwargs)
+        else:
+            df = read_parquet(filepath_or_buffer, **kwargs)
 
-        if not keep_file:
-            os.remove(file_path)
-            self.logger.debug(f"Successfully removed '{file_path}'")
-
-        return self
+        return df
 
     @_check_if_s3_exists
-    def to_file(self, if_exists: str = None) -> None:
+    def to_file(self, if_exists: Literal["fail", "skip", "replace"] = "replace") -> None:
         r"""Writes S3 to local file.
 
         Parameters
@@ -352,124 +416,26 @@ class S3:
         >>> s3 = S3('test_grizly.csv', 'test/', file_dir='/home/analyst/').to_file()
         >>> os.remove('/home/analyst/test_grizly.csv')
         """
-        if_exists = if_exists or "replace"
         if if_exists not in ("fail", "skip", "replace"):
             raise ValueError(f"'{if_exists}' is not valid for if_exists")
 
-        file_path = os.path.join(self.file_dir, self.file_name)
-
-        if os.path.exists(file_path):
+        if os.path.exists(self.file_path):
             if if_exists == "fail":
-                raise ValueError(f"File {file_path} already exists")
+                raise ValueError(f"File {self.file_path} already exists")
             elif if_exists == "skip":
                 return None
 
-        s3_key = self.s3_key + self.file_name
-        s3_file = resource("s3").Object(self.bucket, s3_key)
-        s3_file.download_file(file_path)
+        s3_file = resource("s3").Object(self.bucket, self.full_s3_key)
+        s3_file.download_file(self.file_path)
 
-        self.logger.info(f"'{s3_key}' was successfully downloaded to '{file_path}'")
+        self.logger.info(f"'{self.full_s3_key}' was successfully downloaded to '{self.file_path}'")
 
     @_check_if_s3_exists
-    def to_df(self, to_file=False, **kwargs) -> DataFrame:
-        ext = ["csv", "parquet", "xlsx"]
-        file_ext = file_extension(self.file_name)
-        if file_ext not in ext:
-            raise NotImplementedError(
-                f"Unsupported file format. Please use files with extensions {ext}."
-            )
-
-        if to_file:
-            filepath_or_buffer = os.path.join(self.file_dir, self.file_name)
-            self.to_file(if_exists=kwargs.get("if_exists"))
-        else:
-            filepath_or_buffer = BytesIO(self._to_bytes())
-
-        if file_ext == "csv":
-            if kwargs.get("sep") is None:
-                kwargs["sep"] = "\t"
-            df = read_csv(filepath_or_buffer, **kwargs)
-        elif file_ext == "xlsx":
-            df = read_excel(filepath_or_buffer, **kwargs)
-        else:
-            df = read_parquet(filepath_or_buffer, **kwargs)
-
-        return df
-
-    def from_df(
-        self,
-        df: DataFrame,
-        sep: str = "\t",
-        clean_df: bool = False,
-        chunksize: int = 10000,
-        if_exists: {"fail", "skip", "replace", "archive"} = "replace",
-        to_file: bool = False,
-        index: bool = False,
-        **kwargs,
-    ):
-        r"""Saves DataFrame in S3.
-
-        Examples
-        --------
-        >>> from pandas import DataFrame
-        >>> df = DataFrame({'col1': [1, 2], 'col2': [3, 4]})
-        >>> s3 = S3('test_grizly.csv', 'test/', file_dir=r'/home/analyst/').from_df(df, keep_file=True)
-        >>> s3
-        file_name: 'test_grizly.csv'
-        s3_key: 'test/'
-        bucket: 'acoe-s3'
-        file_dir: '/home/analyst/'
-
-        Parameters
-        ----------
-        df : DataFrame
-            DataFrame object
-        sep : str, optional
-            Separator, by default '\t'
-        clean_df : bool, optional
-            Whether to clean DataFrame before loading to s3, by default True
-        keep_file : bool, optional
-            Whether to keep the local file copy after uploading it to Amazon S3, by default True
-        chunksize : int, optional
-            Rows to write at a time from DataFrame to csv, by default 10000
-        if_exists : str, optional
-            How to behave if the S3 already exists.
-
-            * fail: Raise ValueError
-            * skip: Abort without throwing an error
-            * replace: Overwrite existing file
-            * archive: Move old S3 to archive/s3_key/file_name(version)
-        """
-        if not isinstance(df, DataFrame):
-            raise ValueError("'df' must be DataFrame object")
-
-        ext = ["csv", "parquet", "xlsx"]
-        file_ext = file_extension(self.file_name)
-        if file_ext not in ext:
-            raise NotImplementedError(
-                f"Unsupported file format. Please use files with extensions {ext}."
-            )
-
-        if clean_df:
-            df = clean(df)
-        df = clean_colnames(df)
-
-        if to_file:
-            filepath_or_buffer = os.path.join(self.file_dir, self.file_name)
-        else:
-            filepath_or_buffer = BytesIO()
-
-        if file_ext == "csv":
-            df.to_csv(filepath_or_buffer, index=index, sep=sep, chunksize=chunksize, **kwargs)
-        elif file_ext == "xlsx":
-            df.to_excel(filepath_or_buffer, index=index, **kwargs)
-        else:
-            df.to_parquet(filepath_or_buffer, index=index, **kwargs)
-
-        if to_file:
-            return self.from_file(keep_file=kwargs.get("keep_file", False), if_exists=if_exists)
-        else:
-            return self._from_bytes(filepath_or_buffer.getvalue())
+    def to_serializable(self):
+        content_object = resource("s3").Object(self.bucket, self.full_s3_key)
+        file_content = content_object.get()["Body"].read().decode("utf-8")
+        serializable = json.loads(file_content)
+        return serializable
 
     @_check_if_s3_exists
     def to_rds(
@@ -481,7 +447,7 @@ class S3:
         if_exists: str = "fail",
         sep: str = "\t",
         types: dict = None,
-        column_order: list = None,
+        column_order: List = None,
         preserve_column_names: bool = False,
         remove_inside_quotes: bool = False,
         time_format: str = None,
@@ -510,7 +476,6 @@ class S3:
             Data types to force, by default None
         column_order : list, optional
             List of column names in other order than default
-            (more info https://docs.aws.amazon.com/redshift/latest/dg/copy-parameters-column-mapping.html)
         remove_inside_quotes : bool, optional
             Whether to add REMOVEQUOTES to copy statement, by default False
         """
@@ -527,7 +492,8 @@ class S3:
         if redshift_str is not None:
             dsn = redshift_str.split("://")[-1]
             self.logger.warning(
-                f"Parameter redshift_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
+                f"Parameter redshift_str is deprecated as of 0.3 and will "
+                f"be removed in 0.4. Please use dsn='{dsn}' instead.",
             )
         if dsn is None and sqldb is None:
             self.logger.warning(
@@ -559,7 +525,7 @@ class S3:
         config.read(get_path(".aws", "credentials"))
         S3_access_key_id = config["default"]["aws_access_key_id"]
         S3_secret_access_key = config["default"]["aws_secret_access_key"]
-        if file_extension(self.file_name) == "parquet":
+        if self.file_ext == "parquet":
             S3_iam_role = config["default"]["iam_role"]
 
         columns_output_table = sqldb.get_columns(table=table, schema=schema)
@@ -578,11 +544,12 @@ class S3:
                 )
 
         remove_inside_quotes = "REMOVEQUOTES" if remove_inside_quotes else ""
-        if file_extension(self.file_name) == "csv":
+        if self.file_ext == "csv":
             not_found_columns = set(column_order) - set(columns_output_table)
             if not_found_columns != set():
                 self.logger.exception(
-                    f"S3 file {self.full_s3_key} input columns {not_found_columns} not found in output table {table_name}."
+                    f"S3 file {self.full_s3_key} input columns {not_found_columns} "
+                    f"not found in output table {table_name}."
                     f"Please rename columns in the file or in the table before the insert."
                 )
             column_order = "(" + ", ".join(column_order) + ")" if column_order != [] else ""
@@ -606,14 +573,16 @@ class S3:
         else:
             if is_null:
                 self.logger.warning(
-                    "Your file contains null columns. You may consider filling these columns with some values "
-                    "before the insert as columns names validation cannot be performed."
+                    "Your file contains null columns. You may consider filling "
+                    "these columns with some values before the insert "
+                    "as columns names validation cannot be performed."
                 )
             elif column_order != columns_output_table:
                 self.logger.warning(
                     f"S3 file {self.full_s3_key} input columns\n{column_order}\ndoesn't "
                     f"match table {table_name} output columns\n{columns_output_table}.\n"
-                    "You may consider renaming columns in the file or in the table before the insert."
+                    "You may consider renaming columns in the file or in "
+                    "the table before the insert."
                 )
 
             _format = "FORMAT AS PARQUET"
@@ -664,7 +633,7 @@ class S3:
         if_exists: str = "fail",
         sep: str = "\t",
         types: dict = None,
-        column_order: list = None,
+        column_order: List = None,
         execute_on_skip: bool = False,
         **kwargs,
     ):
@@ -693,7 +662,7 @@ class S3:
         column_order : list, optional
             List of column names in other order than default
         """
-        if file_extension(self.file_name) != "csv":
+        if self.file_ext != "csv":
             raise NotImplementedError("Unsupported file format. Please use CSV files.")
 
         if if_exists not in ("fail", "replace", "drop", "append"):
@@ -781,15 +750,12 @@ class S3:
 
         Examples
         --------
-        >>> s3 = S3('test_grizly.csv', 'test/', file_dir=r'/home/analyst/')
+        >>> s3 = S3('test_grizly.csv', 'test/')
         >>> s3_arch = s3.archive()
         >>> s3.exists()
         False
         >>> s3_arch
-        file_name: 'test_grizly(0).csv'
-        s3_key: 'archive/test/'
-        bucket: 'acoe-s3'
-        file_dir: '/home/analyst/'
+        S3('s3://acoe-s3/archive/test/test_grizly(0).csv')
         >>> s3_arch.delete()
         """
         date_short = datetime.now().strftime("%Y-%m-%d")
@@ -820,8 +786,25 @@ class S3:
                 if versioning:
                     version += 1
 
+    def _can_upload(self):
+
+        try:
+            last_modified = resource("s3").Object(self.bucket, self.full_s3_key).last_modified
+        except:
+            last_modified = None
+
+        if not last_modified or self.min_time_window == 0:
+            return True
+
+        now_utc = datetime.now(timezone.utc)
+        diff = now_utc - last_modified
+        diff_seconds = diff.seconds
+        if diff_seconds < self.min_time_window:
+            return False
+        return True
+
     def _create_table_like_s3(self, table, schema, sqldb, types, sep):
-        if file_extension(self.file_name) == "csv":
+        if self.file_ext == "csv":
             s3_client = resource("s3").meta.client
 
             obj_content = s3_client.select_object_content(
@@ -887,7 +870,7 @@ class S3:
                 if other_cols:
                     self.logger.warning(f"Columns {other_cols} were not found.")
 
-        elif file_extension(self.file_name) == "parquet":
+        elif self.file_ext == "parquet":
             self.to_file()
             pq_table = pq.read_table(os.path.join(self.file_dir, self.file_name))
             col_names = []
@@ -906,9 +889,9 @@ class S3:
         sqldb.create_table(table=table, schema=schema, columns=col_names, types=col_types)
 
     def _load_column_names(self, sep):
-        if file_extension(self.file_name) == "csv":
+        if self.file_ext == "csv":
             file_ext = "CSV"
-        elif file_extension(self.file_name) == "parquet":
+        elif self.file_ext == "parquet":
             file_ext = "Parquet"
         else:
             self.logger.warning("Column names cannot be imported. File extension not supported.")
@@ -956,11 +939,19 @@ class S3:
 
         return s3_obj_bytes
 
-    def _from_bytes(self, _bytes: bytes):
+    def _from_buffer(self, buffer: Union[BytesIO, StringIO]):
         s3_obj = resource("s3").Object(self.bucket, self.full_s3_key)
-        s3_obj.put(Body=_bytes)
+        s3_obj.put(Body=buffer.getvalue())
 
         return self
+
+    @staticmethod
+    def __set_proxy():
+        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
+        if https_proxy is not None and http_proxy is not None:
+            os.environ["HTTPS_PROXY"] = https_proxy
+            os.environ["HTTP_PROXY"] = http_proxy
 
 
 @deprecation.deprecated(details="Use S3.to_file function instead",)
