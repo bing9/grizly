@@ -1,4 +1,4 @@
-FROM grizly_notebook:latest
+FROM acoeteam/grizly_notebook:latest
 
 ENV SCHEDULER_ADDRESS=grizly_scheduler:8786
 

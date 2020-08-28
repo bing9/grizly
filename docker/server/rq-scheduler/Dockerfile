@@ -1,6 +1,6 @@
-FROM grizly_notebook:latest
+FROM acoeteam/grizly_notebook:latest
 
-ARG REDIS_HOST=localhost
+ARG REDIS_HOST=redis
 ARG REDIS_PORT=6379
 
 RUN pip install rq-scheduler

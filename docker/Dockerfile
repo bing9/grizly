@@ -1,10 +1,7 @@
-FROM python:3.8-buster AS odbc_drivers
+FROM python:3.8.5-buster AS odbc_drivers
 
-ARG HTTPS_PROXY
 ARG HTTP_PROXY
-ARG docker_user
-ENV DOCKER_USER=$docker_user
-
+ARG HTTPS_PROXY
 
 # Make apt and wget work behind proxy
 RUN touch /etc/apt/apt.conf.d/proxy.conf && \
@@ -14,13 +11,8 @@ RUN touch /etc/wgetrc && \
     echo "http_proxy = $HTTP_PROXY" > /etc/wgetrc && \
     echo "https_proxy = $HTTPS_PROXY" >> /etc/wgetrc
 
-
-## System packages
-RUN apt-get update &&\
-    yes | apt-get install git python3-dev unixodbc-dev g++ libboost-all-dev\
-    apt-utils vim unixodbc odbc-postgresql awscli wkhtmltopdf \
-    fonts-font-awesome nodejs graphviz sudo ca-certificates npm && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt update && \
+    apt install -y unixodbc-dev unixodbc odbc-postgresql wkhtmltopdf
 
 ## External packages
 WORKDIR /opt
@@ -38,12 +30,12 @@ RUN wget https://redshift-downloads.s3.amazonaws.com/drivers/odbc/1.4.10.1000/Am
 
 # Denodo
 ENV DENODO_HOME="/opt/denodo"
-COPY src/Denodo Denodo/
+COPY docker/src/Denodo Denodo/
 RUN tar -vxf Denodo/denodo-vdp-odbcdriver.tar.gz && \
     rm -rf Denodo
 
 # Appdend odbcini configs
-COPY .config/odbcinst.ini .
+COPY docker/.config/odbcinst.ini .
 RUN echo "" >> /etc/odbcinst.ini && \
     cat odbcinst.ini >> /etc/odbcinst.ini && \
     rm -f odbcinst.ini
@@ -52,41 +44,54 @@ RUN echo "" >> /etc/odbcinst.ini && \
 
 FROM odbc_drivers AS dependencies
 
-COPY .config/requirements.txt .
-COPY .config/requirements-dev.txt .
+COPY grizly .
+COPY setup.py . 
+COPY README.md .
+COPY requirements.txt .
+COPY requirements-dev.txt .
 
-RUN export https_proxy=$HTTPS_PROXY && \
-    pip3 install --upgrade pip && \
-    pip3 install -r requirements.txt && \
-    pip3 install -r requirements-dev.txt && \
-    rm -f requirements.txt requirements-dev.txt
+
+RUN apt update && \
+    apt install -y python3-dev build-essential libboost-all-dev g++ && \
+    export https_proxy=$HTTPS_PROXY && \
+    pip install --upgrade pip && \
+    pip install . --user && \
+    pip install --user -r requirements.txt && \
+    pip install --user -r requirements-dev.txt
 
 
 
 FROM dependencies AS jupyter_setup
 
-ARG ALTERNATIVE_PROXY
 ENV JUPYTER_ALLOW_INSECURE_WRITES=1
+
+# Install nodejs
+RUN curl -sL https://deb.nodesource.com/setup_12.x | bash - && \
+    apt install -y nodejs
+
 
 # Install jupyterlab extensions
 # Set npm proxy
+
 RUN npm config set proxy $HTTPS_PROXY &&\
     npm config set https-proxy $HTTPS_PROXY &&\
     npm config set strict-ssl=false
 
 # Set Yarn proxy
-ENV PYTHON_VERSION=$(python -V 2>&1 | awk {'print $2'})
-ENV YARN_PATH="/usr/local/lib/$PYTHON_VERSION/site-packages/jupyterlab/staging/yarn.js"
-RUN node $YARN_PATH install --non-interactive && \
-    node $YARN_PATH config set proxy $ALTERNATIVE_PROXY && \
-    node $YARN_PATH config set https-proxy $ALTERNATIVE_PROXY && \
+ARG ALTERNATIVE_PROXY
+ENV YARN_PATH="/root/.local/lib/python3.8/site-packages/jupyterlab/staging/yarn.js"
+RUN node $YARN_PATH install -q --non-interactive && \
+    node $YARN_PATH config -s set proxy $ALTERNATIVE_PROXY && \
+    node $YARN_PATH config -s set https-proxy $ALTERNATIVE_PROXY && \
     node $YARN_PATH config set "strict-ssl" false -g
 
 # JupyterLab extensions
 ENV NODE_OPTIONS="--max-old-space-size=4096"
+ENV PATH=/root/.local/bin:$PATH
+# WORKDIR /root/.local/bin
 RUN jupyter labextension install @jupyterlab/toc --no-build && \
     jupyter labextension install dask-labextension --no-build &&\
-    jupyter lab build && \
+    jupyter lab build --dev-build=False && \
     jupyter serverextension enable dask_labextension && \
     jupyter serverextension enable --py jupyterlab_git && \
     jupyter lab clean && \
@@ -98,10 +103,17 @@ RUN jupyter labextension install @jupyterlab/toc --no-build && \
 
 
 
-FROM jupyter_setup AS grizly_notebook
+FROM python:3.8.5-buster
 
 ENV DASK_SCHEDULER_ADDRESS="tcp://dask_scheduler:8786"
-ENV HOME="/home/analyst"
+
+## System packages
+RUN apt update && \
+    yes | apt install git python3-dev unixodbc-dev g++ libboost-all-dev \
+    apt-utils vim unixodbc odbc-postgresql awscli wkhtmltopdf build-essential \
+    fonts-font-awesome graphviz sudo ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
 
 # create and give priviledges to the analyst user
 RUN useradd --create-home analyst && \
@@ -109,19 +121,15 @@ RUN useradd --create-home analyst && \
     find /usr/local/lib -type d -exec chmod 777 {} \; && \
     find /usr/local/bin -type d -exec chmod 777 {} \;
 USER analyst
-
+ENV HOME="/home/analyst"
 
 WORKDIR ${HOME}
 
-# grizly
-ARG GITHUB_TOKEN
-RUN git clone $GITHUB_TOKEN/tedcs/grizly.git -b 0.3.7 && \
-    cd grizly && \
-    python setup.py install && \
-    export https_proxy=$HTTPS_PROXY && \
-    pip install -r requirements.txt && \
-    cd ../ && \
-    rm -rf grizly
+
+COPY --from=odbc_drivers /opt /opt
+COPY --from=odbc_drivers /etc/odbcinst.ini /etc/odbcinst.ini
+COPY --from=jupyter_setup /root/.local $HOME/.local
+ENV PATH=$HOME/.local/bin:$PATH
 
 
 ENV GRIZLY_WORKFLOWS_HOME="${HOME}/workflows"

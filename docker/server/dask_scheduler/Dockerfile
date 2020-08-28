@@ -1,4 +1,4 @@
-FROM acoeteam/grizly_base:latest
+FROM acoeteam/grizly_notebook:latest
 
 EXPOSE 8786
 EXPOSE 8787
