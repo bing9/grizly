@@ -67,6 +67,7 @@ services:
     image: acoeteam/dask_worker:latest
     volumes:
       - ../docker_home:/home/analyst
+      - ../docker_home/.config/odbc.ini:/etc/odbc.ini
     depends_on:
       - dask_scheduler
     restart: "always"
