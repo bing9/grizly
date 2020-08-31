@@ -1,5 +1,4 @@
-from configparser import ConfigParser
-from csv import reader
+import csv
 from datetime import datetime, timezone
 from functools import partial, wraps
 from io import BytesIO, StringIO
@@ -7,7 +6,7 @@ from itertools import count
 import json
 import logging
 import os
-from typing import List, Union, Literal, Optional
+from typing import List, Union, Literal, Optional, Tuple
 
 from boto3 import resource
 from botocore.exceptions import ClientError
@@ -29,12 +28,11 @@ logger = logging.getLogger(__name__)
 def _check_if_s3_exists(f):
     @wraps(f)
     def wrapped(self, *args, **kwargs):
-        s3_key = self.s3_key + self.file_name
         try:
-            resource("s3").Object(self.bucket, s3_key).load()
+            resource("s3").Object(self.bucket, self.full_s3_key).load()
         except ClientError as e:
             if e.response["Error"]["Code"] == "404":
-                raise FileNotFoundError(f"{s3_key} file not found")
+                raise FileNotFoundError(f"{self.full_s3_key} file not found")
 
         return f(self, *args, **kwargs)
 
@@ -99,23 +97,42 @@ class S3:
 
         if kwargs.get("redshift_str") is not None:
             self.logger.warning(
-                f"Parameter redshift_str will be ignored. If you are going to use "
+                "Parameter redshift_str will be ignored. If you are going to use "
                 "S3.to_rds method, please specify dsn parameter there.",
             )
 
     def __repr__(self):
         return f"{self.__class__.__name__}(url='{self.url}')"
 
+    @property
+    def aws_credentials(self):
+        from configparser import ConfigParser
+
+        config = ConfigParser()
+        config.read(get_path(".aws", "credentials"))
+
+        return config["default"] or dict()
+
+    @property
+    def aws_config(self):
+        from configparser import ConfigParser
+
+        config = ConfigParser()
+        config.read(get_path(".aws", "config"))
+
+        return config["default"] or dict()
+
     def info(self):
         """Print a concise summary of a S3
 
         Examples
         --------
-        >>> S3('test_grizly.csv', 'test/', file_dir=r'/home/analyst/').info()
+        >>> S3('test_grizly.csv', 'test/').info()
         file_name: test_grizly.csv
         s3_key: test/
+        bucket: acoe-s3
         """
-        s = f"file_name: {self.file_name}\n" f"s3_key: {self.s3_key}\n" f"bucket: {self.bucket}\n"
+        s = f"file_name: {self.file_name}\n" f"s3_key: {self.s3_key}\n" f"bucket: {self.bucket}"
         print(s)
 
     def list(self) -> List[str]:
@@ -147,9 +164,9 @@ class S3:
     @_check_if_s3_exists
     def copy_to(
         self,
-        file_name: str = None,
-        s3_key: str = None,
-        bucket: str = None,
+        file_name: Optional[str] = None,
+        s3_key: Optional[str] = None,
+        bucket: Optional[str] = None,
         keep_file: bool = True,
         if_exists: Literal["fail", "skip", "replace", "archive"] = "replace",
         versioning: bool = True,
@@ -165,7 +182,7 @@ class S3:
         bucket : str, optional
             New bucket, if None then the same as in class
         keep_file : bool, optional
-            Whether to keep the original S3 file after copying it to another 
+            Whether to keep the original S3 file after copying it to another
             S3 file, by default True
         if_exists : str, optional
             How to behave if the output S3 already exists.
@@ -204,7 +221,7 @@ class S3:
 
         s3_file = resource("s3").Object(bucket, s3_key + file_name)
 
-        source_s3_key = self.s3_key + self.file_name
+        source_s3_key = self.full_s3_key
         copy_source = {"Key": source_s3_key, "Bucket": self.bucket}
 
         s3_file.copy(copy_source)
@@ -290,16 +307,16 @@ class S3:
 
             return self._from_buffer(filepath_or_buffer)
 
-    def from_file(self, keep_file: bool = True, if_exists: str = "replace", versioning=True):
+    def from_file(
+        self,
+        keep_file: bool = True,
+        if_exists: Literal["fail", "skip", "replace", "archive"] = "replace",
+        versioning: bool = True,
+    ):
         """Writes local file to S3.
 
         Parameters
         ----------
-        min_time_window:
-            The minimum time required to pass between the last and current upload
-            for the file to be uploaded. This allows the uploads to be robust
-            to retrying (retries will not re-upload the same file,
-            making the upload almost-idempotent)
         keep_file:
             Whether to keep the local file copy after uploading it to Amazon S3, by default True
         if_exists : str, optional
@@ -312,8 +329,11 @@ class S3:
 
         Examples
         --------
-        >>> s3 = S3('test_grizly.csv', s3_key='test/test/', file_dir='/home/analyst/')
-        >>> s3 = s3.from_file()
+        >>> with open("test_grizly.csv", mode="w") as csvfile:
+        ...     writer = csv.writer(csvfile)
+        ...     writer.writerows([("col1", "col2"), (1, 2)])
+        >>> s3 = S3('test_grizly.csv', s3_key='test/test/', file_dir=os.getcwd())
+        >>> s3 = s3.from_file(keep_file=False)
         """
         if if_exists not in ("fail", "skip", "replace", "archive"):
             raise ValueError(f"'{if_exists}' is not valid for if_exists")
@@ -323,7 +343,7 @@ class S3:
 
         if self.exists():
             if if_exists == "fail":
-                raise ValueError(f"{self.s3_key + self.file_name} already exists")
+                raise ValueError(f"{self.full_s3_key} already exists")
             elif if_exists == "skip":
                 return self
             elif if_exists == "archive":
@@ -413,8 +433,8 @@ class S3:
 
         Examples
         --------
-        >>> s3 = S3('test_grizly.csv', 'test/', file_dir='/home/analyst/').to_file()
-        >>> os.remove('/home/analyst/test_grizly.csv')
+        >>> s3 = S3('test_grizly.csv', 'test/')
+        >>> s3 = s3.to_file()
         """
         if if_exists not in ("fail", "skip", "replace"):
             raise ValueError(f"'{if_exists}' is not valid for if_exists")
@@ -441,16 +461,16 @@ class S3:
     def to_rds(
         self,
         table: str,
-        schema: str = None,
-        dsn: str = None,
-        sqldb: SQLDB = None,
-        if_exists: str = "fail",
+        schema: Optional[str] = None,
+        dsn: Optional[str] = None,
+        sqldb: Optional[SQLDB] = None,
+        if_exists: Literal["fail", "skip", "replace", "drop"] = "fail",
         sep: str = "\t",
-        types: dict = None,
-        column_order: List = None,
+        types: Optional[dict] = None,
+        column_order: Optional[List] = None,
         preserve_column_names: bool = False,
         remove_inside_quotes: bool = False,
-        time_format: str = None,
+        time_format: Optional[str] = None,
         execute_on_skip: bool = False,
         **kwargs,
     ):
@@ -505,28 +525,9 @@ class S3:
         if sqldb.db.lower() != "redshift":
             raise ValueError(f"Specified datasource '{sqldb.dsn}' is not a Redshift Database.")
 
-        table_name = f"{schema}.{table}" if schema else table
-
-        if sqldb.check_if_exists(table, schema):
-            if if_exists == "fail":
-                self.logger.exception(f"Table {table_name} already exists")
-            elif if_exists == "replace":
-                sqldb.delete_from(table=table, schema=schema)
-            elif if_exists == "drop":
-                sqldb.drop_table(table=table, schema=schema)
-            else:
-                pass
-        else:
-            self._create_table_like_s3(
-                table=table, schema=schema, sep=sep, sqldb=sqldb, types=types
-            )
-
-        config = ConfigParser()
-        config.read(get_path(".aws", "credentials"))
-        S3_access_key_id = config["default"]["aws_access_key_id"]
-        S3_secret_access_key = config["default"]["aws_secret_access_key"]
-        if self.file_ext == "parquet":
-            S3_iam_role = config["default"]["iam_role"]
+        self.__validate_output_table(
+            table=table, schema=schema, sqldb=sqldb, if_exists=if_exists, sep=sep, types=types
+        )
 
         columns_output_table = sqldb.get_columns(table=table, schema=schema)
 
@@ -543,7 +544,8 @@ class S3:
                     f"Please change 'column_order' parameter or rename output table columns."
                 )
 
-        remove_inside_quotes = "REMOVEQUOTES" if remove_inside_quotes else ""
+        table_name = f"{schema}.{table}" if schema else table
+
         if self.file_ext == "csv":
             not_found_columns = set(column_order) - set(columns_output_table)
             if not_found_columns != set():
@@ -552,21 +554,22 @@ class S3:
                     f"not found in output table {table_name}."
                     f"Please rename columns in the file or in the table before the insert."
                 )
-            column_order = "(" + ", ".join(column_order) + ")" if column_order != [] else ""
+            column_order_str = "(" + ", ".join(column_order) + ")" if column_order != [] else ""
+            remove_inside_quotes_str = "REMOVEQUOTES" if remove_inside_quotes else ""
 
             if remove_inside_quotes:
                 _format = ""
             else:
                 _format = "FORMAT AS csv"
             sql = f"""
-                COPY {table_name} {column_order}
+                COPY {table_name} {column_order_str}
                 FROM 's3://{self.bucket}/{self.full_s3_key}'
-                access_key_id '{S3_access_key_id}'
-                secret_access_key '{S3_secret_access_key}'
+                access_key_id '{self.aws_credentials["aws_access_key_id"]}'
+                secret_access_key '{self.aws_credentials["aws_secret_access_key"]}'
                 delimiter '{sep}'
                 NULL ''
                 IGNOREHEADER 1
-                {remove_inside_quotes}
+                {remove_inside_quotes_str}
                 {_format}
                 ;commit;
                 """
@@ -589,7 +592,7 @@ class S3:
             sql = f"""
                 COPY {table_name}
                 FROM 's3://{self.bucket}/{self.full_s3_key}'
-                IAM_ROLE '{S3_iam_role}'
+                IAM_ROLE '{self.aws_credentials["iam_role"]}'
                 {_format};
                 ;commit;
                 """
@@ -627,13 +630,13 @@ class S3:
     def to_aurora(
         self,
         table: str,
-        schema: str = None,
-        dsn: str = None,
-        sqldb: SQLDB = None,
-        if_exists: str = "fail",
+        schema: Optional[str] = None,
+        dsn: Optional[str] = None,
+        sqldb: Optional[SQLDB] = None,
+        if_exists: Literal["fail", "skip", "replace", "drop"] = "fail",
         sep: str = "\t",
-        types: dict = None,
-        column_order: List = None,
+        types: Optional[dict] = None,
+        column_order: Optional[List] = None,
         execute_on_skip: bool = False,
         **kwargs,
     ):
@@ -679,35 +682,14 @@ class S3:
         if sqldb.db.lower() != "aurora":
             raise ValueError(f"Specified datasource '{sqldb.dsn}' is not an Aurora Database.")
 
+        self.__validate_output_table(
+            table=table, schema=schema, sqldb=sqldb, if_exists=if_exists, sep=sep, types=types
+        )
+
         con = sqldb.get_connection()
+        con.execute("CREATE EXTENSION IF NOT EXISTS aws_s3 CASCADE; COMMIT;")
 
-        con.execute("CREATE EXTENSION IF NOT EXISTS aws_s3 CASCADE").commit()
-
-        table_name = f"{schema}.{table}" if schema else table
-
-        if sqldb.check_if_exists(table, schema):
-            if if_exists == "fail":
-                self.logger.exception(f"Table {table_name} already exists")
-            elif if_exists == "replace":
-                sqldb.delete_from(table=table, schema=schema)
-            elif if_exists == "drop":
-                sqldb.drop_table(table=table, schema=schema)
-            else:
-                pass
-        else:
-            self._create_table_like_s3(
-                table=table, schema=schema, sep=sep, sqldb=sqldb, types=types
-            )
-
-        from configparser import ConfigParser
-
-        config = ConfigParser()
-        config.read(get_path(".aws", "credentials"))
-        S3_access_key_id = config["default"]["aws_access_key_id"]
-        S3_secret_access_key = config["default"]["aws_secret_access_key"]
-
-        config.read(get_path(".aws", "config"))
-        region = config["default"]["region"]
+        columns_output_table = sqldb.get_columns(table=table, schema=schema)
 
         if column_order is None:
             column_order, _ = self._load_column_names(sep=sep)
@@ -719,6 +701,7 @@ class S3:
                     f"Please change 'column_order' parameter or rename output table columns."
                 )
 
+        table_name = f"{schema}.{table}" if schema else table
         columns_str = ",".join(column_order)
         sql = f"""SELECT aws_s3.table_import_from_s3 (
                     '{table_name}',
@@ -726,13 +709,14 @@ class S3:
                     '(DELIMITER E''{sep}'', FORMAT CSV, HEADER TRUE)',
                     '{self.bucket}',
                     '{self.s3_key}{self.file_name}',
-                    '{region}',
-                    '{S3_access_key_id}',
-                    '{S3_secret_access_key}',
+                    '{self.aws_config["region"]}',
+                    '{self.aws_credentials["aws_access_key_id"]}',
+                    '{self.aws_credentials["aws_secret_access_key"]}',
                     ''
-                    )"""
+                    );
+                    COMMIT;"""
         try:
-            con.execute(sql).commit()
+            con.execute(sql)
         except:
             self.logger.exception(f"Failed to insert '{self.file_name}' into Aurora [{table_name}]")
             self.logger.exception(sql)
@@ -746,17 +730,13 @@ class S3:
         self.logger.debug(f"'{self.file_name}''s Aurora location: {table_name}")
 
     def archive(self, versioning=True):
-        """Moves S3 to 'archive/' key. It adds also the versions of the file eg. file(0).csv, file(1).csv, ...
+        """Moves S3 to 'archive/' key. It adds also the versions of the file
+        eg. file(0).csv, file(1).csv, ...
 
         Examples
         --------
         >>> s3 = S3('test_grizly.csv', 'test/')
         >>> s3_arch = s3.archive()
-        >>> s3.exists()
-        False
-        >>> s3_arch
-        S3('s3://acoe-s3/archive/test/test_grizly(0).csv')
-        >>> s3_arch.delete()
         """
         date_short = datetime.now().strftime("%Y-%m-%d")
         s3_archive = S3(
@@ -805,11 +785,12 @@ class S3:
 
     def _create_table_like_s3(self, table, schema, sqldb, types, sep):
         if self.file_ext == "csv":
+            # TODO: this should write to df
             s3_client = resource("s3").meta.client
 
             obj_content = s3_client.select_object_content(
                 Bucket=self.bucket,
-                Key=self.s3_key + self.file_name,
+                Key=self.full_s3_key,
                 ExpressionType="SQL",
                 Expression="SELECT * FROM s3object LIMIT 21",
                 InputSerialization={
@@ -828,7 +809,7 @@ class S3:
                     records.append(event["Records"]["Payload"])
 
             file_str = "".join(r.decode("utf-8") for r in records)
-            csv_reader = reader(StringIO(file_str))
+            csv_reader = csv.reader(StringIO(file_str))
 
             def isfloat(s):
                 try:
@@ -841,7 +822,7 @@ class S3:
             for row in csv_reader:
                 if count == 0:
                     column_names = row
-                    column_isfloat = [[] for i in row]
+                    column_isfloat = [[] for _ in row]
                 else:
                     i = 0
                     for item in row:
@@ -871,6 +852,7 @@ class S3:
                     self.logger.warning(f"Columns {other_cols} were not found.")
 
         elif self.file_ext == "parquet":
+            # TODO: this should write to bytes
             self.to_file()
             pq_table = pq.read_table(os.path.join(self.file_dir, self.file_name))
             col_names = []
@@ -888,14 +870,14 @@ class S3:
 
         sqldb.create_table(table=table, schema=schema, columns=col_names, types=col_types)
 
-    def _load_column_names(self, sep):
+    def _load_column_names(self, sep) -> Tuple[List, Union[bool, None]]:
         if self.file_ext == "csv":
             file_ext = "CSV"
         elif self.file_ext == "parquet":
             file_ext = "Parquet"
         else:
             self.logger.warning("Column names cannot be imported. File extension not supported.")
-            return []
+            return [], None
 
         is_null = False
         s3_client = resource("s3").meta.client
@@ -904,12 +886,12 @@ class S3:
             InputSerialization = {
                 "CSV": {"FieldDelimiter": sep, "AllowQuotedRecordDelimiter": True}
             }
-        elif file_ext == "Parquet":
+        else:
             InputSerialization = {"Parquet": {}}
 
         obj_content = s3_client.select_object_content(
             Bucket=self.bucket,
-            Key=self.s3_key + self.file_name,
+            Key=self.full_s3_key,
             ExpressionType="SQL",
             Expression="SELECT s.* FROM s3object s LIMIT 1",
             InputSerialization=InputSerialization,
@@ -944,6 +926,21 @@ class S3:
         s3_obj.put(Body=buffer.getvalue())
 
         return self
+
+    def __validate_output_table(self, table, schema, sqldb, if_exists, sep, types):
+        if sqldb.check_if_exists(table, schema):
+            if if_exists == "fail":
+                raise ValueError(f"Table {table} already exists")
+            elif if_exists == "replace":
+                sqldb.delete_from(table=table, schema=schema)
+            elif if_exists == "drop":
+                sqldb.drop_table(table=table, schema=schema)
+            else:
+                pass
+        else:
+            self._create_table_like_s3(
+                table=table, schema=schema, sep=sep, sqldb=sqldb, types=types
+            )
 
     @staticmethod
     def __set_proxy():
@@ -996,7 +993,10 @@ def csv_to_s3(csv_path, s3_key: str = None, keep_csv=True, bucket: str = None):
 
 
 @deprecation.deprecated(
-    details="Use S3.from_df and S3.to_rds functions instead. Parameters: schema, dtype, if_exists are ignored.",
+    details=(
+        "Use S3.from_df and S3.to_rds functions instead. "
+        "Parameters: schema, dtype, if_exists are ignored."
+    ),
 )
 def df_to_s3(
     df,
