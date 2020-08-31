@@ -1,0 +1,10 @@
+version: '3'
+services:
+  dask_scheduler:
+    image: dask_scheduler:latest
+    build: .
+    ports:
+      - "8786:8786"
+      - "8787:8787"
+    container_name: dask_scheduler
+    restart: "always"
