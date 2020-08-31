@@ -1,31 +1,27 @@
-from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from functools import wraps
-import json
-import logging
-import os
-import sys
-from time import time
-from typing import Any, Dict, List, Literal, Union, Optional
-
-from croniter import croniter
-import dask
-from dask.delayed import Delayed
-from distributed import Client, Future
-from distributed.protocol.serialize import serialize as dask_serialize
-from distributed.protocol.serialize import deserialize as dask_deserialize
-from redis import Redis
-from rq import Queue
-from rq_scheduler import Scheduler
-
-from ..config import Config
 from ..exceptions import JobNotFoundError, JobRunNotFoundError
+from ..config import Config
+from rq_scheduler import Scheduler
+from rq import Queue
+from redis import Redis
+from distributed.protocol.serialize import deserialize as dask_deserialize
+from distributed.protocol.serialize import serialize as dask_serialize
+from distributed import Client, Future
+from dask.delayed import Delayed
+import dask
+from croniter import croniter
+from typing import Any, Dict, List, Literal, Union, Optional
+from time import time
+import sys
+import os
+import logging
+import json
+from functools import wraps
+from datetime import datetime, timezone
+from abc import ABC, abstractmethod
 
 
 def _check_if_exists(raise_error=True):
-    """Checks if the job exists in the registry
-
-    Parameters
+    """Checks if the job exists in the registry Parameters
     ----------
     raise_error : bool, optional
         Whether to raise error if job doesn't exist, by default True
@@ -451,6 +447,8 @@ class Job(SchedulerObject):
         # VALIDATIONS
         if isinstance(crons, str):
             crons = [crons]
+        elif crons is None:
+            crons = []
         for cron in crons:
             if not croniter.is_valid(cron):
                 raise ValueError(f"Invalid cron string {cron}")
@@ -524,6 +522,8 @@ class Job(SchedulerObject):
     def triggers(self, triggers: Union[List[str], str]):
         if isinstance(triggers, str):
             triggers = [triggers]
+        elif triggers is None:
+            triggers = []
 
         # 1. Remove job from previous triggers
         old_triggers = self.triggers
@@ -579,6 +579,8 @@ class Job(SchedulerObject):
         self.db._check_if_jobs_exist(new_job_names)
         if isinstance(new_job_names, str):
             new_job_names = [new_job_names]
+        elif new_job_names is None:
+            new_job_names = []
         # 1. Remove from downstream jobs of all the jobs on the previous
         #    upstream jobs list
         old_downstream_jobs = self.downstream
@@ -641,6 +643,8 @@ class Job(SchedulerObject):
         self.db._check_if_jobs_exist(new_job_names)
         if isinstance(new_job_names, str):
             new_job_names = [new_job_names]
+        elif new_job_names is None:
+            new_job_names = []
         # 1. Remove from downstream jobs of all the jobs on the previous
         #    upstream jobs list
         old_upstream_jobs = self.upstream
