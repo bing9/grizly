@@ -13,14 +13,14 @@ services:
     ports:
       - "8889:8888"
     volumes:
-      - .docker/docker_home:/home/analyst
-      - .docker/docker_home/.config/odbc.ini:/etc/odbc.ini
+      - ./docker_home:/home/analyst
+      - ./docker_home/.config/odbc.ini:/etc/odbc.ini
     container_name: grizly_notebook
     restart: "always"
   sqlmanager:
     image: sqlpad/sqlpad:latest
     volumes:
-      - .docker/docker_home/sqlpad:/var/lib/sqlpad
+      - ./docker_home/sqlpad:/var/lib/sqlpad
     environment:
       - SQLPAD_SESSION_MINUTES=999999
     ports:
