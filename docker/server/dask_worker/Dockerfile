@@ -1,6 +1,7 @@
-FROM acoeteam/grizly_notebook:latest
+FROM grizly_notebook:latest
 
-ENV SCHEDULER_ADDRESS=grizly_scheduler:8786
+ARG SCHEDULER_ADDRESS=dask_scheduler:8786
+ENV SCHEDULER_ADDRESS=$SCHEDULER_ADDRESS
 
 WORKDIR ${HOME}
 

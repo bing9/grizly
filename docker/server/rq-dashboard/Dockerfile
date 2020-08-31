@@ -1,7 +1,8 @@
-FROM acoeteam/grizly_notebook:latest
+FROM grizly_notebook:latest
 
-ENV REDIS_HOST=redis
-ENV REDIS_PORT=6379
+
+ARG REDIS_HOST=redis
+ARG REDIS_PORT=6379
 
 EXPOSE 9181
 

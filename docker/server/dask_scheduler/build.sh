@@ -1,3 +1,3 @@
 docker-compose build
-docker tag grizly_scheduler:latest acoeteam/grizly_scheduler
-docker push acoeteam/grizly_scheduler
+docker tag dask_scheduler:latest acoeteam/dask_scheduler
+docker push acoeteam/dask_scheduler

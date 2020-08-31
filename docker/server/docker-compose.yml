@@ -54,7 +54,7 @@ services:
     depends_on:
       - redis
     volumes:
-      - /platform/docker_home:/home/analyst
+      - ../docker_home:/home/analyst
     restart: "always"
   dask_scheduler:
     image: acoeteam/dask_scheduler:latest
@@ -66,7 +66,7 @@ services:
   dask_worker:
     image: acoeteam/dask_worker:latest
     volumes:
-      - /platform/docker_home:/home/analyst
+      - ../docker_home:/home/analyst
     depends_on:
       - dask_scheduler
     restart: "always"

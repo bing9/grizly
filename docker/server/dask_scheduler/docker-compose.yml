@@ -1,10 +1,10 @@
 version: '3'
 services:
-  grizly_scheduler:
-    image: grizly_scheduler:latest
+  dask_scheduler:
+    image: dask_scheduler:latest
     build: .
     ports:
       - "8786:8786"
       - "8787:8787"
-    container_name: grizly_scheduler
+    container_name: dask_scheduler
     restart: "always"

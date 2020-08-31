@@ -1,4 +1,4 @@
-FROM acoeteam/grizly_notebook:latest
+FROM grizly_notebook:latest
 
 RUN pip install rq
 RUN pip install rq-scheduler

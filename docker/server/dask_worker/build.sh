@@ -1,3 +1,3 @@
 docker-compose build
-docker tag grizly_worker:latest acoeteam/grizly_worker
-docker push acoeteam/grizly_worker
+docker tag dask_worker:latest acoeteam/dask_worker
+docker push acoeteam/dask_worker
