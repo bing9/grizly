@@ -1,29 +1,29 @@
-from pandas import DataFrame
 import os
-from time import sleep
-from filecmp import cmp
 import re
-from ..grizly.tools.s3 import S3
-from ..grizly.utils import get_path
+from time import sleep
+
+from pandas import DataFrame, read_csv
+import pytest
+from hypothesis import given
+from hypothesis.strategies import integers, text, lists
+
 from ..grizly.tools.qframe import QFrame
+from ..grizly.tools.s3 import S3
 from ..grizly.tools.sqldb import SQLDB
+from ..grizly.utils import get_path
 
 
 def test_df_to_s3_and_s3_to_file():
-    s3 = S3(file_name="testing_aws_class.csv", s3_key="bulk/")
+    s3 = S3(file_name="testing_s3_class.csv", s3_key="bulk/")
     df = DataFrame({"col1": [1, 2], "col2": [3, 4]})
-    s3.from_df(df)
+    s3.from_df(df, sep="\t")
 
-    first_file_path = os.path.join(s3.file_dir, s3.file_name)
-    second_file_path = os.path.join(s3.file_dir, "testing_aws_class_1.csv")
+    file_path = os.path.join(s3.file_dir, s3.file_name)
 
-    os.rename(first_file_path, second_file_path)
-    print(os.path.join(s3.file_dir, s3.file_name))
     s3.to_file()
 
-    assert cmp(first_file_path, second_file_path) == True
-    os.remove(first_file_path)
-    os.remove(second_file_path)
+    assert df.equals(read_csv(file_path, sep="\t"))
+    os.remove(file_path)
 
 
 def test_can_upload():
@@ -62,9 +62,17 @@ def test_to_rds():
     path_parquet = get_path("grizly_test.parquet")
 
     s3_parquet = S3(
-        file_name=os.path.basename(path_parquet), file_dir=os.path.dirname(path_parquet), s3_key=s3_key, bucket=bucket
+        file_name=os.path.basename(path_parquet),
+        file_dir=os.path.dirname(path_parquet),
+        s3_key=s3_key,
+        bucket=bucket,
     )
-    s3_csv = S3(file_name=os.path.basename(path_csv), file_dir=os.path.dirname(path_csv), s3_key=s3_key, bucket=bucket)
+    s3_csv = S3(
+        file_name=os.path.basename(path_csv),
+        file_dir=os.path.dirname(path_csv),
+        s3_key=s3_key,
+        bucket=bucket,
+    )
 
     qf.to_parquet(path_parquet)
     s3_parquet.from_file(keep_file=False)
@@ -134,7 +142,12 @@ def test_to_aurora():
     schema = "sandbox"
     path_csv = get_path("grizly_test.csv")
 
-    s3_csv = S3(file_name=os.path.basename(path_csv), file_dir=os.path.dirname(path_csv), s3_key=s3_key, bucket=bucket)
+    s3_csv = S3(
+        file_name=os.path.basename(path_csv),
+        file_dir=os.path.dirname(path_csv),
+        s3_key=s3_key,
+        bucket=bucket,
+    )
 
     qf.to_csv(path_csv)
     s3_csv.from_file(keep_file=False)
@@ -172,3 +185,14 @@ def test_to_serializable():
     s3 = S3(bucket="acoe-s3", s3_key="test/", file_name="test_s3.json")
     serializable = s3.to_serializable()
     assert serializable == {"a": 42}
+
+
+@pytest.mark.parametrize("ext", ["csv", "parquet", "xlsx"])
+@given(col1=lists(text(), min_size=3, max_size=3), col2=lists(integers(), min_size=3, max_size=3))
+def test_from_df_to_df(col1, col2, ext):
+    d = {"col1": col1, "col2": col2}
+    df = DataFrame(data=d)
+    s3 = S3(f"test.{ext}", s3_key="grizly/")
+    s3.from_df(df)
+    test_df = s3.to_df()
+    assert test_df.equals(df)
