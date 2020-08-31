@@ -15,9 +15,8 @@ REDIS_PORT = int(os.getenv("GRIZLY_REDIS_PORT", default=6379))
 
 
 def register(
-    host: str = typer.Option(REDIS_HOST, "-h"),
-    port: int = typer.Option(REDIS_PORT, "-p"),
-    ):
+    host: str = typer.Option(REDIS_HOST, "-h"), port: int = typer.Option(REDIS_PORT, "-p"),
+):
     """Register the agent as a cron job ran by rq-scheduler
 
     Parameters
@@ -35,9 +34,10 @@ def register(
     scheduler.cron(
         "* * * * *",
         func=run,
-        queue_name=queue.name,      # In which queue the job should be put in
-        use_local_timezone=False    # Interpret hours in the local timezone
+        queue_name=queue.name,  # In which queue the job should be put in
+        use_local_timezone=False,  # Interpret hours in the local timezone
     )
+
 
 if __name__ == "__main__":
     typer.run(register)

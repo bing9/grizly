@@ -1,17 +1,17 @@
 import logging
 
 from rq import Queue
-from grizly.scheduling.registry import Registry
+from grizly.scheduling.registry import SchedulerDB
 
 logger = logging.getLogger(__name__)
-registry = Registry(redis_host="pytest_redis")
-submit_queue = Queue("submit", connection=registry.con)
+schdb = SchedulerDB()
+submit_queue = Queue(schdb.submit_queue_name, connection=schdb.con)
 
 
 def run():
 
     logger.info("Loading triggers...")
-    triggers = registry.get_triggers()
+    triggers = schdb.get_triggers()
     logger.info("Triggers loaded successfully")
 
     for trigger in triggers:
