@@ -10,6 +10,15 @@ https://grizly-docs.readthedocs.io/en/master/
 
 There are two ways to install grizly
 
+### Installation with setuptools
+
+```
+> git clone https://github.com/kfk/grizly.git
+> cd grizly
+> pip install -r requirements.txt
+> python setup.py install
+```
+
 ### Installation with pip
 
 ```
@@ -19,14 +28,6 @@ There are two ways to install grizly
 > pip install grizly
 ```
 
-### Installation with setuptools
-
-```
-> git clone https://github.com/kfk/grizly.git
-> cd grizly
-> pip install -r requirements.txt
-> python setup.py install
-```
 
 ## How to contribute?
 

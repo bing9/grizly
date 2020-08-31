@@ -5,7 +5,7 @@ import click
 import grizly
 
 from .config import config as _config
-from .job import job as _job
+
 from .workflow import workflow as _workflow
 
 
@@ -25,8 +25,8 @@ def cli():
 
 
 cli.add_command(_config)
-cli.add_command(_job)
 cli.add_command(_workflow)
+
 
 @cli.command(hidden=True)
 def version():

@@ -1,20 +1,20 @@
-from datetime import datetime, timezone
-import json
-from os import name
-from typing import get_args
-from unittest import mock
-import pytest
-import time
-import dask
-from redis import Redis
-from hypothesis import given
-import redis
-from unittest.mock import Mock, patch
-from pytest_mock import MockerFixture
-from hypothesis.strategies import integers, text, lists
-import os
-from ..grizly.scheduling.registry import Job, SchedulerDB, SchedulerObject, Trigger
 from ..grizly.exceptions import JobNotFoundError
+from ..grizly.scheduling.registry import Job, SchedulerDB, SchedulerObject, Trigger
+import os
+from hypothesis.strategies import integers, text, lists
+from pytest_mock import MockerFixture
+from unittest.mock import Mock, patch
+import redis
+from hypothesis import given
+from redis import Redis
+import dask
+import time
+import pytest
+from unittest import mock
+from typing import get_args
+from os import name
+import json
+from datetime import datetime, timezone
 
 
 @dask.delayed
