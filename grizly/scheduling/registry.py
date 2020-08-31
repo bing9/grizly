@@ -23,9 +23,7 @@ from ..exceptions import JobNotFoundError, JobRunNotFoundError
 
 
 def _check_if_exists(raise_error=True):
-    """Checks if the job exists in the registry
-
-    Parameters
+    """Checks if the job exists in the registry Parameters
     ----------
     raise_error : bool, optional
         Whether to raise error if job doesn't exist, by default True
@@ -451,6 +449,8 @@ class Job(SchedulerObject):
         # VALIDATIONS
         if isinstance(crons, str):
             crons = [crons]
+        elif crons is None:
+            crons = []
         for cron in crons:
             if not croniter.is_valid(cron):
                 raise ValueError(f"Invalid cron string {cron}")
@@ -524,6 +524,8 @@ class Job(SchedulerObject):
     def triggers(self, triggers: Union[List[str], str]):
         if isinstance(triggers, str):
             triggers = [triggers]
+        elif triggers is None:
+            triggers = []
 
         # 1. Remove job from previous triggers
         old_triggers = self.triggers
@@ -579,6 +581,8 @@ class Job(SchedulerObject):
         self.db._check_if_jobs_exist(new_job_names)
         if isinstance(new_job_names, str):
             new_job_names = [new_job_names]
+        elif new_job_names is None:
+            new_job_names = []
         # 1. Remove from downstream jobs of all the jobs on the previous
         #    upstream jobs list
         old_downstream_jobs = self.downstream
@@ -641,6 +645,8 @@ class Job(SchedulerObject):
         self.db._check_if_jobs_exist(new_job_names)
         if isinstance(new_job_names, str):
             new_job_names = [new_job_names]
+        elif new_job_names is None:
+            new_job_names = []
         # 1. Remove from downstream jobs of all the jobs on the previous
         #    upstream jobs list
         old_upstream_jobs = self.upstream
