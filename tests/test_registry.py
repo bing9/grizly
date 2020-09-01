@@ -124,7 +124,7 @@ def test_scheduler_db_add_job(scheduler_db):
     assert job.name is not None
     assert job.tasks is not None
 
-    job.unregister()
+    job.unregister(remove_job_runs=True)
 
 
 def test_scheduler_db_get_jobs(scheduler_db, job):
@@ -301,7 +301,7 @@ def test_job_add_remove_downstream_jobs(job_with_cron):
     downstrams2 = job_with_cron.downstream
     assert d_job not in downstrams2
 
-    d_job.unregister()
+    d_job.unregister(remove_job_runs=True)
     assert not d_job.exists
 
     # trying to set not existing job as downstream should raise error
@@ -321,7 +321,7 @@ def test_job_add_remove_upstream_jobs(job_with_cron):
     upstreams2 = job_with_cron.upstream
     assert u_job not in upstreams2
 
-    u_job.unregister()
+    u_job.unregister(remove_job_runs=True)
     assert not u_job.exists
 
     # trying to set not existing job as upstream should raise error
@@ -342,7 +342,7 @@ def test_job_register(job_with_cron):
 
 
 def test_job_unregister(job_with_cron):
-    job_with_cron.unregister()
+    job_with_cron.unregister(remove_job_runs=True)
     con = job_with_cron.con
     assert con.hgetall(job_with_cron.hash_name) == {}
 
