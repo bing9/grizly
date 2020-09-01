@@ -245,7 +245,7 @@ class SchedulerObject(ABC):
             if value is not None:
                 if type == "datetime":
                     value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f%z")
-                elif type == "dask":
+                elif type == "dask" and value != []:
                     value = dask_deserialize(*eval(value))
 
             return value
@@ -693,7 +693,7 @@ class Job(SchedulerObject):
 
     # DOWNSTREAM/UPSTREAM END
 
-    def cancel(self, scheduler_address: Optional[str] = None) -> None:
+    def _cancel(self, scheduler_address: Optional[str] = None) -> None:
         if not scheduler_address:
             scheduler_address = self.scheduler_address
         client = Client(scheduler_address)
