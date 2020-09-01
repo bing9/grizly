@@ -342,7 +342,7 @@ def test_job_register(job_with_cron):
 
 
 def test_job_unregister(job_with_cron):
-    job_with_cron.unregister(remove_job_runs=True)
+    job_with_cron.unregister()
     con = job_with_cron.con
     assert con.hgetall(job_with_cron.hash_name) == {}
 

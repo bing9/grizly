@@ -2,6 +2,7 @@ from ..exceptions import JobNotFoundError, JobRunNotFoundError
 from ..config import Config
 from rq_scheduler import Scheduler
 from rq import Queue
+from rq.job import Job as RqJob
 from redis import Redis
 from distributed.protocol.serialize import deserialize as dask_deserialize
 from distributed.protocol.serialize import serialize as dask_serialize
@@ -452,16 +453,6 @@ class Job(SchedulerObject):
         )
 
     @property
-    def _rq_job_ids(self):
-        return self._deserialize(self.con.hget(self.hash_name, "rq_job_ids"))
-
-    @_rq_job_ids.setter
-    def _rq_job_ids(self, _rq_job_ids: List[str]):
-        self.con.hset(
-            self.hash_name, "rq_job_ids", self._serialize(_rq_job_ids),
-        )
-
-    @property
     def graph(self) -> Delayed:
         return dask.delayed()(self.tasks, name=self.name + "_graph")
 
@@ -513,10 +504,19 @@ class Job(SchedulerObject):
         return self._deserialize(self.con.hget(self.hash_name, "_result_ttl"))
 
     @_result_ttl.setter
-    @_check_if_exists()
     def _result_ttl(self, _result_ttl: int):
         self.con.hset(
             self.hash_name, "_result_ttl", self._serialize(_result_ttl),
+        )
+
+    @property
+    def _rq_job_ids(self) -> List[str]:
+        return self._deserialize(self.con.hget(self.hash_name, "_rq_job_ids"))
+
+    @_rq_job_ids.setter
+    def _rq_job_ids(self, _rq_job_ids: List[str]):
+        self.con.hset(
+            self.hash_name, "_rq_job_ids", self._serialize(_rq_job_ids),
         )
 
     # TRIGGERS
@@ -742,7 +742,6 @@ class Job(SchedulerObject):
             "owner": self._serialize(owner),
             "timeout": self._serialize(timeout),
             "crons": self._serialize(crons),
-            "rq_job_ids": self._serialize([]),
             "upstream": self._serialize(upstream),
             "downstream": self._serialize([]),
             "triggers": self._serialize(triggers),
@@ -750,6 +749,7 @@ class Job(SchedulerObject):
             "args": self._serialize(args),
             "kwargs": self._serialize(kwargs),
             "created_at": self._serialize(datetime.now(timezone.utc)),
+            "_rq_job_ids": self._serialize([]),
         }
         # if not (crons or upstream or triggers):
         #     raise ValueError("One of ['crons', 'upstream', 'triggers'] is required")
@@ -892,6 +892,8 @@ class Job(SchedulerObject):
             scheduler = Scheduler(queue=queue, connection=self.con)
             for rq_job_id in rq_job_ids:
                 scheduler.cancel(rq_job_id)
+                RqJob.fetch(rq_job_id, connection=self.con).delete()
+
                 self.logger.debug(f"Rq job {rq_job_id} removed from the scheduler")
 
             self.logger.info(f"{self} has been removed from the scheduler")
@@ -901,7 +903,9 @@ class Job(SchedulerObject):
         queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
         for job in self.downstream:
             # TODO: should read downstream *args ad **kwargs from registry
-            queue.enqueue(job.submit, job_timeout=job.timeout, result_ttl=job._result_ttl)
+            rq_job = queue.enqueue(job.submit, job_timeout=job.timeout, result_ttl=job._result_ttl)
+            job._rq_job_ids = list(set(job._rq_job_ids) | {rq_job.id})
+            self.logger.debug(f"{job} has been added to rq scheduler with id {rq_job.id}")
             self.logger.info(f"{job} has been enqueued")
 
 
