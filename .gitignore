@@ -9,3 +9,4 @@ build
 .hypothesis
 .env
 docker_home
+*.png

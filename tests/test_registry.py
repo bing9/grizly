@@ -1,31 +1,12 @@
-from unittest.async_case import IsolatedAsyncioTestCase
-from ..grizly.exceptions import JobNotFoundError
-from ..grizly.scheduling.registry import Job, JobRun, SchedulerDB, SchedulerObject, Trigger
-import os
-from hypothesis.strategies import integers, text, lists
-from pytest_mock import MockerFixture
-from unittest.mock import Mock, patch
-import redis
-from hypothesis import given
-from redis import Redis
-from dask.delayed import Delayed
 import dask
-import time
+from dask.delayed import Delayed
+from hypothesis import given
+from hypothesis.strategies import integers, text
 import pytest
-from unittest import mock
-from typing import get_args
-from os import name
-import json
-from datetime import datetime, timezone
+from redis import Redis
 
-
-@dask.delayed
-def add(x, y):
-    return x + y
-
-
-task1 = add(1, 2)
-tasks = [task1]
+from ..grizly.exceptions import JobNotFoundError
+from ..grizly.scheduling.registry import Job, JobRun, SchedulerDB, Trigger
 
 
 @dask.delayed
@@ -33,22 +14,26 @@ def failing_task():
     raise ValueError("Error")
 
 
-task_fail = failing_task()
+@dask.delayed
+def add(x, y):
+    return x + y
 
 
+sum_task = add(1, 2)
+
+# creating test jobs - they have different scopes so that they are not unregistered at the same time
 @pytest.fixture(scope="session")
 def failing_job():
     failing_job = Job(name="failing_job")
-    failing_job.register(tasks=[task_fail], if_exists="replace")
+    failing_job.register(tasks=[failing_task()], if_exists="replace")
     yield failing_job
     failing_job.unregister(remove_job_runs=True)
 
 
-# creating test jobs - they have different scopes so that they are not unregistered at the same time
 @pytest.fixture(scope="session")
 def job_with_cron():
     job_with_cron = Job(name="job_with_cron")
-    job_with_cron.register(tasks=tasks, crons="* * * * *", if_exists="replace")
+    job_with_cron.register(tasks=[sum_task], crons="* * * * *", if_exists="replace")
     yield job_with_cron
     job_with_cron.unregister(remove_job_runs=True)
 
@@ -56,8 +41,7 @@ def job_with_cron():
 @pytest.fixture(scope="module")
 def job_with_upstream(job_with_cron):
     job_with_upstream = Job(name="job_with_upstream")
-    job_with_upstream.register(
-        tasks=tasks, upstream=job_with_cron.name, if_exists="replace")
+    job_with_upstream.register(tasks=[sum_task], upstream=job_with_cron.name, if_exists="replace")
     yield job_with_upstream
     job_with_upstream.unregister(remove_job_runs=True)
 
@@ -65,8 +49,7 @@ def job_with_upstream(job_with_cron):
 @pytest.fixture(scope="module")
 def job_with_trigger(trigger):
     job_with_trigger = Job(name="job_with_trigger")
-    job_with_trigger.register(
-        tasks=tasks, triggers=trigger.name, if_exists="replace")
+    job_with_trigger.register(tasks=[sum_task], triggers=trigger.name, if_exists="replace")
     yield job_with_trigger
     job_with_trigger.unregister(remove_job_runs=True)
 
@@ -113,12 +96,13 @@ def test_scheduler_db_con(scheduler_db):
 # ---------------
 def test_scheduler_db_add_trigger(scheduler_db):
     trigger_list_1 = scheduler_db.get_triggers()
-    if Trigger('trigger_test_name') in trigger_list_1:
-        Trigger('trigger_test_name').unregister()
-    scheduler_db.add_trigger('trigger_test_name')
+    tr = Trigger("trigger_test_name")
+    if tr in trigger_list_1:
+        tr.unregister()
+    scheduler_db.add_trigger(tr.name)
     trigger_list_2 = scheduler_db.get_triggers()
-    assert Trigger('trigger_test_name') in trigger_list_2
-    Trigger('trigger_test_name').unregister()
+    assert tr in trigger_list_2
+    tr.unregister()
 
 
 def test_scheduler_db_get_triggers(scheduler_db, trigger):
@@ -128,18 +112,19 @@ def test_scheduler_db_get_triggers(scheduler_db, trigger):
 
 def test_scheduler_db_add_job(scheduler_db):
     job_list_1 = scheduler_db.get_jobs()
-    if Job('job_test_name') in job_list_1:
-        Job('job_test_name').unregister()
-    scheduler_db.add_job('job_test_name', [], None, [], [], [], 'fail')
+    job = Job("job_test_name")
+    if job in job_list_1:
+        job.unregister()
+    scheduler_db.add_job(job.name, [], None, [], [], [], "fail")
     job_list_2 = scheduler_db.get_jobs()
-    assert Job('job_test_name') in job_list_2
-    assert Job('job_test_name').exists
+    assert job in job_list_2
+    assert job.exists
 
     # property check
-    assert Job('job_test_name').name is not None
-    assert Job('job_test_name').tasks is not None
+    assert job.name is not None
+    assert job.tasks is not None
 
-    Job('job_test_name').unregister()
+    job.unregister()
 
 
 def test_scheduler_db_get_jobs(scheduler_db, job):
@@ -226,7 +211,7 @@ def test_job_last_run(job_with_cron):
     assert isinstance(last_run, JobRun)
 
 
-@ given(text())
+@given(text())
 def test_job_owner(job, owner):
     assert job.owner is None
 
@@ -294,21 +279,18 @@ def test_job_upstream(job_with_cron, job_with_upstream):
 
 # Job METHODS
 # -----------
-def test_job_add_remove_triggers():
-    test_job = Job(name='job_test_name')
-    test_job.register(tasks=[])
-    test_trigger = Trigger(name='trigger_test_name')
+def test_job_add_remove_triggers(job_with_trigger):
+    test_trigger = Trigger(name="trigger_test_name")
     test_trigger.register()
-    test_job.add_triggers(test_trigger.name)
-    assert test_trigger in test_job.triggers
-    test_job.remove_triggers(test_trigger.name)
-    assert test_trigger not in test_job.triggers
+    job_with_trigger.add_triggers(test_trigger.name)
+    assert test_trigger in job_with_trigger.triggers
+    job_with_trigger.remove_triggers(test_trigger.name)
+    assert test_trigger not in job_with_trigger.triggers
     test_trigger.unregister()
-    test_job.unregister()
 
 
 def test_job_add_remove_downstream_jobs(job_with_cron):
-    d_job = Job(name='d_job_name')
+    d_job = Job(name="d_job_name")
     d_job.register(tasks=[])
 
     job_with_cron.add_downstream_jobs(d_job.name)
@@ -322,9 +304,13 @@ def test_job_add_remove_downstream_jobs(job_with_cron):
     d_job.unregister()
     assert not d_job.exists
 
+    # trying to set not existing job as downstream should raise error
+    with pytest.raises(JobNotFoundError):
+        job_with_cron.add_downstream_jobs("not_found_job")
+
 
 def test_job_add_remove_upstream_jobs(job_with_cron):
-    u_job = Job(name='u_job_name')
+    u_job = Job(name="u_job_name")
     u_job.register(tasks=[])
 
     job_with_cron.add_upstream_jobs(u_job.name)
@@ -337,6 +323,10 @@ def test_job_add_remove_upstream_jobs(job_with_cron):
 
     u_job.unregister()
     assert not u_job.exists
+
+    # trying to set not existing job as upstream should raise error
+    with pytest.raises(JobNotFoundError):
+        job_with_cron.add_upstream_jobs("not_found_job")
 
 
 def test_job_cancel():
@@ -356,7 +346,7 @@ def test_job_unregister(job_with_cron):
     con = job_with_cron.con
     assert con.hgetall(job_with_cron.hash_name) == {}
 
-    job_with_cron.register(tasks=tasks, crons="* * * * *", if_exists="replace")
+    job_with_cron.register(tasks=[sum_task], crons="* * * * *", if_exists="replace")
     con = job_with_cron.con
     assert con.hgetall(job_with_cron.hash_name) != {}
 
@@ -364,7 +354,8 @@ def test_job_unregister(job_with_cron):
 def test_job_submit_fail(failing_job):
     # Already checked within the fixture job_run
     # Checking the downstream jobs in the future
-    failing_job.submit()
+    failing_job.submit(to_dask=False)
+    # failing_job.info()
     assert failing_job.last_run.error == "Error"
     assert failing_job.last_run.status == "fail"
 
@@ -387,7 +378,7 @@ def test_job__submit_downstram_jobs():
 
 # JobRun PROPERTIES
 # -----------------
-@ given(integers())
+@given(integers())
 def test_job_run_duration(job_run, duration_int):
     assert job_run.duration == 0
     job_run.duration = duration_int
@@ -400,7 +391,7 @@ def test_job_run_id(job_run):
     assert job_run._id == 1
 
 
-@ given(text())
+@given(text())
 def test_job_run_error(job_run, error_text):
     assert job_run.error is None
     job_run.error = error_text
@@ -421,8 +412,8 @@ def test_job_run_created_finished_at(job_run):
 def test_job_run_name(job_run):
     assert job_run.name is None
     value = job_run.name
-    job_run.name = 'new_job_run_name'
-    assert job_run.name == 'new_job_run_name'
+    job_run.name = "new_job_run_name"
+    assert job_run.name == "new_job_run_name"
     job_run.name = value
     assert job_run.name == value
 
@@ -430,10 +421,10 @@ def test_job_run_name(job_run):
 def test_job_run_status(job_run):
     assert job_run.status == "success"
     value = job_run.status
-    job_run.status = 'fail'
-    assert job_run.status == 'fail'
-    job_run.status = 'running'
-    assert job_run.status == 'running'
+    job_run.status = "fail"
+    assert job_run.status == "fail"
+    job_run.status = "running"
+    assert job_run.status == "running"
     job_run.status = value
     assert job_run.status == value
 
@@ -472,11 +463,10 @@ def test_trigger_add_remove_jobs(trigger, job_with_cron):
     assert job_with_cron not in trigger.jobs
 
 
-def test_trigger_register(trigger):
-    assert isinstance(trigger.register(), Trigger)
-
-
-def test_trigger_unregister(trigger):
+def test_trigger_unregister_register(job_with_trigger, trigger):
     trigger.unregister()
     assert not trigger.exists
+
     trigger.register()
+    job_with_trigger.triggers = trigger.name
+    assert job_with_trigger.triggers == [trigger]
