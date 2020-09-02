@@ -90,6 +90,7 @@ class SQLDB:
         return con
 
     def _check_if_exists(self, exists_query, supported_dbs):
+        self.logger.info
         if self.db in supported_dbs:
             con = self.get_connection()
             exists = not read_sql_query(sql=exists_query, con=con).empty
@@ -119,8 +120,17 @@ class SQLDB:
                 sql_exists += f" AND table_schema='{schema}'"
             if column:
                 sql_exists += f" AND column_name='{column}'"
+        
+        full_table_name = schema + "." + table if schema else table
+        self.logger.info(f"Checking if table {full_table_name} exists...")
 
         exists = self._check_if_exists(exists_query=sql_exists, supported_dbs=supported_dbs)
+        
+        if exists:
+            self.logger.info(f"Table {full_table_name} exists")
+        else:
+            self.logger.info(f"Table {full_table_name} does not exist")
+
         return exists
 
     def copy_table(self, in_table, out_table, in_schema=None, out_schema=None, if_exists="fail"):
@@ -159,9 +169,7 @@ class SQLDB:
         if self.db in supported_dbs:
             in_table_name = f"{in_schema}.{in_table}" if in_schema else in_table
 
-            if not self.check_if_exists(table=in_table, schema=in_schema):
-                self.logger.exception(f"Table {in_table_name} doesn't exist.")
-            else:
+            if self.check_if_exists(table=in_table, schema=in_schema):
                 con = self.get_connection()
                 out_table_name = f"{out_schema}.{out_table}" if out_schema else out_table
                 if self.check_if_exists(table=out_table, schema=out_schema) and if_exists == "fail":
@@ -215,8 +223,6 @@ class SQLDB:
             con = self.get_connection()
             con.execute(sql).commit()
             con.close()
-
-            self.logger.info(f"Table {table_name} has been created successfully.")
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
 
@@ -259,8 +265,6 @@ class SQLDB:
             con = self.get_connection(autocommit=True)
             con.execute(sql)
             con.close()
-
-            self.logger.info(f"Table {table_name} has been created successfully.")
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
 
@@ -300,6 +304,10 @@ class SQLDB:
         >>> sqldb.check_if_exists(table="test_k", schema="sandbox")
         True
         """
+        full_table_name = table
+        if schema:
+            full_table_name = schema + "." + table
+        self.logger.info(f"Creating table {full_table_name}...")
 
         if type == "base_table":
             self._create_base_table(table=table, columns=columns, types=types, schema=schema, if_exists=if_exists)
@@ -323,6 +331,8 @@ class SQLDB:
             # self._create_view()
         else:
             raise ValueError("Type must be one of: ('base_table', 'external_table', 'view')")
+
+        self.logger.info(f"Table {full_table_name} has been created successfully.")
 
         return self
 
@@ -354,8 +364,6 @@ class SQLDB:
                     sql = f"INSERT INTO {table_name} ({sql})"
                 SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
                 con.execute(sql).commit()
-            else:
-                self.logger.info(f"Table {table_name} doesn't exist.")
             con.close()
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
@@ -385,14 +393,12 @@ class SQLDB:
                 if where is None:
                     SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
                     con.execute(sql).commit()
-                    self.logger.info(f"Records from table {table_name} has been removed successfully.")
+                    self.logger.info(f"Records from table {table_name} have been removed successfully.")
                 else:
                     sql += f" WHERE {where} "
                     SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
                     con.execute(sql).commit()
-                    self.logger.info(f"Records from table {table_name} where {where} has been removed successfully.")
-            else:
-                self.logger.info(f"Table {table_name} doesn't exist.")
+                    self.logger.info(f"Records from table {table_name} where {where} have been removed successfully.")
             con.close()
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
@@ -410,18 +416,17 @@ class SQLDB:
         False
         """
         supported_dbs = ("redshift", "aurora")
-
+        full_table_name = schema + "." + table if schema else table
         if self.db in supported_dbs:
             con = self.get_connection()
-            table_name = f"{schema}.{table}" if schema else table
+            full_table_name = f"{schema}.{table}" if schema else table
 
             if self.check_if_exists(table=table, schema=schema):
-                sql = f"DROP TABLE {table_name}"
+                self.logger.info(f"Dropping table {full_table_name}...")
+                sql = f"DROP TABLE {full_table_name}"
                 SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
                 con.execute(sql).commit()
-                self.logger.info(f"Table {table_name} has been dropped successfully.")
-            else:
-                self.logger.info(f"Table {table_name} doesn't exist.")
+                self.logger.info(f"Table {full_table_name} has been dropped successfully.")
             con.close()
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
