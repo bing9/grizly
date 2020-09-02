@@ -419,12 +419,12 @@ class SQLDB:
         supported_dbs = ("redshift", "aurora")
         full_table_name = schema + "." + table if schema else table
         if self.db in supported_dbs:
-            con = self.get_connection()
+            con = self.get_connection(autocommit=True)
             full_table_name = f"{schema}.{table}" if schema else table
             self.logger.info(f"Dropping table {full_table_name}...")
             sql = f"DROP TABLE IF EXISTS {full_table_name}"
             SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-            con.execute(sql).commit()
+            con.execute(sql)
             self.logger.info(f"Table {full_table_name} has been dropped successfully (if it existed).")
             con.close()
         else:
