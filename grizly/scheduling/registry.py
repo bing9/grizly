@@ -2,6 +2,7 @@ from ..exceptions import JobNotFoundError, JobRunNotFoundError
 from ..config import Config
 from rq_scheduler import Scheduler
 from rq import Queue
+from rq.job import Job as RqJob
 from redis import Redis
 from distributed.protocol.serialize import deserialize as dask_deserialize
 from distributed.protocol.serialize import serialize as dask_serialize
@@ -71,8 +72,7 @@ class SchedulerDB:
             or "localhost"
         )
         self.redis_port = int(
-            redis_port or os.getenv("GRIZLY_REDIS_PORT") or self.config.get(
-                "redis_port") or 6379
+            redis_port or os.getenv("GRIZLY_REDIS_PORT") or self.config.get("redis_port") or 6379
         )
 
     @property
@@ -87,10 +87,9 @@ class SchedulerDB:
     def get_triggers(self) -> List["Trigger"]:
         triggers = []
         prefix = Trigger.prefix
-        tr_hash_names = [val.decode("utf-8")
-                         for val in self.con.keys(f"{prefix}*")]
+        tr_hash_names = [val.decode("utf-8") for val in self.con.keys(f"{prefix}*")]
         for tr_hash_name in tr_hash_names:
-            trigger_name = tr_hash_name[len(prefix):]
+            trigger_name = tr_hash_name[len(prefix) :]
             tr = Trigger(name=trigger_name, logger=self.logger, db=self)
             triggers.append(tr)
         return triggers
@@ -122,10 +121,9 @@ class SchedulerDB:
     def get_jobs(self) -> List["Job"]:
         jobs = []
         prefix = Job.prefix
-        job_hash_names = [val.decode("utf-8")
-                          for val in self.con.keys(f"{prefix}*")]
+        job_hash_names = [val.decode("utf-8") for val in self.con.keys(f"{prefix}*")]
         for job_hash_name in job_hash_names:
-            job_name = job_hash_name[len(prefix):]
+            job_name = job_hash_name[len(prefix) :]
             job = Job(name=job_name, logger=self.logger, db=self)
             jobs.append(job)
         return jobs
@@ -135,10 +133,9 @@ class SchedulerDB:
 
         if job_name is not None:
             prefix = f"{JobRun.prefix}{job_name}:"
-            job_run_hash_names = [val.decode("utf-8")
-                                  for val in self.con.keys(f"{prefix}*")]
+            job_run_hash_names = [val.decode("utf-8") for val in self.con.keys(f"{prefix}*")]
             for job_run_hash_name in job_run_hash_names:
-                job_run_id = job_run_hash_name[len(f"{prefix}"):]
+                job_run_id = job_run_hash_name[len(f"{prefix}") :]
                 if job_run_id != "id":
                     job_run = JobRun(
                         job_name=job_name, id=int(job_run_id), logger=self.logger, db=self
@@ -183,8 +180,7 @@ class SchedulerObject(ABC):
         if self.__class__.__name__ != "JobRun":
             self.name = name or ""
             self.hash_name = self.prefix + self.name
-        self.db = db or SchedulerDB(
-            logger=logger, redis_host=redis_host, redis_port=redis_port)
+        self.db = db or SchedulerDB(logger=logger, redis_host=redis_host, redis_port=redis_port)
         self.logger = logger or logging.getLogger(__name__)
         logging.basicConfig(
             format="%(asctime)s | %(levelname)s : %(message)s",
@@ -245,7 +241,7 @@ class SchedulerObject(ABC):
             if value is not None:
                 if type == "datetime":
                     value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f%z")
-                elif type == "dask":
+                elif type == "dask" and value != []:
                     value = dask_deserialize(*eval(value))
 
             return value
@@ -258,15 +254,13 @@ class SchedulerObject(ABC):
         new_values = list(set(new_values))
 
         # load existing values
-        out_values = self._deserialize(
-            self.con.hget(name=self.hash_name, key=key))
+        out_values = self._deserialize(self.con.hget(name=self.hash_name, key=key))
         added_values = []
 
         # append existing values
         for new_value in new_values:
             if new_value in out_values:
-                self.logger.warning(
-                    f"'{new_value}' already exists in {self}.{key}")
+                self.logger.warning(f"'{new_value}' already exists in {self}.{key}")
             else:
                 out_values.append(new_value)
                 added_values.append(new_value)
@@ -275,8 +269,7 @@ class SchedulerObject(ABC):
         if added_values:
             self.logger.info(f"Adding {added_values} to {self}.{key}...")
             self.con.hset(
-                name=self.hash_name, key=key, value=self._serialize(
-                    out_values),
+                name=self.hash_name, key=key, value=self._serialize(out_values),
             )
         return added_values
 
@@ -288,8 +281,7 @@ class SchedulerObject(ABC):
         values = list(set(values))
 
         # load existing values
-        out_values = self._deserialize(
-            self.con.hget(name=self.hash_name, key=key))
+        out_values = self._deserialize(self.con.hget(name=self.hash_name, key=key))
         removed_values = []
 
         # remove values
@@ -298,15 +290,13 @@ class SchedulerObject(ABC):
                 out_values.remove(value)
                 removed_values.append(value)
             except ValueError:
-                self.logger.warning(
-                    f"Value '{value}' was not found in {self}.{key}")
+                self.logger.warning(f"Value '{value}' was not found in {self}.{key}")
 
         # update Redis
         if removed_values:
             self.logger.info(f"Removing {removed_values} from {self}.{key}...")
             self.con.hset(
-                name=self.hash_name, key=key, value=self._serialize(
-                    out_values),
+                name=self.hash_name, key=key, value=self._serialize(out_values),
             )
         return removed_values
 
@@ -429,6 +419,7 @@ class Job(SchedulerObject):
         s = (
             f"name: {self.name}\n"
             f"owner: {self.owner}\n"
+            f"timeout: {self.timeout}\n"
             f"created_at: {self.created_at}\n"
             f"crons: {self.crons}\n"
             f"downstream: {self.downstream}\n"
@@ -459,16 +450,6 @@ class Job(SchedulerObject):
 
         self.con.hset(
             self.hash_name, "crons", self._serialize(crons),
-        )
-
-    @property
-    def _rq_job_ids(self):
-        return self._deserialize(self.con.hget(self.hash_name, "rq_job_ids"))
-
-    @_rq_job_ids.setter
-    def _rq_job_ids(self, _rq_job_ids: List[str]):
-        self.con.hset(
-            self.hash_name, "rq_job_ids", self._serialize(_rq_job_ids),
         )
 
     @property
@@ -507,11 +488,41 @@ class Job(SchedulerObject):
             self.hash_name, "tasks", self._serialize(tasks),
         )
 
+    @property
+    def timeout(self) -> int:
+        return self._deserialize(self.con.hget(self.hash_name, "timeout"))
+
+    @timeout.setter
+    @_check_if_exists()
+    def timeout(self, timeout: int):
+        self.con.hset(
+            self.hash_name, "timeout", self._serialize(timeout),
+        )
+
+    @property
+    def _result_ttl(self) -> int:
+        return self._deserialize(self.con.hget(self.hash_name, "_result_ttl"))
+
+    @_result_ttl.setter
+    def _result_ttl(self, _result_ttl: int):
+        self.con.hset(
+            self.hash_name, "_result_ttl", self._serialize(_result_ttl),
+        )
+
+    @property
+    def _rq_job_ids(self) -> List[str]:
+        return self._deserialize(self.con.hget(self.hash_name, "_rq_job_ids"))
+
+    @_rq_job_ids.setter
+    def _rq_job_ids(self, _rq_job_ids: List[str]):
+        self.con.hset(
+            self.hash_name, "_rq_job_ids", self._serialize(_rq_job_ids),
+        )
+
     # TRIGGERS
     @property
     def triggers(self) -> List["Trigger"]:
-        trigger_names = self._deserialize(
-            self.con.hget(self.hash_name, "triggers"))
+        trigger_names = self._deserialize(self.con.hget(self.hash_name, "triggers"))
         triggers = [
             Trigger(name=trigger_name, logger=self.logger, db=self.db)
             for trigger_name in trigger_names
@@ -540,18 +551,15 @@ class Job(SchedulerObject):
 
     def add_triggers(self, trigger_names: Union[List[str], str]):
 
-        added_trigger_names = self._add_values(
-            key="triggers", new_values=trigger_names)
+        added_trigger_names = self._add_values(key="triggers", new_values=trigger_names)
 
         for trigger_name in added_trigger_names:
-            trigger = Trigger(name=trigger_name,
-                              logger=self.logger, db=self.db)
+            trigger = Trigger(name=trigger_name, logger=self.logger, db=self.db)
             if self not in trigger.jobs:
                 trigger.add_jobs(self.name)
 
     def remove_triggers(self, trigger_names: Union[List[str], str]):
-        removed_trigger_names = self._remove_values(
-            key="triggers", values=trigger_names)
+        removed_trigger_names = self._remove_values(key="triggers", values=trigger_names)
 
         # remove the job from old triggers
         for trigger_name in removed_trigger_names:
@@ -565,8 +573,7 @@ class Job(SchedulerObject):
 
     @property
     def downstream(self) -> List["Job"]:
-        downstream_job_names = self._deserialize(
-            self.con.hget(self.hash_name, "downstream"))
+        downstream_job_names = self._deserialize(self.con.hget(self.hash_name, "downstream"))
         downstream_jobs = [Job(job_name) for job_name in downstream_job_names]
         return downstream_jobs
 
@@ -606,8 +613,7 @@ class Job(SchedulerObject):
         """
         self.db._check_if_jobs_exist(job_names)
 
-        added_job_names = self._add_values(
-            key="downstream", new_values=job_names)
+        added_job_names = self._add_values(key="downstream", new_values=job_names)
 
         # add the job as an upstream of the specified jobs
         for job_name in added_job_names:
@@ -618,8 +624,7 @@ class Job(SchedulerObject):
     @_check_if_exists()
     def remove_downstream_jobs(self, job_names: Union[str, List[str]]):
 
-        removed_job_names = self._remove_values(
-            key="downstream", values=job_names)
+        removed_job_names = self._remove_values(key="downstream", values=job_names)
 
         # remove the job as an upstream of the specified jobs
         for job_name in removed_job_names:
@@ -629,8 +634,7 @@ class Job(SchedulerObject):
 
     @property
     def upstream(self) -> List["Job"]:
-        upstream_job_names = self._deserialize(
-            self.con.hget(self.hash_name, "upstream"))
+        upstream_job_names = self._deserialize(self.con.hget(self.hash_name, "upstream"))
         upstream_jobs = [Job(job_name) for job_name in upstream_job_names]
         return upstream_jobs
 
@@ -670,8 +674,7 @@ class Job(SchedulerObject):
         """
         self.db._check_if_jobs_exist(job_names)
 
-        added_job_names = self._add_values(
-            key="upstream", new_values=job_names)
+        added_job_names = self._add_values(key="upstream", new_values=job_names)
 
         # add the job as a downstream of the specified jobs
         for job_name in added_job_names:
@@ -682,8 +685,7 @@ class Job(SchedulerObject):
     @_check_if_exists()
     def remove_upstream_jobs(self, job_names: Union[str, List[str]]):
 
-        removed_job_names = self._remove_values(
-            key="upstream", values=job_names)
+        removed_job_names = self._remove_values(key="upstream", values=job_names)
 
         # remove the job from the downstream jobs of the specified jobs
         for job_name in removed_job_names:
@@ -693,7 +695,7 @@ class Job(SchedulerObject):
 
     # DOWNSTREAM/UPSTREAM END
 
-    def cancel(self, scheduler_address: Optional[str] = None) -> None:
+    def _cancel(self, scheduler_address: Optional[str] = None) -> None:
         if not scheduler_address:
             scheduler_address = self.scheduler_address
         client = Client(scheduler_address)
@@ -705,6 +707,7 @@ class Job(SchedulerObject):
         self,
         tasks: List[Delayed],
         owner: Optional[str] = None,
+        timeout: int = 3600,
         crons: Union[List[str], str] = [],
         upstream: Union[List[str], str] = [],
         triggers: Union[List[str], str] = [],
@@ -737,8 +740,8 @@ class Job(SchedulerObject):
 
         mapping = {
             "owner": self._serialize(owner),
+            "timeout": self._serialize(timeout),
             "crons": self._serialize(crons),
-            "rq_job_ids": self._serialize([]),
             "upstream": self._serialize(upstream),
             "downstream": self._serialize([]),
             "triggers": self._serialize(triggers),
@@ -746,6 +749,7 @@ class Job(SchedulerObject):
             "args": self._serialize(args),
             "kwargs": self._serialize(kwargs),
             "created_at": self._serialize(datetime.now(timezone.utc)),
+            "_rq_job_ids": self._serialize([]),
         }
         # if not (crons or upstream or triggers):
         #     raise ValueError("One of ['crons', 'upstream', 'triggers'] is required")
@@ -758,14 +762,12 @@ class Job(SchedulerObject):
 
         # add the job as downstream in all upstream jobs
         for upstream_job_name in upstream:
-            upstream_job = Job(name=upstream_job_name,
-                               logger=self.logger, db=self.db)
+            upstream_job = Job(name=upstream_job_name, logger=self.logger, db=self.db)
             upstream_job.add_downstream_jobs(self.name)
 
         # add the job in all triggers
         for trigger_name in triggers:
-            trigger = Trigger(name=trigger_name,
-                              logger=self.logger, db=self.db)
+            trigger = Trigger(name=trigger_name, logger=self.logger, db=self.db)
             trigger.add_jobs(self.name)
 
         self.con.set(f"{JobRun.prefix}{self.name}:id", "0")
@@ -824,14 +826,12 @@ class Job(SchedulerObject):
                     self.scheduler_address = scheduler_address or os.getenv(
                         "GRIZLY_DASK_SCHEDULER_ADDRESS"
                     )
-                    self.logger.warning(scheduler_address)
                     client = Client(self.scheduler_address)
                 else:
                     self.scheduler_address = client.scheduler.address
 
             self.logger.info(f"Submitting {self}...")
-            job_run = JobRun(job_name=self.name,
-                             logger=self.logger, db=self.db)
+            job_run = JobRun(job_name=self.name, logger=self.logger, db=self.db)
             job_run.status = "running"
 
             start = time()
@@ -864,7 +864,9 @@ class Job(SchedulerObject):
     def __add_to_scheduler(self, crons: List[str], *args, **kwargs):
         rq_job_ids = []
         if crons:
-            queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
+            queue = Queue(
+                SchedulerDB.submit_queue_name, connection=self.con, job_timeout=self.timeout
+            )
             scheduler = Scheduler(queue=queue, connection=self.con)
             for cron in crons:
                 rq_job = scheduler.cron(
@@ -890,19 +892,20 @@ class Job(SchedulerObject):
             scheduler = Scheduler(queue=queue, connection=self.con)
             for rq_job_id in rq_job_ids:
                 scheduler.cancel(rq_job_id)
-                self.logger.debug(
-                    f"Rq job {rq_job_id} removed from the scheduler")
+                RqJob.fetch(rq_job_id, connection=self.con).delete()
+
+                self.logger.debug(f"Rq job {rq_job_id} removed from the scheduler")
 
             self.logger.info(f"{self} has been removed from the scheduler")
 
     def __submit_downstream_jobs(self):
         self.logger.info(f"Enqueueing {self}.downstream...")
-        self.logger.warning(
-            f"Host: {self.db.redis_host}, Port: {self.db.redis_port}")
         queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
         for job in self.downstream:
             # TODO: should read downstream *args ad **kwargs from registry
-            queue.enqueue(job.submit)
+            rq_job = queue.enqueue(job.submit, job_timeout=job.timeout, result_ttl=job._result_ttl)
+            job._rq_job_ids = list(set(job._rq_job_ids) | {rq_job.id})
+            self.logger.debug(f"{job} has been added to rq scheduler with id {rq_job.id}")
             self.logger.info(f"{job} has been enqueued")
 
 

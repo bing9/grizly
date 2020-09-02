@@ -1,5 +1,0 @@
-# Shell scripts require LF
-*       text=auto
-*.sh    text eol=lf
-*.ini   text eol=lf
-*.py    text eol=lf
