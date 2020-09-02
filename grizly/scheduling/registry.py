@@ -876,6 +876,7 @@ class Job(SchedulerObject):
                     kwargs=kwargs,
                     repeat=None,
                     queue_name=queue.name,
+                    timeout=self.timeout,
                 )
                 self.logger.debug(
                     f"{self} with cron '{cron}' has been added to rq sheduler with id {rq_job.id}"
@@ -907,7 +908,7 @@ class Job(SchedulerObject):
         )
         for job in self.downstream:
             # TODO: should read downstream *args ad **kwargs from registry
-            rq_job = queue.enqueue(job.submit, result_ttl=job._result_ttl)
+            rq_job = queue.enqueue(job.submit, result_ttl=job._result_ttl, job_timeout=self.timeout)
             job._rq_job_ids = list(set(job._rq_job_ids) | {rq_job.id})
             self.logger.debug(f"{job} has been added to rq scheduler with id {rq_job.id}")
             self.logger.info(f"{job} has been enqueued")
