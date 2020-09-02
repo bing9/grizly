@@ -197,13 +197,13 @@ class SQLDB:
         supported_dbs = ("redshift", "aurora")
 
         if self.db in supported_dbs:
-            table_name = f"{schema}.{table}" if schema else table
+            full_table_name = f"{schema}.{table}" if schema else table
 
             if self.check_if_exists(table=table, schema=schema):
                 if if_exists == "fail":
-                    raise ValueError(f"Table {table_name} in datasource {self.dsn} already exists.")
+                    raise ValueError(f"Table {full_table_name} in datasource {self.dsn} already exists.")
                 elif if_exists == "skip":
-                    self.logger.info(f"Table {table_name} already exists.")
+                    self.logger.info(f"Table {full_table_name} already exists.")
                     return self
                 elif if_exists == "drop":
                     self.drop_table(table=table, schema=schema)
@@ -218,9 +218,10 @@ class SQLDB:
                 col_tuples.append(column)
 
             columns_str = ", ".join(col_tuples)
-            sql = "CREATE TABLE {} ({})".format(table_name, columns_str)
+            sql = "CREATE TABLE {} ({})".format(full_table_name, columns_str)
             SQLDB.last_commit = sql
             con = self.get_connection()
+            self.logger.info(f"Creating table {full_table_name}...")
             con.execute(sql).commit()
             con.close()
         else:
@@ -237,20 +238,20 @@ class SQLDB:
         supported_dbs = "redshift"
 
         if self.db in supported_dbs:
-            table_name = f"{schema}.{table}" if schema else table
+            full_table_name = schema + "." + table if schema else table
 
             if self.check_if_exists(table=table, schema=schema, external=True):
                 if if_exists == "fail":
-                    raise ValueError(f"Table {table_name} in datasource {self.dsn} already exists.")
+                    raise ValueError(f"Table {full_table_name} in datasource {self.dsn} already exists.")
                 elif if_exists == "skip":
-                    self.logger.info(f"Table {table_name} already exists.")
+                    self.logger.info(f"Skipped creating external table...")
                     return self
                 elif if_exists == "drop":
                     self.drop_table(table=table, schema=schema)
 
             columns_and_dtypes = ", \n".join([col + " " + dtype for col, dtype in zip(columns, types)])
             sql = f"""
-            CREATE EXTERNAL TABLE {table_name} (
+            CREATE EXTERNAL TABLE {full_table_name} (
             {columns_and_dtypes}
             )
             ROW FORMAT SERDE 
@@ -263,6 +264,7 @@ class SQLDB:
             """
             SQLDB.last_commit = sql
             con = self.get_connection(autocommit=True)
+            self.logger.info(f"Creating external table {full_table_name}...")
             con.execute(sql)
             con.close()
         else:
@@ -307,7 +309,6 @@ class SQLDB:
         full_table_name = table
         if schema:
             full_table_name = schema + "." + table
-        self.logger.info(f"Creating table {full_table_name}...")
 
         if type == "base_table":
             self._create_base_table(table=table, columns=columns, types=types, schema=schema, if_exists=if_exists)
@@ -420,13 +421,11 @@ class SQLDB:
         if self.db in supported_dbs:
             con = self.get_connection()
             full_table_name = f"{schema}.{table}" if schema else table
-
-            if self.check_if_exists(table=table, schema=schema):
-                self.logger.info(f"Dropping table {full_table_name}...")
-                sql = f"DROP TABLE {full_table_name}"
-                SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                con.execute(sql).commit()
-                self.logger.info(f"Table {full_table_name} has been dropped successfully.")
+            self.logger.info(f"Dropping table {full_table_name}...")
+            sql = f"DROP TABLE IF EXISTS {full_table_name}"
+            SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
+            con.execute(sql).commit()
+            self.logger.info(f"Table {full_table_name} has been dropped successfully (if it existed).")
             con.close()
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
