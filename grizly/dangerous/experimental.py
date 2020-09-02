@@ -273,7 +273,7 @@ class Extract:
     @dask.delayed
     def create_table(self, upstream: Delayed = None):
         if self.data_backend == "s3":
-            qf = QFrame(dsn=self.output_dsn, dialect="mysql").from_table(
+            qf = QFrame(dsn=self.output_dsn, dialect="mysql", logger=self.logger).from_table(
                 schema=self.output_external_schema, table=self.output_external_table
             )
             qf.create_table(
