@@ -25,6 +25,7 @@ class Extract:
         data_backend: str = "s3",
         client_str: str = None,
         if_exists: str = "replace",
+        reload_data: bool = True,
         logger: logging.Logger = None,
         **kwargs,
     ):
@@ -36,6 +37,7 @@ class Extract:
         self.if_exists = if_exists
         self.data_if_exists = if_exists
         self.table_if_exists = self._map_if_exists(if_exists)
+        self.reload_data = reload_data
         self.priority = 0
         self.bucket = "acoe-s3"
         for k, v in kwargs.items():
@@ -325,7 +327,8 @@ class Extract:
             cache_distinct_values_in_backend = None
 
         if if_exists == "replace":
-            partitions_to_download = all_partitions
+            if self.reload_data:
+                partitions_to_download = all_partitions
         else:
             existing_partitions = self.get_existing_partitions()
             partitions_to_download = self.get_partitions_to_download(
