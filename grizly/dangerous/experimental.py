@@ -45,7 +45,7 @@ class Extract:
                 raise ValueError(f"{k} parameter is not allowed")
             setattr(self, k, v)
         self.module_name = self.name.lower().replace(" - ", "_").replace(" ", "_")
-        self.logger = logger or logging.getLogger("distributed.worker").getChild(self.module_name)
+        self.logger = logger or self.driver.logger
         self.load_store()
 
     def _map_if_exists(self, if_exists):
@@ -133,7 +133,7 @@ class Extract:
             table = self.driver.data["select"]["table"]
 
             partitions_qf = (
-                QFrame(dsn=self.driver.sqldb.dsn)
+                QFrame(dsn=self.driver.sqldb.dsn, logger=self.logger)
                 .from_table(table=table, schema=schema, columns=columns)
                 .query(where)
                 .groupby()
@@ -267,10 +267,6 @@ class Extract:
             )
         else:
             raise ValueError("Exteral tables are only supported for S3 backend")
-        full_table_name = f"{self.output_external_schema}.{self.output_external_table}"
-        self.logger.info(
-            f"External table {full_table_name} has been successfully created from {s3_key}"
-        )
 
     @dask.delayed
     def create_table(self, upstream: Delayed = None):
@@ -278,13 +274,13 @@ class Extract:
             qf = QFrame(dsn=self.output_dsn, dialect="mysql", logger=self.logger).from_table(
                 schema=self.output_external_schema, table=self.output_external_table
             )
-            qf.create_table(
-                dsn=self.output_dsn,
-                dialect="postgresql",
-                schema=self.output_schema_prod,
-                table=self.output_table_prod,
-                if_exists=self.table_if_exists,
-            )
+            # qf.create_table(
+            #     dsn=self.output_dsn,
+            #     dialect="postgresql",
+            #     schema=self.output_schema_prod,
+            #     table=self.output_table_prod,
+            #     if_exists=self.table_if_exists,
+            # )
             qf.to_table(
                 schema=self.output_schema_prod,
                 table=self.output_table_prod,
