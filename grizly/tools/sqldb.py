@@ -90,13 +90,13 @@ class SQLDB:
         return con
 
     def _check_if_exists(self, exists_query, supported_dbs):
-        self.logger.info
-        if self.db in supported_dbs:
-            con = self.get_connection()
-            exists = not read_sql_query(sql=exists_query, con=con).empty
-            con.close()
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        con = self.get_connection()
+        exists = not read_sql_query(sql=exists_query, con=con).empty
+        con.close()
+
         return exists
 
     def check_if_exists(self, table, schema=None, column=None, external=False):
@@ -160,31 +160,31 @@ class SQLDB:
         >>> con.close()
         >>> sqldb = sqldb.drop_table(table="test_k", schema="sandbox")
         """
-        valid_if_exists = ("fail", "drop")
-        if if_exists not in valid_if_exists:
-            raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
+        # if_exists to be removed
+        # valid_if_exists = ("fail", "drop")
+        # if if_exists not in valid_if_exists:
+        #     raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
 
         supported_dbs = ("redshift", "aurora")
+        if self.db not in supported_dbs:
+            raise NotImplementedError(f"Unsupported database. Supported databases: {supported_dbs}.")
+        
+        in_table_full_name = f"{in_schema}.{in_table}" if in_schema else in_table
+        out_table_full_name = f"{out_schema}.{out_table}" if out_schema else out_table
+        sql = f"""
+                DROP TABLE IF EXISTS {out_table_full_name};
+                CREATE TABLE {out_table_full_name} AS
+                SELECT * FROM {in_table_full_name}
+                """
+        SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
+        con = self.get_connection()
 
-        if self.db in supported_dbs:
-            in_table_name = f"{in_schema}.{in_table}" if in_schema else in_table
-
-            if self.check_if_exists(table=in_table, schema=in_schema):
-                con = self.get_connection()
-                out_table_name = f"{out_schema}.{out_table}" if out_schema else out_table
-                if self.check_if_exists(table=out_table, schema=out_schema) and if_exists == "fail":
-                    con.close()
-                    raise ValueError(f"Table {in_table_name} already exists")
-                sql = f"""
-                        DROP TABLE IF EXISTS {out_table_name};
-                        CREATE TABLE {out_table_name} AS
-                        SELECT * FROM {in_table_name}
-                        """
-                SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                con.execute(sql).commit()
-                con.close()
-        else:
-            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+        try:
+            con.execute(sql).commit()
+        except:
+            self.logger.exception(f"Error. Are you sure that {in_table_full_name} exists?")
+        finally:
+            con.close()
 
         return self
 
@@ -195,36 +195,36 @@ class SQLDB:
             raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
 
         supported_dbs = ("redshift", "aurora")
-
-        if self.db in supported_dbs:
-            table_name = f"{schema}.{table}" if schema else table
-
-            if self.check_if_exists(table=table, schema=schema):
-                if if_exists == "fail":
-                    raise ValueError(f"Table {table_name} in datasource {self.dsn} already exists.")
-                elif if_exists == "skip":
-                    self.logger.info(f"Table {table_name} already exists.")
-                    return self
-                elif if_exists == "drop":
-                    self.drop_table(table=table, schema=schema)
-
-            col_tuples = []
-
-            for item in range(len(columns)):
-                if types[item] == "VARCHAR(500)":
-                    column = columns[item] + " " + "VARCHAR({})".format(char_size)
-                else:
-                    column = columns[item] + " " + types[item]
-                col_tuples.append(column)
-
-            columns_str = ", ".join(col_tuples)
-            sql = "CREATE TABLE {} ({})".format(table_name, columns_str)
-            SQLDB.last_commit = sql
-            con = self.get_connection()
-            con.execute(sql).commit()
-            con.close()
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        full_table_name = f"{schema}.{table}" if schema else table
+
+        if self.check_if_exists(table=table, schema=schema):
+            if if_exists == "fail":
+                raise ValueError(f"Table {full_table_name} already exists and if_exists is set to 'fail'.")
+            elif if_exists == "skip":
+                self.logger.info(f"Table {full_table_name} already exists and if_exists is set to 'skip'.")
+                return self
+            elif if_exists == "drop":
+                self.drop_table(table=table, schema=schema)
+
+        col_tuples = []
+
+        for item in range(len(columns)):
+            if types[item] == "VARCHAR(500)":
+                column = columns[item] + " " + "VARCHAR({})".format(char_size)
+            else:
+                column = columns[item] + " " + types[item]
+            col_tuples.append(column)
+
+        columns_str = ", ".join(col_tuples)
+        sql = "CREATE TABLE {} ({})".format(full_table_name, columns_str)
+        SQLDB.last_commit = sql
+        con = self.get_connection()
+        self.logger.info(f"Creating table {full_table_name}...")
+        con.execute(sql).commit()
+        con.close()
 
         return self
 
@@ -237,20 +237,20 @@ class SQLDB:
         supported_dbs = "redshift"
 
         if self.db in supported_dbs:
-            table_name = f"{schema}.{table}" if schema else table
+            full_table_name = schema + "." + table if schema else table
 
             if self.check_if_exists(table=table, schema=schema, external=True):
                 if if_exists == "fail":
-                    raise ValueError(f"Table {table_name} in datasource {self.dsn} already exists.")
+                    raise ValueError(f"Table {full_table_name} already exists and if_exists is set to 'fail'.")
                 elif if_exists == "skip":
-                    self.logger.info(f"Table {table_name} already exists.")
+                    self.logger.info(f"Table {full_table_name} already exists and if_exists is set to 'skip'.")
                     return self
                 elif if_exists == "drop":
                     self.drop_table(table=table, schema=schema)
 
             columns_and_dtypes = ", \n".join([col + " " + dtype for col, dtype in zip(columns, types)])
             sql = f"""
-            CREATE EXTERNAL TABLE {table_name} (
+            CREATE EXTERNAL TABLE {full_table_name} (
             {columns_and_dtypes}
             )
             ROW FORMAT SERDE 
@@ -263,6 +263,7 @@ class SQLDB:
             """
             SQLDB.last_commit = sql
             con = self.get_connection(autocommit=True)
+            self.logger.info(f"Creating external table {full_table_name}...")
             con.execute(sql)
             con.close()
         else:
@@ -307,7 +308,6 @@ class SQLDB:
         full_table_name = table
         if schema:
             full_table_name = schema + "." + table
-        self.logger.info(f"Creating table {full_table_name}...")
 
         if type == "base_table":
             self._create_base_table(table=table, columns=columns, types=types, schema=schema, if_exists=if_exists)
@@ -351,22 +351,24 @@ class SQLDB:
 
         """
         supported_dbs = ("redshift", "aurora")
-
-        if self.db in supported_dbs:
-            con = self.get_connection()
-            table_name = f"{schema}.{table}" if schema else table
-
-            if self.check_if_exists(table=table, schema=schema):
-                columns = ", ".join(columns)
-                if columns:
-                    sql = f"INSERT INTO {table_name} ({columns}) {sql}"
-                else:
-                    sql = f"INSERT INTO {table_name} ({sql})"
-                SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                con.execute(sql).commit()
-            con.close()
-        else:
+        if not self.db in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        con = self.get_connection()
+        table_full_name = f"{schema}.{table}" if schema else table
+        columns = ", ".join(columns)
+        if columns:
+            sql = f"INSERT INTO {table_full_name} ({columns}) {sql}"
+        else:
+            sql = f"INSERT INTO {table_full_name} ({sql})"
+        SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
+
+        try:
+            con.execute(sql).commit()
+        except:
+            self.logger.exception(f"Error. Are you sure that {table_full_name} exists?")
+        finally:
+            con.close()
 
         return self
 
@@ -384,25 +386,24 @@ class SQLDB:
         """
         supported_dbs = ("redshift", "aurora")
 
-        if self.db in supported_dbs:
-            con = self.get_connection()
-            table_name = f"{schema}.{table}" if schema else table
-
-            if self.check_if_exists(table=table, schema=schema):
-                sql = f"DELETE FROM {table_name}"
-                if where is None:
-                    SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                    con.execute(sql).commit()
-                    self.logger.info(f"Records from table {table_name} have been removed successfully.")
-                else:
-                    sql += f" WHERE {where} "
-                    SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                    con.execute(sql).commit()
-                    self.logger.info(f"Records from table {table_name} where {where} have been removed successfully.")
-            con.close()
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
 
+        con = self.get_connection()
+        table_full_name = f"{schema}.{table}" if schema else table
+        sql = f"DELETE FROM {table_full_name}"
+        if where is not None:
+            sql += f" WHERE {where} "
+        SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
+
+        try:
+            con.execute(sql).commit()
+            self.logger.info(f"Query {sql} executed successfully.")
+        except:
+            self.logger.exception(f"Error. Are you sure that {table_full_name} exists?")
+        finally:
+            con.close()
+    
         return self
 
     def drop_table(self, table, schema=None):
@@ -416,20 +417,17 @@ class SQLDB:
         False
         """
         supported_dbs = ("redshift", "aurora")
-        full_table_name = schema + "." + table if schema else table
-        if self.db in supported_dbs:
-            con = self.get_connection()
-            full_table_name = f"{schema}.{table}" if schema else table
-
-            if self.check_if_exists(table=table, schema=schema):
-                self.logger.info(f"Dropping table {full_table_name}...")
-                sql = f"DROP TABLE {full_table_name}"
-                SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                con.execute(sql).commit()
-                self.logger.info(f"Table {full_table_name} has been dropped successfully.")
-            con.close()
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        con = self.get_connection(autocommit=True)
+        full_table_name = f"{schema}.{table}" if schema else table
+        sql = f"DROP TABLE IF EXISTS {full_table_name}"
+        SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
+        self.logger.info(f"Dropping table {full_table_name}...")
+        con.execute(sql)
+        self.logger.info(f"Table {full_table_name} has been dropped successfully (if it existed).")
+        con.close()
 
         return self
 
@@ -456,24 +454,20 @@ class SQLDB:
         >>> sqldb = sqldb.drop_table(table="test_k", schema="sandbox")
         """
         supported_dbs = ("redshift", "aurora")
-
-        if self.db in supported_dbs:
-
-            if self.check_if_exists(table=table, schema=schema):
-
-                if if_exists == "replace":
-                    self.delete_from(table=table, schema=schema)
-                    self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
-                    self.logger.info(f"Data has been owerwritten into {schema}.{table}")
-                elif if_exists == "fail":
-                    raise ValueError("Table already exists")
-                elif if_exists == "append":
-                    self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
-                    self.logger.info(f"Data has been appended to {schema}.{table}")
-            else:
-                self.logger.exception("Table doesn't exist. Use create_table first")
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        full_table_name = schema + "." + table if schema else table
+        if if_exists == "replace":
+            self.delete_from(table=table, schema=schema)
+            self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
+            self.logger.info(f"Data has been successfully inserted into {full_table_name}")
+        elif if_exists == "fail":
+            raise ValueError(f"Table {full_table_name} already exists and if_exists is set to 'fail'")
+        elif if_exists == "append":
+            self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
+            self.logger.info(f"Data has been appended to {full_table_name}")
+            
 
         return self
 
