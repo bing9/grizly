@@ -329,6 +329,11 @@ class Extract:
         if if_exists == "replace":
             if self.reload_data:
                 partitions_to_download = all_partitions
+            else:
+                existing_partitions = self.get_existing_partitions()
+                partitions_to_download = self.get_partitions_to_download(
+                all_partitions, existing_partitions, upstream=cache_distinct_values_in_backend
+            )
         else:
             existing_partitions = self.get_existing_partitions()
             partitions_to_download = self.get_partitions_to_download(
