@@ -498,6 +498,8 @@ class Job(SchedulerObject):
         self.con.hset(
             self.hash_name, "timeout", self._serialize(timeout),
         )
+        # need to reschedule to refresh job in rq
+        self.crons = self.crons
 
     @property
     def _result_ttl(self) -> int:
