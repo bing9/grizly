@@ -169,9 +169,7 @@ class SQLDB:
         if self.db in supported_dbs:
             in_table_name = f"{in_schema}.{in_table}" if in_schema else in_table
 
-            if not self.check_if_exists(table=in_table, schema=in_schema):
-                self.logger.exception(f"Table {in_table_name} doesn't exist.")
-            else:
+            if self.check_if_exists(table=in_table, schema=in_schema):
                 con = self.get_connection()
                 out_table_name = f"{out_schema}.{out_table}" if out_schema else out_table
                 if self.check_if_exists(table=out_table, schema=out_schema) and if_exists == "fail":
@@ -395,14 +393,12 @@ class SQLDB:
                 if where is None:
                     SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
                     con.execute(sql).commit()
-                    self.logger.info(f"Records from table {table_name} has been removed successfully.")
+                    self.logger.info(f"Records from table {table_name} have been removed successfully.")
                 else:
                     sql += f" WHERE {where} "
                     SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
                     con.execute(sql).commit()
-                    self.logger.info(f"Records from table {table_name} where {where} has been removed successfully.")
-            else:
-                self.logger.info(f"Table {table_name} doesn't exist.")
+                    self.logger.info(f"Records from table {table_name} where {where} have been removed successfully.")
             con.close()
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
@@ -420,18 +416,17 @@ class SQLDB:
         False
         """
         supported_dbs = ("redshift", "aurora")
-
+        full_table_name = schema + "." + table if schema else table
         if self.db in supported_dbs:
             con = self.get_connection()
-            table_name = f"{schema}.{table}" if schema else table
+            full_table_name = f"{schema}.{table}" if schema else table
 
             if self.check_if_exists(table=table, schema=schema):
-                sql = f"DROP TABLE {table_name}"
+                self.logger.info(f"Dropping table {full_table_name}...")
+                sql = f"DROP TABLE {full_table_name}"
                 SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
                 con.execute(sql).commit()
-                self.logger.info(f"Table {table_name} has been dropped successfully.")
-            else:
-                self.logger.info(f"Table {table_name} doesn't exist.")
+                self.logger.info(f"Table {full_table_name} has been dropped successfully.")
             con.close()
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
