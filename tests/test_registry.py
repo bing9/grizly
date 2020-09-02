@@ -222,6 +222,17 @@ def test_job_owner(job, owner):
     assert job.owner is None
 
 
+@given(integers())
+def test_job_timeout(job, new_timeout):
+    assert job.timeout == 3600
+
+    job.timeout = new_timeout
+    assert job.timeout == new_timeout
+
+    job.timeout = 3600
+    assert job.timeout == 3600
+
+
 def test_job_runs(job_with_cron):
     runs = job_with_cron.runs
     assert isinstance(runs[0], JobRun)

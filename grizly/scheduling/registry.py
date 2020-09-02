@@ -864,7 +864,9 @@ class Job(SchedulerObject):
     def __add_to_scheduler(self, crons: List[str], *args, **kwargs):
         rq_job_ids = []
         if crons:
-            queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
+            queue = Queue(
+                SchedulerDB.submit_queue_name, connection=self.con, default_timeout=self.timeout
+            )
             scheduler = Scheduler(queue=queue, connection=self.con)
             for cron in crons:
                 rq_job = scheduler.cron(
@@ -901,10 +903,12 @@ class Job(SchedulerObject):
 
     def __submit_downstream_jobs(self):
         self.logger.info(f"Enqueueing {self}.downstream...")
-        queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
+        queue = Queue(
+            SchedulerDB.submit_queue_name, connection=self.con, default_timeout=self.timeout
+        )
         for job in self.downstream:
             # TODO: should read downstream *args ad **kwargs from registry
-            rq_job = queue.enqueue(job.submit, timeout=job.timeout, result_ttl=job._result_ttl)
+            rq_job = queue.enqueue(job.submit, result_ttl=job._result_ttl, job_timeout=self.timeout)
             job._rq_job_ids = list(set(job._rq_job_ids) | {rq_job.id})
             self.logger.debug(f"{job} has been added to rq scheduler with id {rq_job.id}")
             self.logger.info(f"{job} has been enqueued")
