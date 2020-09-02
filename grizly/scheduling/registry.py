@@ -2,7 +2,7 @@ from ..exceptions import JobNotFoundError, JobRunNotFoundError
 from ..config import Config
 from rq_scheduler import Scheduler
 from rq import Queue
-from rq.job import Job as RqJob
+from rq.job import Job as RqJob, NoSuchJobError
 from redis import Redis
 from distributed.protocol.serialize import deserialize as dask_deserialize
 from distributed.protocol.serialize import serialize as dask_serialize
@@ -864,9 +864,7 @@ class Job(SchedulerObject):
     def __add_to_scheduler(self, crons: List[str], *args, **kwargs):
         rq_job_ids = []
         if crons:
-            queue = Queue(
-                SchedulerDB.submit_queue_name, connection=self.con, job_timeout=self.timeout
-            )
+            queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
             scheduler = Scheduler(queue=queue, connection=self.con)
             for cron in crons:
                 rq_job = scheduler.cron(
@@ -876,6 +874,7 @@ class Job(SchedulerObject):
                     kwargs=kwargs,
                     repeat=None,
                     queue_name=queue.name,
+                    timeout=self.timeout,
                 )
                 self.logger.debug(
                     f"{self} with cron '{cron}' has been added to rq sheduler with id {rq_job.id}"
@@ -891,10 +890,12 @@ class Job(SchedulerObject):
             queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
             scheduler = Scheduler(queue=queue, connection=self.con)
             for rq_job_id in rq_job_ids:
-                scheduler.cancel(rq_job_id)
-                RqJob.fetch(rq_job_id, connection=self.con).delete()
-
-                self.logger.debug(f"Rq job {rq_job_id} removed from the scheduler")
+                try:
+                    scheduler.cancel(rq_job_id)
+                    RqJob.fetch(rq_job_id, connection=self.con).delete()
+                    self.logger.debug(f"Rq job {rq_job_id} removed from the scheduler")
+                except NoSuchJobError:
+                    pass
 
             self.logger.info(f"{self} has been removed from the scheduler")
 
@@ -903,7 +904,7 @@ class Job(SchedulerObject):
         queue = Queue(SchedulerDB.submit_queue_name, connection=self.con)
         for job in self.downstream:
             # TODO: should read downstream *args ad **kwargs from registry
-            rq_job = queue.enqueue(job.submit, job_timeout=job.timeout, result_ttl=job._result_ttl)
+            rq_job = queue.enqueue(job.submit, timeout=job.timeout, result_ttl=job._result_ttl)
             job._rq_job_ids = list(set(job._rq_job_ids) | {rq_job.id})
             self.logger.debug(f"{job} has been added to rq scheduler with id {rq_job.id}")
             self.logger.info(f"{job} has been enqueued")
