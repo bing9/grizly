@@ -1135,7 +1135,7 @@ class QFrame(BaseTool):
                 f"Parameter engine_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
             )
 
-        sqldb = sqldb or (self.sqldb if dsn is None else SQLDB(dsn=dsn, **kwargs))
+        sqldb = sqldb or (self.sqldb if dsn is None else SQLDB(dsn=dsn, logger=self.logger, **kwargs))
 
         types = self.get_dtypes()
         if self.sqldb.dialect == "mysql" and sqldb.dialect == "postgresql":
@@ -1170,7 +1170,7 @@ class QFrame(BaseTool):
         if dsn is None:
             sqldb = self.sqldb
         else:
-            sqldb = SQLDB(dsn=dsn, **kwargs)
+            sqldb = SQLDB(dsn=dsn, logger=self.logger, **kwargs)
 
         columns = self.get_fields(aliased=True)
         types = self.get_dtypes()
