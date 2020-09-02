@@ -45,7 +45,7 @@ RUN tar -vxf Denodo/denodo-vdp-odbcdriver.tar.gz && \
     rm -rf Denodo
 
 # appdend odbcini configs
-COPY docker/base_notebook/odbcinst.ini /etc/odbcinst.ini
+COPY docker/base_notebook/odbcinst.ini .
 # RUN echo "" >> /etc/odbcinst.ini && \
 #     cat odbcinst.ini >> /etc/odbcinst.ini && \
 #     rm -f odbcinst.ini
