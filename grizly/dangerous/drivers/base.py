@@ -116,9 +116,8 @@ class BaseDriver(ABC):
         Examples
         --------
         Get All
-        >>> qf.where("filter=all")
-        Combine where parameters with &
-        >>> qf.where("filter=all&state=open")
+        >>> #qf.where("filter=all")
+        >>> #qf.where("filter=all&state=open")
         """
         self.flow["where"] = where
         return self
