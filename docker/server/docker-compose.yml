@@ -1,0 +1,77 @@
+version: '3'
+
+services:
+  redis:
+    image: 'docker.io/bitnami/redis:6.0-debian-10'
+    environment:
+      - REDIS_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
+      # - REDIS_PASSWORD=];^r2`75^3`=azvG>6PZ
+      - ALLOW_EMPTY_PASSWORD=yes
+    ports:
+      - '6379:6379'
+    expose:
+      - "6379"
+    volumes:
+      - 'redis_data:/bitnami/redis/data'
+    container_name: redis
+    restart: "always"
+  rq-dashboard:
+    image: rq-dashboard
+    container_name: rq-dashboard
+    build:
+      context: .
+      dockerfile: rq-dashboard/Dockerfile
+    ports:
+      - '8500:9181'
+    links:
+      - redis
+    depends_on:
+      - redis
+    restart: "always"
+  rq-scheduler:
+    image: rq-scheduler
+    container_name: rq-scheduler
+    build:
+      context: .
+      dockerfile: rq-scheduler/Dockerfile
+    links:
+      - redis
+    depends_on:
+      - redis
+    restart: "always"
+  rq-worker:
+    image: rq-worker
+    build:
+      context: .
+      dockerfile: rq-worker/Dockerfile
+    environment:
+      - GRIZLY_DASK_SCHEDULER_ADDRESS=dask_scheduler:8786
+      - GRIZLY_REDIS_HOST=redis
+      - GRIZLY_REDIS_PORT=6379
+      - SCHEDULER_ADDRESS=dask_scheduler:8786
+    links:
+      - redis
+    depends_on:
+      - redis
+    volumes:
+      - ../docker_home:/home/analyst
+    restart: "always"
+  dask_scheduler:
+    image: acoeteam/dask_scheduler:latest
+    ports:
+      - "8787:8787"
+      - "8786:8786"
+    container_name: dask_scheduler
+    restart: "always"
+  dask_worker:
+    image: acoeteam/dask_worker:latest
+    volumes:
+      - ../docker_home:/home/analyst
+      - ../docker_home/.config/odbc.ini:/etc/odbc.ini
+    depends_on:
+      - dask_scheduler
+    restart: "always"
+
+volumes:
+  redis_data:
+    driver: local

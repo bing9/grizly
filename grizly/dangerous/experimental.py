@@ -1,7 +1,9 @@
 import json
 import os
 import dask
-from grizly import QFrame, S3, Workflow
+from ..tools.qframe import QFrame
+from ..tools.s3 import S3
+from ..scheduling.orchestrate import Workflow
 import s3fs
 import pyarrow.parquet as pq
 from pyarrow import Table
@@ -22,6 +24,8 @@ class Extract:
         store_backend: str = "local",
         data_backend: str = "s3",
         client_str: str = None,
+        if_exists: str = "replace",
+        reload_data: bool = True,
         logger: logging.Logger = None,
         **kwargs,
     ):
@@ -30,6 +34,10 @@ class Extract:
         self.store_backend = store_backend
         self.data_backend = data_backend
         self.client_str = client_str
+        self.if_exists = if_exists
+        self.data_if_exists = if_exists
+        self.table_if_exists = self._map_if_exists(if_exists)
+        self.reload_data = reload_data
         self.priority = 0
         self.bucket = "acoe-s3"
         for k, v in kwargs.items():
@@ -37,8 +45,13 @@ class Extract:
                 raise ValueError(f"{k} parameter is not allowed")
             setattr(self, k, v)
         self.module_name = self.name.lower().replace(" - ", "_").replace(" ", "_")
-        self.logger = logger or logging.getLogger("distributed.worker").getChild(self.module_name)
+        self.logger = logger or self.driver.logger
         self.load_store()
+
+    def _map_if_exists(self, if_exists):
+        """ Map data-related if_exists to table-related commands """
+        mapping = {"skip": "skip", "append": "skip", "replace": "drop"}
+        return mapping[if_exists]
 
     def _get_client(self, client_str: Union[str, None] = None):
         if not client_str:
@@ -98,32 +111,37 @@ class Extract:
 
     @dask.delayed
     def get_distinct_values(self):
-        def _validate_columns(columns: List[str], existing_columns: List[str]):
+        def _validate_columns(columns: Union[str, List[str]], existing_columns: List[str]):
             """ Check whether the provided columns exist within the table """
             if isinstance(columns, str):
-                column = columns
+                column = [columns]
+            for column in columns:
+                # column = column.replace("sq.", "")
                 if column not in existing_columns:
                     raise ValueError(f"QFrame does not contain {column}")
-            elif isinstance(columns, list):
-                for column in columns:
-                    if column not in existing_columns:
-                        raise ValueError(f"QFrame does not contain {column}")
 
         columns = self.partition_cols
-        existing_columns = self.driver.get_fields(aliased=False)
+        existing_columns = self.driver.get_fields(aliased=True)
         _validate_columns(columns, existing_columns)
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
-        schema = self.driver.data["select"]["schema"]
-        table = self.driver.data["select"]["table"]
         where = self.driver.data["select"]["where"]
-        partitions_qf = (
-            QFrame(dsn=self.driver.sqldb.dsn)
-            .from_table(table=table, schema=schema, columns=columns)
-            .query(where)
-            .groupby()
-        )
+        try:
+            # faster method, but this will fail if user is working on multiple schemas/tables
+            schema = self.driver.data["select"]["schema"]
+            table = self.driver.data["select"]["table"]
+
+            partitions_qf = (
+                QFrame(dsn=self.driver.sqldb.dsn, logger=self.logger)
+                .from_table(table=table, schema=schema, columns=columns)
+                .query(where)
+                .groupby()
+            )
+        except KeyError:
+            qf_copy = self.driver.copy()
+            partitions_qf = qf_copy.select(columns).groupby()
+
         records = partitions_qf.to_records()
         if isinstance(columns, list):
             values = ["|".join(str(val) for val in row) for row in records]
@@ -245,30 +263,28 @@ class Extract:
                 dsn=self.output_dsn,
                 bucket=self.bucket,
                 s3_key=s3_key,
-                if_exists="skip",
+                if_exists=self.table_if_exists,
             )
         else:
             raise ValueError("Exteral tables are only supported for S3 backend")
-        full_table_name = f"{self.output_external_schema}.{self.output_external_table}"
-        self.logger.info(
-            f"External table {full_table_name} has been successfully created from {s3_key}"
-        )
 
     @dask.delayed
     def create_table(self, upstream: Delayed = None):
         if self.data_backend == "s3":
-            qf = QFrame(dsn=self.output_dsn, dialect="mysql").from_table(
+            qf = QFrame(dsn=self.output_dsn, dialect="mysql", logger=self.logger).from_table(
                 schema=self.output_external_schema, table=self.output_external_table
             )
-            qf.create_table(
-                dsn=self.output_dsn,
-                dialect="postgresql",
+            # qf.create_table(
+            #     dsn=self.output_dsn,
+            #     dialect="postgresql",
+            #     schema=self.output_schema_prod,
+            #     table=self.output_table_prod,
+            #     if_exists=self.table_if_exists,
+            # )
+            qf.to_table(
                 schema=self.output_schema_prod,
                 table=self.output_table_prod,
-                if_exists="skip",
-            )
-            qf.to_table(
-                schema=self.output_schema_prod, table=self.output_table_prod, if_exists="replace"
+                if_exists=self.data_if_exists,
             )
         else:
             # qf.to_table()
@@ -281,13 +297,17 @@ class Extract:
     def generate_workflow(
         self,
         refresh_partitions_list: bool = True,
-        if_exists: str = "append",
+        if_exists: str = None,
         download_if_older_than: int = 0,
         cache_distinct_values: bool = True,
         output_table_type: str = "external",
         client_str: str = None,
         **kwargs,
     ):
+        if if_exists is None:
+            if_exists = self.if_exists
+        if if_exists == "skip":
+            raise NotImplementedError("Please choose one of ('append', 'replace')")
 
         if refresh_partitions_list:
             all_partitions = self.get_distinct_values()
@@ -303,7 +323,13 @@ class Extract:
             cache_distinct_values_in_backend = None
 
         if if_exists == "replace":
-            partitions_to_download = all_partitions
+            if self.reload_data:
+                partitions_to_download = all_partitions
+            else:
+                existing_partitions = self.get_existing_partitions()
+                partitions_to_download = self.get_partitions_to_download(
+                all_partitions, existing_partitions, upstream=cache_distinct_values_in_backend
+            )
         else:
             existing_partitions = self.get_existing_partitions()
             partitions_to_download = self.get_partitions_to_download(

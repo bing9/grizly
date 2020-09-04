@@ -18,10 +18,6 @@ services:
     image: grizly_notebook:latest
     environment:
       - GRIZLY_REDIS_HOST=pytest_redis
-    build:
-      context: .
-      args:
-        docker_user: $USERNAME
     ports:
       - "1001:8888"
     volumes:

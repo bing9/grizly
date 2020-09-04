@@ -1,5 +1,4 @@
 from pandas import read_sql_query
-import os
 import sqlparse
 import logging
 from logging import Logger
@@ -41,7 +40,9 @@ class SQLDB:
                 f"Parameter interface in SQLDB will be ignored. Since version 0.3.6 grizly only supports 'pyodbc' interface."
             )
         if dsn is None:
-            self.logger.warning("Please specify dsn parameter in SQLDB. Since version 0.3.8 it will be obligatory.")
+            self.logger.warning(
+                "Please specify dsn parameter in SQLDB. Since version 0.3.8 it will be obligatory."
+            )
             if db is not None:
                 for key in config:
                     if db == config[key]["db"]:
@@ -59,7 +60,9 @@ class SQLDB:
         self.db = db or config[dsn]["db"]
         supported_dbs = ("redshift", "denodo", "sqlite", "mariadb", "aurora", "tableau")
         if self.db not in supported_dbs:
-            raise NotImplementedError(f"DB {self.db} not supported yet. Supported DB's: {supported_dbs}")
+            raise NotImplementedError(
+                f"DB {self.db} not supported yet. Supported DB's: {supported_dbs}"
+            )
 
         self.dialect = dialect or config[dsn]["dialect"]
 
@@ -90,12 +93,13 @@ class SQLDB:
         return con
 
     def _check_if_exists(self, exists_query, supported_dbs):
-        if self.db in supported_dbs:
-            con = self.get_connection()
-            exists = not read_sql_query(sql=exists_query, con=con).empty
-            con.close()
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        con = self.get_connection()
+        exists = not read_sql_query(sql=exists_query, con=con).empty
+        con.close()
+
         return exists
 
     def check_if_exists(self, table, schema=None, column=None, external=False):
@@ -120,7 +124,16 @@ class SQLDB:
             if column:
                 sql_exists += f" AND column_name='{column}'"
 
+        full_table_name = schema + "." + table if schema else table
+        self.logger.info(f"Checking if table {full_table_name} exists...")
+
         exists = self._check_if_exists(exists_query=sql_exists, supported_dbs=supported_dbs)
+
+        if exists:
+            self.logger.info(f"Table {full_table_name} exists")
+        else:
+            self.logger.info(f"Table {full_table_name} does not exist")
+
         return exists
 
     def copy_table(self, in_table, out_table, in_schema=None, out_schema=None, if_exists="fail"):
@@ -148,103 +161,106 @@ class SQLDB:
         >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
         >>> con.close()
-        >>> sqldb = sqldb.drop_table(table="test_k", schema="sandbox")
         """
-        valid_if_exists = ("fail", "drop")
-        if if_exists not in valid_if_exists:
-            raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
+        # if_exists to be removed
+        # valid_if_exists = ("fail", "drop")
+        # if if_exists not in valid_if_exists:
+        #     raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
 
         supported_dbs = ("redshift", "aurora")
+        if self.db not in supported_dbs:
+            raise NotImplementedError(
+                f"Unsupported database. Supported databases: {supported_dbs}."
+            )
 
-        if self.db in supported_dbs:
-            in_table_name = f"{in_schema}.{in_table}" if in_schema else in_table
-
-            if not self.check_if_exists(table=in_table, schema=in_schema):
-                self.logger.exception(f"Table {in_table_name} doesn't exist.")
-            else:
-                con = self.get_connection()
-                out_table_name = f"{out_schema}.{out_table}" if out_schema else out_table
-                if self.check_if_exists(table=out_table, schema=out_schema) and if_exists == "fail":
-                    con.close()
-                    raise ValueError(f"Table {in_table_name} already exists")
-                sql = f"""
-                        DROP TABLE IF EXISTS {out_table_name};
-                        CREATE TABLE {out_table_name} AS
-                        SELECT * FROM {in_table_name}
-                        """
-                SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                con.execute(sql).commit()
-                con.close()
-        else:
-            raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+        in_table_full_name = f"{in_schema}.{in_table}" if in_schema else in_table
+        out_table_full_name = f"{out_schema}.{out_table}" if out_schema else out_table
+        sql = f"""
+                DROP TABLE IF EXISTS {out_table_full_name};
+                CREATE TABLE {out_table_full_name} AS
+                SELECT * FROM {in_table_full_name}; commit;
+                """
+        self._run_query(sql)
 
         return self
 
-    def _create_base_table(self, table, columns, types, schema=None, char_size=500, if_exists: str = "skip"):
+    def _create_base_table(
+        self, table, columns, types, schema=None, char_size=500, if_exists: str = "skip"
+    ):
         """Creates a table."""
         valid_if_exists = ("fail", "skip", "drop")
         if if_exists not in valid_if_exists:
-            raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
+            raise ValueError(
+                f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}"
+            )
 
         supported_dbs = ("redshift", "aurora")
-
-        if self.db in supported_dbs:
-            table_name = f"{schema}.{table}" if schema else table
-
-            if self.check_if_exists(table=table, schema=schema):
-                if if_exists == "fail":
-                    raise ValueError(f"Table {table_name} in datasource {self.dsn} already exists.")
-                elif if_exists == "skip":
-                    self.logger.info(f"Table {table_name} already exists.")
-                    return self
-                elif if_exists == "drop":
-                    self.drop_table(table=table, schema=schema)
-
-            col_tuples = []
-
-            for item in range(len(columns)):
-                if types[item] == "VARCHAR(500)":
-                    column = columns[item] + " " + "VARCHAR({})".format(char_size)
-                else:
-                    column = columns[item] + " " + types[item]
-                col_tuples.append(column)
-
-            columns_str = ", ".join(col_tuples)
-            sql = "CREATE TABLE {} ({})".format(table_name, columns_str)
-            SQLDB.last_commit = sql
-            con = self.get_connection()
-            con.execute(sql).commit()
-            con.close()
-
-            self.logger.info(f"Table {table_name} has been created successfully.")
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        full_table_name = f"{schema}.{table}" if schema else table
+
+        if self.check_if_exists(table=table, schema=schema):
+            if if_exists == "fail":
+                raise ValueError(
+                    f"Table {full_table_name} already exists and if_exists is set to 'fail'."
+                )
+            elif if_exists == "skip":
+                self.logger.info(
+                    f"Table {full_table_name} already exists and if_exists is set to 'skip'."
+                )
+                return self
+            elif if_exists == "drop":
+                self.drop_table(table=table, schema=schema)
+
+        col_tuples = []
+
+        for item in range(len(columns)):
+            if types[item] == "VARCHAR(500)":
+                column = columns[item] + " " + "VARCHAR({})".format(char_size)
+            else:
+                column = columns[item] + " " + types[item]
+            col_tuples.append(column)
+
+        columns_str = ", ".join(col_tuples)
+        sql = "CREATE TABLE {} ({}); commit;".format(full_table_name, columns_str)
+        self._run_query(sql)
 
         return self
 
-    def _create_external_table(self, table, columns, types, bucket, s3_key, schema=None, if_exists: str = "skip"):
+    def _create_external_table(
+        self, table, columns, types, bucket, s3_key, schema=None, if_exists: str = "skip"
+    ):
         """Creates an external table"""
         valid_if_exists = ("fail", "skip", "drop")
         if if_exists not in valid_if_exists:
-            raise ValueError(f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}")
+            raise ValueError(
+                f"'{if_exists}' is not valid for if_exists. Valid values: {valid_if_exists}"
+            )
 
         supported_dbs = "redshift"
 
         if self.db in supported_dbs:
-            table_name = f"{schema}.{table}" if schema else table
+            full_table_name = schema + "." + table if schema else table
 
             if self.check_if_exists(table=table, schema=schema, external=True):
                 if if_exists == "fail":
-                    raise ValueError(f"Table {table_name} in datasource {self.dsn} already exists.")
+                    raise ValueError(
+                        f"Table {full_table_name} already exists and if_exists is set to 'fail'."
+                    )
                 elif if_exists == "skip":
-                    self.logger.info(f"Table {table_name} already exists.")
+                    self.logger.info(
+                        f"Table {full_table_name} already exists and if_exists is set to 'skip'."
+                    )
                     return self
                 elif if_exists == "drop":
                     self.drop_table(table=table, schema=schema)
 
-            columns_and_dtypes = ", \n".join([col + " " + dtype for col, dtype in zip(columns, types)])
+            columns_and_dtypes = ", \n".join(
+                [col + " " + dtype for col, dtype in zip(columns, types)]
+            )
             sql = f"""
-            CREATE EXTERNAL TABLE {table_name} (
+            CREATE EXTERNAL TABLE {full_table_name} (
             {columns_and_dtypes}
             )
             ROW FORMAT SERDE 
@@ -255,18 +271,22 @@ class SQLDB:
             'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
             location 's3://{bucket}/{s3_key}';
             """
-            SQLDB.last_commit = sql
-            con = self.get_connection(autocommit=True)
-            con.execute(sql)
-            con.close()
-
-            self.logger.info(f"Table {table_name} has been created successfully.")
+            self._run_query(sql, autocommit=True)
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
 
         return self
 
-    def create_table(self, table, columns, types, schema=None, if_exists: str = "skip", type="base_table", **kwargs):
+    def create_table(
+        self,
+        table,
+        columns,
+        types,
+        schema=None,
+        if_exists: str = "skip",
+        type="base_table",
+        **kwargs,
+    ):
         """Creates a new table.
 
         Parameters
@@ -302,10 +322,14 @@ class SQLDB:
         """
 
         if type == "base_table":
-            self._create_base_table(table=table, columns=columns, types=types, schema=schema, if_exists=if_exists)
+            self._create_base_table(
+                table=table, columns=columns, types=types, schema=schema, if_exists=if_exists
+            )
         elif type == "external_table":
             if not (("bucket" in kwargs) and ("s3_key" in kwargs)):
-                msg = "'bucket' and 's3_key' parameters are required when creating an external table"
+                msg = (
+                    "'bucket' and 's3_key' parameters are required when creating an external table"
+                )
                 raise ValueError(msg)
             bucket = kwargs.get("bucket")
             s3_key = kwargs.get("s3_key")
@@ -341,24 +365,17 @@ class SQLDB:
 
         """
         supported_dbs = ("redshift", "aurora")
-
-        if self.db in supported_dbs:
-            con = self.get_connection()
-            table_name = f"{schema}.{table}" if schema else table
-
-            if self.check_if_exists(table=table, schema=schema):
-                columns = ", ".join(columns)
-                if columns:
-                    sql = f"INSERT INTO {table_name} ({columns}) {sql}"
-                else:
-                    sql = f"INSERT INTO {table_name} ({sql})"
-                SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                con.execute(sql).commit()
-            else:
-                self.logger.info(f"Table {table_name} doesn't exist.")
-            con.close()
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        full_table_name = f"{schema}.{table}" if schema else table
+        columns = ", ".join(columns)
+        if columns:
+            sql = f"INSERT INTO {full_table_name} ({columns}) {sql}; commit;"
+        else:
+            sql = f"INSERT INTO {full_table_name} ({sql}); commit;"
+        self.logger.info(f"Inserting records into table {full_table_name}...")
+        self._run_query(sql)
 
         return self
 
@@ -369,33 +386,19 @@ class SQLDB:
         --------
         >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb = sqldb.delete_from(table="test_k", schema="sandbox", where="col2 is NULL")
-        >>> con = sqldb.get_connection()
-        >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
-        []
-        >>> con.close()
         """
         supported_dbs = ("redshift", "aurora")
 
-        if self.db in supported_dbs:
-            con = self.get_connection()
-            table_name = f"{schema}.{table}" if schema else table
-
-            if self.check_if_exists(table=table, schema=schema):
-                sql = f"DELETE FROM {table_name}"
-                if where is None:
-                    SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                    con.execute(sql).commit()
-                    self.logger.info(f"Records from table {table_name} has been removed successfully.")
-                else:
-                    sql += f" WHERE {where} "
-                    SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                    con.execute(sql).commit()
-                    self.logger.info(f"Records from table {table_name} where {where} has been removed successfully.")
-            else:
-                self.logger.info(f"Table {table_name} doesn't exist.")
-            con.close()
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        full_table_name = f"{schema}.{table}" if schema else table
+        sql = f"DELETE FROM {full_table_name}"
+        if where is not None:
+            sql += f" WHERE {where} "
+        sql += "; commit;"
+        self.logger.info(f"Deleting records from table {full_table_name}...")
+        self._run_query(sql)
 
         return self
 
@@ -410,21 +413,13 @@ class SQLDB:
         False
         """
         supported_dbs = ("redshift", "aurora")
-
-        if self.db in supported_dbs:
-            con = self.get_connection()
-            table_name = f"{schema}.{table}" if schema else table
-
-            if self.check_if_exists(table=table, schema=schema):
-                sql = f"DROP TABLE {table_name}"
-                SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-                con.execute(sql).commit()
-                self.logger.info(f"Table {table_name} has been dropped successfully.")
-            else:
-                self.logger.info(f"Table {table_name} doesn't exist.")
-            con.close()
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        full_table_name = f"{schema}.{table}" if schema else table
+        sql = f"DROP TABLE IF EXISTS {full_table_name};"
+        self.logger.info(f"Dropping table {full_table_name}...")
+        self._run_query(sql, autocommit=True)
 
         return self
 
@@ -448,27 +443,23 @@ class SQLDB:
         >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
         [('item1', None), ('item2', None)]
         >>> con.close()
-        >>> sqldb = sqldb.drop_table(table="test_k", schema="sandbox")
         """
         supported_dbs = ("redshift", "aurora")
-
-        if self.db in supported_dbs:
-
-            if self.check_if_exists(table=table, schema=schema):
-
-                if if_exists == "replace":
-                    self.delete_from(table=table, schema=schema)
-                    self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
-                    self.logger.info(f"Data has been owerwritten into {schema}.{table}")
-                elif if_exists == "fail":
-                    raise ValueError("Table already exists")
-                elif if_exists == "append":
-                    self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
-                    self.logger.info(f"Data has been appended to {schema}.{table}")
-            else:
-                self.logger.exception("Table doesn't exist. Use create_table first")
-        else:
+        if self.db not in supported_dbs:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
+
+        full_table_name = schema + "." + table if schema else table
+        if if_exists == "replace":
+            self.delete_from(table=table, schema=schema)
+            self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
+            self.logger.info(f"Data has been successfully inserted into {full_table_name}")
+        elif if_exists == "fail":
+            raise ValueError(
+                f"Table {full_table_name} already exists and if_exists is set to 'fail'"
+            )
+        elif if_exists == "append":
+            self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
+            self.logger.info(f"Data has been appended to {full_table_name}")
 
         return self
 
@@ -484,7 +475,7 @@ class SQLDB:
         --------
         >>> sqldb = SQLDB(dsn="redshift_acoe")
         >>> sqldb.get_tables(schema="grizly")
-        [('grizly', 'table_tutorial')]
+        [('grizly', 'track'), ('grizly', 'table_tutorial')]
         """
         output = []
         if base_table:
@@ -590,22 +581,35 @@ class SQLDB:
         """
         if self.db == "denodo":
             return self._get_columns_denodo(
-                schema=schema, table=table, column_types=column_types, date_format=date_format, columns=columns
+                schema=schema,
+                table=table,
+                column_types=column_types,
+                date_format=date_format,
+                columns=columns,
             )
         elif self.db in ("redshift", "mariadb", "aurora"):
-            if (schema, table) in self.get_tables(schema=schema, base_table=False, view=False, external_table=True):
+            if (schema, table) in self.get_tables(
+                schema=schema, base_table=False, view=False, external_table=True
+            ):
                 return self._get_columns_external(
                     schema=schema, table=table, column_types=column_types, columns=columns
                 )
             else:
-                return self._get_columns_general(schema=schema, table=table, column_types=column_types, columns=columns)
+                return self._get_columns_general(
+                    schema=schema, table=table, column_types=column_types, columns=columns
+                )
         elif self.db == "sqlite":
             return self._get_columns_sqlite(schema=schema, table=table, column_types=column_types)
         else:
             raise NotImplementedError("Unsupported database.")
 
     def _get_columns_denodo(
-        self, table, schema: str = None, column_types: bool = False, columns: list = None, date_format: str = "DATE"
+        self,
+        table,
+        schema: str = None,
+        column_types: bool = False,
+        columns: list = None,
+        date_format: str = "DATE",
     ):
         """Get column names (and optionally types) from Denodo view.
 
@@ -614,8 +618,12 @@ class SQLDB:
         date_format: str
             Denodo date format differs from those from other databases. User can choose which format is desired.
         """
-        where = f"view_name = '{table}' AND database_name = '{schema}' " if schema else f"view_name = '{table}' "
-        if column_types == False:
+        where = (
+            f"view_name = '{table}' AND database_name = '{schema}' "
+            if schema
+            else f"view_name = '{table}' "
+        )
+        if not column_types:
             sql = f"""
                 SELECT column_name
                 FROM get_view_columns()
@@ -633,7 +641,7 @@ class SQLDB:
         cursor.execute(sql)
         col_names = []
 
-        if column_types == False:
+        if not column_types:
             while True:
                 column = cursor.fetchone()
                 if not column:
@@ -659,17 +667,25 @@ class SQLDB:
             con.close()
             if columns:
                 col_names_and_types = {
-                    col_name: col_type for col_name, col_type in zip(col_names, col_types) if col_name in columns
+                    col_name: col_type
+                    for col_name, col_type in zip(col_names, col_types)
+                    if col_name in columns
                 }
                 col_names = [col for col in columns if col in col_names_and_types]
                 col_types = [col_names_and_types[col_name] for col_name in col_names]
             return col_names, col_types
 
-    def _get_columns_general(self, table, schema: str = None, column_types: bool = False, columns: list = None):
+    def _get_columns_general(
+        self, table, schema: str = None, column_types: bool = False, columns: list = None
+    ):
         """Get column names (and optionally types) from a Redshift, MariaDB or Aurora table."""
         con = self.get_connection()
         cursor = con.cursor()
-        where = f"table_name = '{table}' AND table_schema = '{schema}' " if schema else f"table_name = '{table}' "
+        where = (
+            f"table_name = '{table}' AND table_schema = '{schema}' "
+            if schema
+            else f"table_name = '{table}' "
+        )
         sql = f"""
             SELECT ordinal_position,
                    column_name,
@@ -703,7 +719,9 @@ class SQLDB:
             # leave only the cols provided in the columns argument
             if columns:
                 col_names_and_types = {
-                    col_name: col_type for col_name, col_type in zip(col_names, col_types) if col_name in columns
+                    col_name: col_type
+                    for col_name, col_type in zip(col_names, col_types)
+                    if col_name in columns
                 }
                 col_names = [col for col in col_names_and_types]
                 col_types = [type for type in col_names_and_types.values()]
@@ -752,7 +770,9 @@ class SQLDB:
         else:
             return col_names
 
-    def _get_columns_external(self, table, schema: str = None, column_types: bool = False, columns: list = None):
+    def _get_columns_external(
+        self, table, schema: str = None, column_types: bool = False, columns: list = None
+    ):
         where = f" AND schemaname = '{schema}'\n" if schema else ""
 
         sql = f"""
@@ -778,7 +798,9 @@ class SQLDB:
         return (col_names, col_types) if column_types else col_names
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(dsn='{self.dsn}', db='{self.db}', dialect='{self.dialect}')"
+        return (
+            f"{self.__class__.__name__}(dsn='{self.dsn}', db='{self.db}', dialect='{self.dialect}')"
+        )
 
     def __eq__(self, other):
         return (
@@ -787,6 +809,18 @@ class SQLDB:
             and self.dsn == other.dsn
             and self.dialect == other.dialect
         )
+
+    def _run_query(self, sql: str, autocommit: bool = False):
+        con = self.get_connection(autocommit=autocommit)
+        try:
+            SQLDB.last_commit = sql
+            con.execute(sql)
+            self.logger.info(f"Successfully ran query\n {sql}")
+        except:
+            self.logger.exception(f"Error occured during running query\n {sql}")
+        finally:
+            con.close()
+            self.logger.debug("Connection closed")
 
 
 @deprecation.deprecated(details="Use SQLDB.check_if_exists function instead")
@@ -798,7 +832,9 @@ def check_if_exists(table, schema=""):
 @deprecation.deprecated(details="Use SQLDB.create_table function instead")
 def create_table(table, columns, types, schema="", engine_str=None, char_size=500):
     sqldb = SQLDB(db="redshift", engine_str=engine_str)
-    sqldb.create_table(table=table, columns=columns, types=types, schema=schema, char_size=char_size)
+    sqldb.create_table(
+        table=table, columns=columns, types=types, schema=schema, char_size=char_size
+    )
 
 
 @deprecation.deprecated(details="Use SQLDB.write_to function instead")
@@ -809,13 +845,23 @@ def write_to(table, columns, sql, schema="", engine_str=None, if_exists="fail"):
 
 @deprecation.deprecated(details="Use SQLDB.get_columns function instead")
 def get_columns(
-    table, schema=None, column_types=False, date_format="DATE", db="denodo", columns=None, engine_str: str = None
+    table,
+    schema=None,
+    column_types=False,
+    date_format="DATE",
+    db="denodo",
+    columns=None,
+    engine_str: str = None,
 ):
     db = db.lower()
     if db == "denodo" or db == "redshift":
         sqldb = SQLDB(db=db, engine_str=engine_str)
         return sqldb.get_columns(
-            table=table, schema=schema, column_types=column_types, date_format=date_format, columns=columns
+            table=table,
+            schema=schema,
+            column_types=column_types,
+            date_format=date_format,
+            columns=columns,
         )
     elif db == "sfdc":
         return get_sfdc_columns(table=table, column_types=column_types, columns=columns)

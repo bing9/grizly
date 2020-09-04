@@ -7,3 +7,6 @@ build
 .ipynb_checkpoints
 .vscode
 .hypothesis
+.env
+docker_home
+*.png

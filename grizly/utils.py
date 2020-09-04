@@ -152,7 +152,7 @@ def get_sfdc_columns(table, columns=None, column_types=True):
         raise NotImplementedError("Retrieving columns only is currently not supported")
 
 
-def get_path(*args, from_where="python"):
+def get_path(*args, from_where="python") -> str:
     """Quick utility function to get the full path from either
     the python execution root folder or from your python
     notebook or python module folder
@@ -183,7 +183,7 @@ def get_path(*args, from_where="python"):
         cwd = os.path.join(home_path, *args)
         return cwd
 
-    elif from_where == "here":
+    else:
         cwd = os.path.abspath("")
         cwd = os.path.join(cwd, *args)
         return cwd
@@ -213,7 +213,9 @@ def clean_colnames(df):
 
     reserved_words = ["user"]
 
-    df.columns = df.columns.str.strip().str.replace(" ", "_")  # Redshift won't accept column names with spaces
+    df.columns = df.columns.str.strip().str.replace(
+        " ", "_"
+    )  # Redshift won't accept column names with spaces
     df.columns = [f'"{col}"' if col.lower() in reserved_words else col for col in df.columns]
 
     return df
@@ -259,7 +261,9 @@ def clean(df):
         df_string_cols.applymap(remove_inside_quotes)
         .applymap(remove_inside_single_quote)
         .replace(to_replace="\\", value="")
-        .replace(to_replace="\n", value="", regex=True)  # regex=True means "find anywhere within the string"
+        .replace(
+            to_replace="\n", value="", regex=True
+        )  # regex=True means "find anywhere within the string"
     )
     df.loc[:, df.columns.isin(df_string_cols.columns)] = df_string_cols
 

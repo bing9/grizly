@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) 
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [0.3.7](https://github.com/kfk/grizly/compare/v0.3.7rc1...v0.3.7) - 04-09-2020
+
+### Scheduling
+- Released first version with option to schedule jobs using crons and upstream jobs 
+    - [api](https://github.com/tedcs/grizly/issues/512)
+    - example
+      ```python
+      @dask.delayed
+      def add(x, y):
+          return x + y
+          
+      sum_task_1 = add(1, 2)
+      job = Job(name="job_name_1")
+      job.register(tasks=[sum_task_1], 
+                   owner="johnsnow@example.com",
+                   crons="* * * * *")
+                   
+      sum_task_2 = add(2, 3)
+      job = Job(name="job_name_2")
+      job.register(tasks=[sum_task_2], 
+                   owner="johnsnow@example.com",
+                   upstream="job_name_1")
+      ```
+
+### Docker
+- Integrated platform with grizly repo 
+
+### S3
+- Adjusted `to_df()` and `from_df()` methods to load data to memory not local files  [#524](https://github.com/tedcs/grizly/issues/524)
+
 ## [0.3.7rc1](https://github.com/kfk/grizly/compare/v0.3.7rc0...v0.3.7rc1) - 13-08-2020
 
 ### QFrame

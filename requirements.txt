@@ -33,3 +33,12 @@ redis==3.5
 rq==1.5
 rq-scheduler==0.10
 typer==0.3
+s3fs
+pyodbc
+wkhtmltopdf
+# docker
+bokeh==2.1
+jupyterlab
+jupyter-server-proxy
+dask_labextension
+jupyterlab-git
