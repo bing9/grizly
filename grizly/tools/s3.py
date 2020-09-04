@@ -73,7 +73,7 @@ class S3:
         if url:
             self.url = url
             _, _, self.bucket, *s3_key_list = url.split("/")[:-1]
-            self.s3_key = "/".join(s3_key_list)
+            self.s3_key = "/".join(s3_key_list) + "/"
             self.file_name = url.split("/")[-1]
         else:
             self.file_name = file_name or f"s3_tmp_{self.id}.csv"
