@@ -35,7 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### S3
 - Adjusted `to_df()` and `from_df()` methods to load data to memory not local files  [#524](https://github.com/tedcs/grizly/issues/524)
 
-
 ## [0.3.7rc1](https://github.com/kfk/grizly/compare/v0.3.7rc0...v0.3.7rc1) - 13-08-2020
 
 ### QFrame
