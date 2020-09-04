@@ -10,3 +10,4 @@ Tutorials
    api/qframe
    api/config
    api/crosstab
+   api/extract
