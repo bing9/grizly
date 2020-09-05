@@ -4,8 +4,10 @@ from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
 from sys import platform
 import json
-
-from functools import partial
+import pyarrow as pa
+import re
+from time import sleep
+from functools import partial, wraps
 import deprecation
 import logging
 
@@ -55,6 +57,45 @@ def sfdc_to_sqlalchemy_dtype(sfdc_dtype):
     }
     sqlalchemy_dtype = sqlalchemy_dtypes[sfdc_dtype]
     return sqlalchemy_dtype
+
+
+def rds_to_pyarrow_type(dtype):
+    dtypes = {
+        "BOOL": pa.bool_(),
+        "BOOLEAN": pa.bool_(),
+        "INT": pa.int32(),
+        "INTEGER": pa.int32(),
+        "SMALLINT": pa.int8(),
+        "BIGINT": pa.int64(),
+        "INT2": pa.int8(),
+        "INT4": pa.int8(),
+        "INT8": pa.int8(),
+        "NUMERIC": pa.float64(),
+        "DECIMAL": pa.float64(),
+        "FLOAT4": pa.float32(),
+        "FLOAT8": pa.float64(),
+        "DOUBLE PRECISION": pa.float64(),
+        "REAL": pa.float32(),
+        "NULL": pa.null(),
+        "DATE": pa.date64(),
+        "VARCHAR": pa.string(),
+        "NVARCHAR": pa.string(),
+        "CHARACTER VARYING": pa.string(),
+        "TEXT": pa.string(),
+        "CHAR": pa.string(),
+        "CHARACTER": pa.string(),
+        "TIMESTAMP": pa.date64(),
+        "TIMESTAMP WITHOUT TIME ZONE": pa.date64(),
+        "TIMESTAMPTZ": pa.date64(),
+        "TIMESTAMP WITH TIME ZONE": pa.date64(),
+        "GEOMETRY": None,
+    }
+
+    for redshift_dtype in dtypes:
+        if re.search(redshift_dtype, dtype):
+            return dtypes[redshift_dtype]
+    else:
+        return pa.string()
 
 
 def get_sfdc_columns(table, columns=None, column_types=True):
@@ -111,7 +152,7 @@ def get_sfdc_columns(table, columns=None, column_types=True):
         raise NotImplementedError("Retrieving columns only is currently not supported")
 
 
-def get_path(*args, from_where="python"):
+def get_path(*args, from_where="python") -> str:
     """Quick utility function to get the full path from either
     the python execution root folder or from your python
     notebook or python module folder
@@ -142,7 +183,7 @@ def get_path(*args, from_where="python"):
         cwd = os.path.join(home_path, *args)
         return cwd
 
-    elif from_where == "here":
+    else:
         cwd = os.path.abspath("")
         cwd = os.path.join(cwd, *args)
         return cwd
@@ -172,7 +213,9 @@ def clean_colnames(df):
 
     reserved_words = ["user"]
 
-    df.columns = df.columns.str.strip().str.replace(" ", "_")  # Redshift won't accept column names with spaces
+    df.columns = df.columns.str.strip().str.replace(
+        " ", "_"
+    )  # Redshift won't accept column names with spaces
     df.columns = [f'"{col}"' if col.lower() in reserved_words else col for col in df.columns]
 
     return df
@@ -218,7 +261,9 @@ def clean(df):
         df_string_cols.applymap(remove_inside_quotes)
         .applymap(remove_inside_single_quote)
         .replace(to_replace="\\", value="")
-        .replace(to_replace="\n", value="", regex=True)  # regex=True means "find anywhere within the string"
+        .replace(
+            to_replace="\n", value="", regex=True
+        )  # regex=True means "find anywhere within the string"
     )
     df.loc[:, df.columns.isin(df_string_cols.columns)] = df_string_cols
 
@@ -245,3 +290,52 @@ def read_config():
     except KeyError:
         config = "Error with UserProfile"
     return config
+
+
+def retry(exceptions, tries=4, delay=3, backoff=2, logger=None):
+    """
+    Retry calling the decorated function using an exponential backoff.
+
+    Args:
+        exceptions: The exception to check. may be a tuple of
+            exceptions to check.
+        tries: Number of times to try (not retry) before giving up.
+        delay: Initial delay between retries in seconds.
+        backoff: Backoff multiplier (e.g. value of 2 will double the delay
+            each retry).
+        logger: Logger to use. If None, print.
+
+
+    This is almost a copy of Workflow.retry, but it's using its own logger.
+    """
+    if not logger:
+        logger = logging.getLogger(__name__)
+
+    def deco_retry(f):
+        @wraps(f)
+        def f_retry(*args, **kwargs):
+
+            mtries, mdelay = tries, delay
+
+            while mtries > 1:
+
+                try:
+                    return f(*args, **kwargs)
+
+                except exceptions as e:
+                    msg = f"{e}, \nRetrying in {mdelay} seconds..."
+                    logger.warning(msg)
+                    sleep(mdelay)
+                    mtries -= 1
+                    mdelay *= backoff
+
+            return f(*args, **kwargs)
+
+        return f_retry  # true decorator
+
+    return deco_retry
+
+
+def none_safe_loads(value):
+    if value is not None:
+        return json.loads(value)

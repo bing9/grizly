@@ -12,17 +12,20 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('../..'))
+# from grizly import __version__
+
+sys.path.insert(0, os.path.abspath("../.."))
 
 
 # -- Project information -----------------------------------------------------
 
-project = 'grizly'
-copyright = '2019, Alessio'
-author = 'Alessio'
+project = "grizly"
+copyright = "2019, Alessio"
+author = "Alessio"
 
 # The full version, including alpha/beta/rc tags
-release = '0.2'
+# release = __version__
+release = "0.3.7rc2"
 
 
 # -- General configuration ---------------------------------------------------
@@ -30,34 +33,35 @@ release = '0.2'
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ['sphinx.ext.autodoc'
-                , 'sphinx.ext.napoleon'
-                , 'sphinx.ext.autosummary'
-                , 'nbsphinx'
-                , 'jupyter_sphinx.execute'
-                ]
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",
+    "sphinx.ext.autosummary",
+    "nbsphinx",
+    "jupyter_sphinx.execute",
+]
 
 # nbsphinx_execute = 'never'
 nbsphinx_allow_errors = True
-nbsphinx_requirejs_path = ''
+nbsphinx_requirejs_path = ""
 
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ['_templates']
+templates_path = ["_templates"]
 
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
 #
 # source_suffix = ['.rst', '.md']
-source_suffix = ['.rst', '.md']
+source_suffix = [".rst", ".md"]
 
 
 # The master toctree document.
-master_doc = 'index'
+master_doc = "index"
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['**.ipynb_checkpoints']
+exclude_patterns = ["**.ipynb_checkpoints"]
 
 
 # -- Options for HTML output -------------------------------------------------
@@ -73,18 +77,18 @@ html_theme = "sphinx_rtd_theme"
 # html_static_path = ['_static']
 html_show_sourcelink = True
 
-master_doc = 'index'
+master_doc = "index"
 
 # -----------------------------------------------------------------------------
 # Autosummary
 # -----------------------------------------------------------------------------
 
 autosummary_generate = True
-autodoc_default_flags = ['members', 'inherited-members']
+autodoc_default_flags = ["members", "inherited-members"]
 
 # spell checking
-spelling_lang = 'en_US'
-spelling_word_list_filename = 'spelling_wordlist.txt'
+spelling_lang = "en_US"
+spelling_word_list_filename = "spelling_wordlist.txt"
 spelling_show_suggestions = True
 
 
@@ -95,8 +99,9 @@ def skip_deprecated(app, what, name, obj, skip, options):
         return True
     return skip or False
 
+
 def setup(app):
-    app.connect('autodoc-skip-member', skip_deprecated)
+    app.connect("autodoc-skip-member", skip_deprecated)
     try:
         from sphinx.ext.autosummary import Autosummary
         from sphinx.ext.autosummary import get_documenter
@@ -106,9 +111,7 @@ def setup(app):
 
         class AutoAutoSummary(Autosummary):
 
-            option_spec = {
-                'methods': directives.unchanged
-            }
+            option_spec = {"methods": directives.unchanged}
 
             required_arguments = 1
 
@@ -124,22 +127,22 @@ def setup(app):
                         continue
                     if documenter.objtype == typ:
                         items.append(name)
-                public = [x for x in items if x in include_public or not x.startswith('_')]
+                public = [x for x in items if x in include_public or not x.startswith("_")]
                 return public, items
 
             def run(self):
                 clazz = self.arguments[0]
                 try:
-                    (module_name, class_name) = clazz.rsplit('.', 1)
+                    (module_name, class_name) = clazz.rsplit(".", 1)
                     m = __import__(module_name, globals(), locals(), [class_name])
                     c = getattr(m, class_name)
-                    if 'methods' in self.options:
-                        _, methods = self.get_members(c, 'method', ['__init__'])
+                    if "methods" in self.options:
+                        _, methods = self.get_members(c, "method", ["__init__"])
 
-                        self.content = ["~%s.%s" % (clazz, method) for method in methods if not method.startswith('_')]
+                        self.content = ["~%s.%s" % (clazz, method) for method in methods if not method.startswith("_")]
                 finally:
                     return super(AutoAutoSummary, self).run()
 
-        app.add_directive('autoautosummary', AutoAutoSummary)
+        app.add_directive("autoautosummary", AutoAutoSummary)
     except BaseException as e:
         raise e

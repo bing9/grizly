@@ -5,6 +5,7 @@ from exchangelib import (
     Message,
     Configuration,
     DELEGATE,
+    IMPERSONATION,
     FaultTolerance,
     HTMLBody,
     FileAttachment,
@@ -20,9 +21,9 @@ from time import sleep
 
 class EmailAccount:
     def __init__(
-        self, email_address=None, email_password=None, alias=None, config_key=None, proxy=None,
+        self, email_address=None, email_password=None, alias=None, config_key="standard", proxy=None,
     ):
-        config = Config().get_service(config_key=config_key, service="email") if config_key else {}
+        config = Config().get_service(config_key=config_key, service="email")
         self.logger = logging.getLogger(__name__)
         self.email_address = email_address or os.getenv("EMAIL_ADDRESS") or config.get("email_address")
         self.email_password = email_password or os.getenv("EMAIL_PASSWORD") or config.get("email_password")
@@ -48,7 +49,7 @@ class EmailAccount:
                 credentials=self.credentials,
                 config=self.config,
                 autodiscover=False,
-                access_type=DELEGATE,
+                access_type=DELEGATE  # IMPERSONATION
             )
         except:
             self.logger.exception(
@@ -193,18 +194,8 @@ class Email:
 
         Examples
         --------
-        >>> personal = {
-        ...        "personal": {
-        ...        "email": {
-        ...            "email_address": "john_snow@example.com",
-        ...            "email_password": "wolf123",
-        ...            "send_as": "John Snow"
-        ...        }
-        ...        }
-        ...    }
-        >>> conf = Config().add_keys(personal)
         >>> attachment_path = get_path("grizly_dev", "tests", "output.txt")
-        >>> email = Email(subject="Test", body="Testing body.", attachment_paths=attachment_path, config_key="personal")
+        >>> email = Email(subject="Test", body="Testing body.", attachment_paths=attachment_path, config_key="standard")
         >>> to = "test@example.com"
         >>> cc = ["test2@example.com", "test3@example.com"]
         >>> team_email_address = "shared_mailbox@example.com"

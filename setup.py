@@ -3,12 +3,9 @@ import setuptools
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
-# with open("requirements.txt", "r") as f:
-#     requires = [line.strip() for line in f]
-
 setuptools.setup(
     name="grizly",
-    version="0.3.5",
+    version="0.3.7",
     author="Alessio Civitillo",
     description="Small package to build SQL with a Pandas api, generate workflows and more.",
     long_description=long_description,
@@ -20,7 +17,6 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    # install_requires=requires,
-    entry_points={"console_scripts": ["grizly=grizly.cli:cli"]}
-    )
+    entry_points={"console_scripts": ["grizly=grizly.cli:cli"]},
+)
 

@@ -5,6 +5,7 @@ import click
 import grizly
 
 from .config import config as _config
+
 from .workflow import workflow as _workflow
 
 
@@ -17,6 +18,7 @@ def cli():
     \b
     Commands:
         config      Manage configuration
+        job         Run, schedule, and monitor workflows
         workflow    Run, schedule, and monitor workflows
     """
     pass
@@ -24,6 +26,7 @@ def cli():
 
 cli.add_command(_config)
 cli.add_command(_workflow)
+
 
 @cli.command(hidden=True)
 def version():
