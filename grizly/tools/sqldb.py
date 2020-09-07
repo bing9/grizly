@@ -369,8 +369,8 @@ class SQLDB:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
 
         full_table_name = f"{schema}.{table}" if schema else table
-        columns = ", ".join(columns)
         if columns:
+            columns = ", ".join(columns)
             sql = f"INSERT INTO {full_table_name} ({columns}) {sql}; commit;"
         else:
             sql = f"INSERT INTO {full_table_name} ({sql}); commit;"
