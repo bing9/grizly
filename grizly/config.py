@@ -65,6 +65,7 @@ class Config:
             * 'proxies'
             * 'sqldb'
             * 'schedule'
+            * 's3'
         config_key : str, optional
             Config key, by default 'standard'
         env : str, optional
