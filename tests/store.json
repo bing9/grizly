@@ -1,0 +1,17 @@
+{
+    "partition_cols": [
+        "Composer"
+    ],
+    "output": {
+        "dsn": "Chinook.sqlite"
+    },
+    "validation": {
+        "groupby": [
+            "fiscal_week_short_number"
+        ],
+        "sum": [
+            "order_amount_budget_rate_c",
+            "sales_amount_budget_rate_c"
+        ]
+    }
+}
