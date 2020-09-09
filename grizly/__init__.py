@@ -1,5 +1,5 @@
 from .api import *
 
 
-__version__ = "0.3.8-rc0"
+__version__ = "0.3.8"
 
