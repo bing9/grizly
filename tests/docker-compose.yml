@@ -63,21 +63,22 @@ services:
       - pytest_redis
     depends_on:
       - pytest_redis
-  pytest_dask_scheduler:
-    image: acoeteam/grizly_scheduler:latest
+    restart: "always"
+  dask_scheduler:
+    image: acoeteam/dask_scheduler:latest
     ports:
       - "1003:8787"
-    container_name: pytest_dask_scheduler
+    container_name: dask_scheduler
     restart: "always"
-  pytest_dask_worker:
-    image: acoeteam/grizly_worker:latest
-    environment:
-      - SCHEDULER_ADDRESS=pytest_dask_scheduler:8786
+    working_dir: "/home/analyst/grizly_dev/tests"
+  dask_worker:
+    image: acoeteam/dask_worker:latest
     volumes:
       - ~\acoe_projects\platform\local\docker_home:/home/analyst
     depends_on:
-      - pytest_dask_scheduler
+      - dask_scheduler
     restart: "always"
+    working_dir: "/home/analyst/grizly_dev/tests"
 
 volumes:
   redis_data:

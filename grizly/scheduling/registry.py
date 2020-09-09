@@ -194,6 +194,23 @@ class SchedulerObject(ABC):
     def __repr__(self):
         return f"{self.__class__.__name__}(name='{self.name}')"
 
+    @property
+    def con(self):
+        con = self.db.con
+        return con
+
+    @property
+    def created_at(self) -> datetime:
+        return self._deserialize(self.con.hget(self.hash_name, "created_at"), type="datetime",)
+
+    @property
+    def exists(self):
+        return self.con.exists(self.hash_name)
+
+    @property
+    def time_now(self)  -> datetime:
+        return datetime.now(timezone.utc)
+
     @abstractmethod
     def info(self):
         pass
@@ -205,19 +222,6 @@ class SchedulerObject(ABC):
     @abstractmethod
     def unregister(self):
         pass
-
-    @property
-    def created_at(self) -> datetime:
-        return self._deserialize(self.con.hget(self.hash_name, "created_at"), type="datetime",)
-
-    @property
-    def con(self):
-        con = self.db.con
-        return con
-
-    @property
-    def exists(self):
-        return self.con.exists(self.hash_name)
 
     def getall(self):  # to be removed or replaced git get_all()
         return self.con.hgetall(self.hash_name)
@@ -332,7 +336,8 @@ class JobRun(SchedulerObject):
             f"finished_at: {self.finished_at}\n"
             f"duration: {self.duration}\n"
             f"status: {self.status}\n"
-            f"error: {self.error}"
+            f"error: {self.error}\n"
+            f"result: {self.result}"
         )
         print(s)
 
@@ -381,6 +386,17 @@ class JobRun(SchedulerObject):
         )
 
     @property
+    def result(self) -> List[Any]:
+        return self._deserialize(self.con.hget(self.hash_name, "result"))
+
+    @result.setter
+    @_check_if_exists()
+    def result(self, result: List[Any]):
+        self.con.hset(
+            self.hash_name, "result", self._serialize(result),
+        )
+
+    @property
     def status(self) -> Literal["fail", "running", "success", None]:
         return self._deserialize(self.con.hget(self.hash_name, "status"))
 
@@ -401,6 +417,7 @@ class JobRun(SchedulerObject):
             "duration": "null",
             "status": "null",
             "error": "null",
+            "result": "null",
         }
         self.con.hset(
             name=self.hash_name, key=None, value=None, mapping=mapping,
@@ -419,6 +436,7 @@ class Job(SchedulerObject):
         s = (
             f"name: {self.name}\n"
             f"owner: {self.owner}\n"
+            f"description: {self.description}\n"
             f"timeout: {self.timeout}\n"
             f"created_at: {self.created_at}\n"
             f"crons: {self.crons}\n"
@@ -450,6 +468,17 @@ class Job(SchedulerObject):
 
         self.con.hset(
             self.hash_name, "crons", self._serialize(crons),
+        )
+
+    @property
+    def description(self) -> str:
+        return self._deserialize(self.con.hget(self.hash_name, "description"))
+
+    @description.setter
+    @_check_if_exists()
+    def description(self, description: str):
+        self.con.hset(
+            self.hash_name, "description", self._serialize(description),
         )
 
     @property
@@ -709,6 +738,7 @@ class Job(SchedulerObject):
         self,
         tasks: List[Delayed],
         owner: Optional[str] = None,
+        description: Optional[str] = None,
         timeout: int = 3600,
         crons: Union[List[str], str] = [],
         upstream: Union[List[str], str] = [],
@@ -742,6 +772,7 @@ class Job(SchedulerObject):
 
         mapping = {
             "owner": self._serialize(owner),
+            "description": self._serialize(description),
             "timeout": self._serialize(timeout),
             "crons": self._serialize(crons),
             "upstream": self._serialize(upstream),
@@ -844,7 +875,7 @@ class Job(SchedulerObject):
                 if self.downstream:
                     self.__submit_downstream_jobs()
             except Exception:
-                result = None
+                result = [None]
                 status = "fail"
                 _, exc_value, _ = sys.exc_info()
                 job_run.error = str(exc_value)
@@ -854,6 +885,7 @@ class Job(SchedulerObject):
                 job_run.finished_at = datetime.now(timezone.utc)
                 job_run.duration = int(end - start)
                 job_run.status = status
+                job_run.result = result
 
                 if to_dask:
                     client.close()
@@ -884,7 +916,7 @@ class Job(SchedulerObject):
                     f"{self} with cron '{cron}' has been added to rq sheduler with id {rq_job.id}"
                 )
                 rq_job_ids.append(rq_job.id)
-            self.logger.info(f"{self} has been added to the scheduler")
+            self.logger.debug(f"{self} has been added to the rq scheduler")
 
         return rq_job_ids
 
@@ -897,11 +929,11 @@ class Job(SchedulerObject):
                 try:
                     scheduler.cancel(rq_job_id)
                     RqJob.fetch(rq_job_id, connection=self.con).delete()
-                    self.logger.debug(f"Rq job {rq_job_id} removed from the scheduler")
+                    self.logger.debug(f"Rq job {rq_job_id} removed from the rq scheduler")
                 except NoSuchJobError:
                     pass
 
-            self.logger.info(f"{self} has been removed from the scheduler")
+            self.logger.debug(f"{self} has been removed from the rq scheduler")
 
     def __submit_downstream_jobs(self):
         self.logger.info(f"Enqueueing {self}.downstream...")
