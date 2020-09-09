@@ -16,6 +16,7 @@ from ..config import config
 
 JOBS_HOME = os.getenv("GRIZLY_WORKFLOWS_HOME", "home")
 
+
 class Extract:
     def __init__(
         self,
@@ -66,7 +67,10 @@ class Extract:
     def _get_client(self, client_str: Union[str, None] = None):
         if not client_str:
             client_str = self.client_str
-        return Client(client_str)
+
+        client = Client(client_str)
+        self.logger.debug("Client retrived")
+        return client
 
     def _validate_store(self, store):
         pass
@@ -76,21 +80,27 @@ class Extract:
         self.output_dsn = (
             store["output"].get("dsn") or self.driver.sqldb.dsn
         )  # this will only work for SQL drivers
-        self.output_external_schema = self.output_external_schema or store["output"].get("external_schema")
+        self.output_external_schema = self.output_external_schema or store["output"].get(
+            "external_schema")
         self.output_schema_prod = store["output"].get("schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_SCHEMA"
         )
-        self.output_external_table = store["output"].get("external_table") or self.module_name
-        self.output_table_prod = store["output"].get("table") or self.module_name
+        self.output_external_table = store["output"].get(
+            "external_table") or self.module_name
+        self.output_table_prod = store["output"].get(
+            "table") or self.module_name
 
     def load_store(self):
         if self.store_backend == "local":
-            DEFAULT_STORE_PATH = os.path.join(JOBS_HOME, "workflows", self.module_name, "store.json")
+            DEFAULT_STORE_PATH = os.path.join(
+                JOBS_HOME, "workflows", self.module_name, "store.json")
             store_path = self.store_path or DEFAULT_STORE_PATH
             with open(store_path) as f:
                 store = json.load(f)
         elif self.store_backend == "s3":
-            DEFAULT_STORE_PATH = "s3://" + os.path.join(self.bucket, self.s3_key, "store.json")
+            DEFAULT_STORE_PATH = "s3://" + \
+                os.path.join(self.bucket, self.s3_key, "store.json")
+            store_path = self.store_path or DEFAULT_STORE_PATH
             s3 = S3(url=DEFAULT_STORE_PATH)
             store = s3.to_serializable()
         else:
@@ -115,7 +125,8 @@ class Extract:
         existing_columns = self.driver.get_fields(aliased=True)
         _validate_columns(columns, existing_columns)
 
-        self.logger.info(f"Obtaining the list of unique values in {columns}...")
+        self.logger.info(
+            f"Obtaining the list of unique values in {columns}...")
 
         where = self.driver.data["select"]["where"]
         try:
@@ -124,7 +135,7 @@ class Extract:
             table = self.driver.data["select"]["table"]
 
             partitions_qf = (
-                QFrame(dsn=self.driver.sqldb.dsn, logger=self.logger)
+                QFrame(sqldb=self.driver.sqldb, logger=self.logger)
                 .from_table(table=table, schema=schema, columns=columns)
                 .query(where)
                 .groupby()
@@ -139,7 +150,8 @@ class Extract:
         else:
             values = [row[0] for row in records]
 
-        self.logger.info(f"Successfully obtained the list of unique values in {columns}")
+        self.logger.info(
+            f"Successfully obtained the list of unique values in {columns}")
         self.logger.debug(f"Unique values in {columns}: {values}")
 
         return values
@@ -157,7 +169,8 @@ class Extract:
             if extension == "parquet":
                 existing_partitions.append(file_name.replace(".parquet", ""))
 
-        self.logger.info(f"Successfully obtained the list of existing partitions")
+        self.logger.info(
+            f"Successfully obtained the list of existing partitions")
         self.logger.debug(f"Existing partitions: {existing_partitions}")
 
         return existing_partitions
@@ -174,17 +187,20 @@ class Extract:
         self.logger.debug(
             f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}"
         )
-        self.logger.info(f"Downloading {len(partitions_to_download)} partitions...")
+        self.logger.info(
+            f"Downloading {len(partitions_to_download)} partitions...")
         return partitions_to_download
 
     @dask.delayed
     def to_store_backend(self, serializable: Any, file_name: str):
         if self.store_backend == "s3":
             s3 = S3(s3_key=self.s3_key, file_name=file_name)
-            self.logger.info(f"Copying {file_name} from memory to {self.s3_key}...")
+            self.logger.info(
+                f"Copying {file_name} from memory to {self.s3_key}...")
             s3.from_serializable(serializable)
         elif self.store_backend == "local":
-            self.logger.info(f"Copying {file_name} from memory to {self.store_file_dir}...")
+            self.logger.info(
+                f"Copying {file_name} from memory to {self.store_file_dir}...")
             with open(os.path.join(self.store_file_dir, file_name), "w") as f:
                 json.dump(serializable, f)
         else:
@@ -211,7 +227,8 @@ class Extract:
     def to_arrow(self, driver: QFrame, partition: str = None):
         self.logger.info(f"Downloading data for partition {partition}...")
         pa = driver.to_arrow()
-        self.logger.info(f"Data for partition {partition} has been successfully downloaded")
+        self.logger.info(
+            f"Data for partition {partition} has been successfully downloaded")
         gc.collect()
         return pa
 
@@ -240,7 +257,8 @@ class Extract:
         if self.data_backend == "s3":
             arrow_to_s3(arrow_table)
         elif self.data_backend == "local":
-            pq.write_table(arrow_table, os.path.join(self.store_file_dir, file_name))
+            pq.write_table(arrow_table, os.path.join(
+                self.store_file_dir, file_name))
         else:
             raise NotImplementedError
 
@@ -257,7 +275,8 @@ class Extract:
                 if_exists=self.table_if_exists,
             )
         else:
-            raise ValueError("Exteral tables are only supported for S3 backend")
+            raise ValueError(
+                "Exteral tables are only supported for S3 backend")
 
     @dask.delayed
     def create_table(self, upstream: Delayed = None):
@@ -295,15 +314,18 @@ class Extract:
         client_str: str = None,
         **kwargs,
     ):
+        self.logger.debug("Started generating workflow")
         if if_exists is None:
             if_exists = self.if_exists
         if if_exists == "skip":
-            raise NotImplementedError("Please choose one of ('append', 'replace')")
+            raise NotImplementedError(
+                "Please choose one of ('append', 'replace')")
 
         if refresh_partitions_list:
             all_partitions = self.get_distinct_values()
         else:
-            all_partitions = self.get_cached_distinct_values(file_name="all_partitions.json")
+            all_partitions = self.get_cached_distinct_values(
+                file_name="all_partitions.json")
 
         # by default, always cache the list of distinct values in backend for future use
         if cache_distinct_values:
@@ -319,8 +341,8 @@ class Extract:
             else:
                 existing_partitions = self.get_existing_partitions()
                 partitions_to_download = self.get_partitions_to_download(
-                all_partitions, existing_partitions, upstream=cache_distinct_values_in_backend
-            )
+                    all_partitions, existing_partitions, upstream=cache_distinct_values_in_backend
+                )
         else:
             existing_partitions = self.get_existing_partitions()
             partitions_to_download = self.get_partitions_to_download(
@@ -333,6 +355,7 @@ class Extract:
             partitions = client.compute(partitions_to_download).result()
         except Exception:
             self.logger.exception("Something went wrong")
+            raise
         finally:
             client.close()
         if not partitions:
@@ -355,8 +378,10 @@ class Extract:
             # where_with_null = f"{partition_cols} IS NULL"
             # where = regular_where if partition_cols is not None else where_with_null
             processed_driver = self.query_driver(query=where)
-            arrow_table = self.to_arrow(driver=processed_driver, partition=partition)
-            push_to_backend = self.arrow_to_data_backend(arrow_table, s3_key=s3_key)
+            arrow_table = self.to_arrow(
+                driver=processed_driver, partition=partition)
+            push_to_backend = self.arrow_to_data_backend(
+                arrow_table, s3_key=s3_key)
             uploads.append(push_to_backend)
         external_table = self.create_external_table(upstream=uploads)
         if output_table_type == "base":
@@ -367,6 +392,7 @@ class Extract:
             final_task = external_table
         wf = Workflow(name=self.name, tasks=[final_task])
         self.workflow = wf
+        self.logger.debug("Workflow generated successfully")
         return wf
 
     def submit(self, **kwargs):
@@ -381,11 +407,10 @@ class Extract:
         Extract().submit(scheduler_address="grizly_scheduler:8786")
         """
         client_str = kwargs.get("client_str")
-        client = self._get_client(client_str)
         wf = self.generate_workflow(**kwargs)
-        wf.submit(client, **kwargs)
-        client.close()
-
+        # client = self._get_client(client_str)
+        wf.submit(scheduler_address=client_str, **kwargs)
+        # client.close()
 
     def validate(self):
         json1 = gen_json()
@@ -393,7 +418,6 @@ class Extract:
 
     @dask.delayed
     def load_qf(self, dsn, json_path, subquery, upstream=None):
-        qf = QFrame(dsn=self.input_dsn).from_json(json_path=json_path, subquery=subquery)
+        qf = QFrame(dsn=self.input_dsn).from_json(
+            json_path=json_path, subquery=subquery)
         return qf
-
-        
