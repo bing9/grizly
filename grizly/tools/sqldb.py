@@ -674,72 +674,60 @@ class SQLDB:
                 col_names = [col for col in columns if col in col_names_and_types]
                 col_types = [col_names_and_types[col_name] for col_name in col_names]
             return col_names, col_types
+    
+    @staticmethod
+    def _parametrize_dtype(raw_dtype, varchar_len, precision, scale):
+        if varchar_len is not None:
+            dtype = f"{raw_dtype}({varchar_len})"
+        elif raw_dtype.upper() in ["DECIMAL", "NUMERIC"]:
+            dtype = f"{raw_dtype}({precision}, {scale})"
+        else:
+            dtype = raw_dtype
+        return dtype
 
     def _get_columns_general(
         self, table, schema: str = None, column_types: bool = False, columns: list = None
     ):
         """Get column names (and optionally types) from a Redshift, MariaDB or Aurora table."""
-        con = self.get_connection()
-        cursor = con.cursor()
         where = (
             f"table_name = '{table}' AND table_schema = '{schema}' "
             if schema
             else f"table_name = '{table}' "
         )
         sql = f"""
-            SELECT ordinal_position,
-                   column_name,
+            SELECT column_name,
                    data_type,
                    character_maximum_length,
                    numeric_precision,
                    numeric_scale
             FROM information_schema.columns
-            WHERE {where}
-            ORDER BY ordinal_position;
+            WHERE {where};
             """
-        SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-        cursor.execute(sql)
+        records = self._fetch_records(sql)
 
-        col_names = []
+        cols_and_dtypes = {}
+        for colname, raw_dtype, varchar_len, precision, scale in records:
+            dtype = self._parametrize_dtype(raw_dtype, varchar_len, precision, scale)
+            cols_and_dtypes[colname] = dtype
+        
+        if columns:
+            # filter and sort columns and dtypes in the order provided by user
+            colnames, dtypes = [], []
+            for col in columns:
+                if col in cols_and_dtypes:
+                    colnames.append(col)
+                    dtypes.append(cols_and_dtypes[col])
+                else:
+                    table_full_name = f"{schema}.{table}" if schema else table
+                    self.logger.warning(f"Column {col} not found in {table_full_name}")
+        else:
+            colnames = list(cols_and_dtypes.keys())
+            dtypes = list(cols_and_dtypes.values())
 
         if column_types:
-            col_types = []
-            while True:
-                column = cursor.fetchone()
-                if not column:
-                    break
-                col_name = column[1]
-                col_type = column[2]
-                if column[3] is not None:
-                    col_type = f"{col_type}({column[3]})"
-                elif col_type.upper() in ["DECIMAL", "NUMERIC"]:
-                    col_type = f"{col_type}({column[4]}, {column[5]})"
-                col_names.append(col_name)
-                col_types.append(col_type)
-            # leave only the cols provided in the columns argument
-            if columns:
-                col_names_and_types = {
-                    col_name: col_type
-                    for col_name, col_type in zip(col_names, col_types)
-                    if col_name in columns
-                }
-                col_names = [col for col in col_names_and_types]
-                col_types = [type for type in col_names_and_types.values()]
-            to_return = (col_names, col_types)
+            to_return = (colnames, dtypes)
         else:
-            while True:
-                column = cursor.fetchone()
-                if not column:
-                    break
-                col_name = column[1]
-                col_names.append(col_name)
-            # leave only the cols provided in the columns argument
-            if columns:
-                col_names = [col for col in col_names if col in columns]
-            to_return = col_names
-
-        cursor.close()
-        con.close()
+            to_return = colnames
 
         return to_return
 
@@ -821,6 +809,21 @@ class SQLDB:
         finally:
             con.close()
             self.logger.debug("Connection closed")
+    
+    def _fetch_records(self, sql):
+        con = self.get_connection()
+        SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
+        records = []
+        try:
+            records = con.execute(sql).fetchall()
+            self.logger.debug(f"Successfully ran query\n {sql}")
+        except:
+            self.logger.exception(f"Error occured during running query\n {sql}")
+        finally:
+            con.close()
+            self.logger.debug("Connection closed")
+        records_tuples = [tuple(i) for i in records]  # cast from pyodbc records to python tuples
+        return records_tuples
 
 
 @deprecation.deprecated(details="Use SQLDB.check_if_exists function instead")
@@ -884,3 +887,4 @@ def copy_table(schema, copy_from, to, redshift_str=None):
     sqldb = SQLDB(db="redshift", engine_str=redshift_str)
     sqldb.copy_table(in_table=copy_from, out_table=to, in_schema=schema, out_schema=schema)
     return "Success"
+

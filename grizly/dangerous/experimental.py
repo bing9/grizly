@@ -27,9 +27,7 @@ class Extract:
         s3_bucket: str = None,
         s3_key: str = None,
         client_str: str = None,
-        if_exists: str = "replace",
-        reload_data: bool = True,
-        output_external_schema: str = None,
+        if_exists: str = "append",
         logger: logging.Logger = None,
         **kwargs,
     ):
@@ -38,18 +36,13 @@ class Extract:
         self.driver = driver
         self.store_backend = store_backend
         self.bucket = s3_bucket or config.get_service("s3")["bucket"]
-        self.store_path = store_path
         self.s3_key = s3_key or f"extracts/{self._to_snake_case(name)}/"
+        self.store_path = store_path or self._get_default_store_path()
         self.data_backend = data_backend
         self.client_str = client_str
         self.if_exists = if_exists
-        self.data_if_exists = if_exists
         self.table_if_exists = self._map_if_exists(if_exists)
-        self.reload_data = reload_data
         self.priority = 0
-        self.output_external_schema = output_external_schema or os.getenv(
-            "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
-        )
         self.logger = logger or self.driver.logger
         self.store = self.load_store()
         self._load_attrs_from_store(self.store)
@@ -58,12 +51,22 @@ class Extract:
     def _to_snake_case(text):
         return text.lower().replace(" - ", "_").replace(" ", "_")
 
-    def _map_if_exists(self, if_exists):
+    @staticmethod
+    def _map_if_exists(if_exists):
         """ Map data-related if_exists to table-related commands """
-        mapping = {"skip": "skip", "append": "skip", "replace": "drop"}
+        mapping = {"skip": "skip", "append": "drop", "replace": "drop"}
         return mapping[if_exists]
 
-    def _get_client(self, client_str: Union[str, None] = None):
+    def _get_default_store_path(self):
+        if self.store_backend == "local":
+            path = os.path.join(JOBS_HOME, "workflows", self.module_name, "store.json")
+        elif self.store_backend == "s3":
+            path = "s3://" + os.path.join(self.bucket, self.s3_key, "store.json")
+        else:
+            raise NotImplementedError
+        return path
+
+    def _get_client(self, client_str: str = None):
         if not client_str:
             client_str = self.client_str
         return Client(client_str)
@@ -76,7 +79,9 @@ class Extract:
         self.output_dsn = (
             store["output"].get("dsn") or self.driver.sqldb.dsn
         )  # this will only work for SQL drivers
-        self.output_external_schema = self.output_external_schema or store["output"].get("external_schema")
+        self.output_external_schema = store["output"].get("external_schema") or os.getenv(
+            "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
+        )
         self.output_schema_prod = store["output"].get("schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_SCHEMA"
         )
@@ -85,13 +90,10 @@ class Extract:
 
     def load_store(self):
         if self.store_backend == "local":
-            DEFAULT_STORE_PATH = os.path.join(JOBS_HOME, "workflows", self.module_name, "store.json")
-            store_path = self.store_path or DEFAULT_STORE_PATH
-            with open(store_path) as f:
+            with open(self.store_path) as f:
                 store = json.load(f)
         elif self.store_backend == "s3":
-            DEFAULT_STORE_PATH = "s3://" + os.path.join(self.bucket, self.s3_key, "store.json")
-            s3 = S3(url=DEFAULT_STORE_PATH)
+            s3 = S3(url=self.store_path)
             store = s3.to_serializable()
         else:
             raise NotImplementedError
@@ -184,8 +186,8 @@ class Extract:
             self.logger.info(f"Copying {file_name} from memory to {self.s3_key}...")
             s3.from_serializable(serializable)
         elif self.store_backend == "local":
-            self.logger.info(f"Copying {file_name} from memory to {self.store_file_dir}...")
-            with open(os.path.join(self.store_file_dir, file_name), "w") as f:
+            self.logger.info(f"Copying {file_name} from memory to {self.store_path}...")
+            with open(self.store_path, "w") as f:
                 json.dump(serializable, f)
         else:
             raise NotImplementedError
@@ -193,10 +195,10 @@ class Extract:
     @dask.delayed
     def get_cached_distinct_values(self, file_name: str):
         if self.store_backend == "s3":
-            s3 = S3(s3_key=self.s3_key, file_name=file_name)
+            s3 = S3(url=self.store_path)
             values = s3.to_serializable()
         elif self.store_backend == "local":
-            with open(os.path.join(self.store_file_dir, file_name)) as f:
+            with open(self.store_path) as f:
                 values = json.load(f)
         else:
             raise NotImplementedError
@@ -247,6 +249,7 @@ class Extract:
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
         s3_key = self.s3_key + "data/staging/"
+        # recreate the table even if if_exists is "append", because we append parquet files 
         if self.data_backend == "s3":
             self.driver.create_external_table(
                 schema=self.output_external_schema,
@@ -265,17 +268,10 @@ class Extract:
             qf = QFrame(dsn=self.output_dsn, dialect="mysql", logger=self.logger).from_table(
                 schema=self.output_external_schema, table=self.output_external_table
             )
-            # qf.create_table(
-            #     dsn=self.output_dsn,
-            #     dialect="postgresql",
-            #     schema=self.output_schema_prod,
-            #     table=self.output_table_prod,
-            #     if_exists=self.table_if_exists,
-            # )
             qf.to_table(
                 schema=self.output_schema_prod,
                 table=self.output_table_prod,
-                if_exists=self.data_if_exists,
+                if_exists=self.if_exists,  # here we use the unmapped if_exists
             )
         else:
             # qf.to_table()
@@ -288,17 +284,12 @@ class Extract:
     def generate_workflow(
         self,
         refresh_partitions_list: bool = True,
-        if_exists: str = None,
         download_if_older_than: int = 0,
         cache_distinct_values: bool = True,
         output_table_type: str = "external",
         client_str: str = None,
         **kwargs,
     ):
-        if if_exists is None:
-            if_exists = self.if_exists
-        if if_exists == "skip":
-            raise NotImplementedError("Please choose one of ('append', 'replace')")
 
         if refresh_partitions_list:
             all_partitions = self.get_distinct_values()
@@ -313,14 +304,8 @@ class Extract:
         else:
             cache_distinct_values_in_backend = None
 
-        if if_exists == "replace":
-            if self.reload_data:
-                partitions_to_download = all_partitions
-            else:
-                existing_partitions = self.get_existing_partitions()
-                partitions_to_download = self.get_partitions_to_download(
-                all_partitions, existing_partitions, upstream=cache_distinct_values_in_backend
-            )
+        if self.if_exists == "replace":
+            partitions_to_download = all_partitions
         else:
             existing_partitions = self.get_existing_partitions()
             partitions_to_download = self.get_partitions_to_download(
@@ -329,6 +314,7 @@ class Extract:
 
         # compute partitions on the cluster
         client = self._get_client(client_str)
+        partitions = []
         try:
             partitions = client.compute(partitions_to_download).result()
         except Exception:
@@ -346,25 +332,33 @@ class Extract:
         else:
             partition_cols = self.partition_cols[0]
 
+        if self.if_exists == "skip":
+            self.logger.info("Skipping...")
+            return
+
         # create the workflow
         uploads = []
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
             s3_key = self.s3_key + "data/staging/" + f"{partition}.parquet"
             where = f"{partition_cols}='{partition_concatenated}'"
-            # where_with_null = f"{partition_cols} IS NULL"
-            # where = regular_where if partition_cols is not None else where_with_null
             processed_driver = self.query_driver(query=where)
             arrow_table = self.to_arrow(driver=processed_driver, partition=partition)
             push_to_backend = self.arrow_to_data_backend(arrow_table, s3_key=s3_key)
-            uploads.append(push_to_backend)
-        external_table = self.create_external_table(upstream=uploads)
-        if output_table_type == "base":
-            regular_table = self.create_table(upstream=external_table)
-            # clear_spectrum = self.remove_table(self.output_schema, self.output_table, upstream=regular_table)
-            final_task = regular_table
+            if not self.if_exists == "skip":
+                uploads.append(push_to_backend)
+            else:
+                uploads.append(arrow_table)
+        if not self.if_exists == "skip":
+            external_table = self.create_external_table(upstream=uploads)
+            if output_table_type == "base":
+                regular_table = self.create_table(upstream=external_table)
+                # clear_spectrum = self.remove_table(self.output_schema, self.output_table, upstream=regular_table)
+                final_task = regular_table
+            else:
+                final_task = external_table
         else:
-            final_task = external_table
+            final_task = uploads
         wf = Workflow(name=self.name, tasks=[final_task])
         self.workflow = wf
         return wf
