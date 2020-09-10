@@ -3,30 +3,6 @@ from ..grizly.utils import get_path
 import os
 
 
-data = {
-    "config": {
-        "standard": {
-            "email": {"email_address": "my_email@example.com", "email_password": "my_password", "send_as": "Team"},
-            "github": {"username": "my_login", "username_password": "my_password", "pages": 100,},
-            "sfdc": {
-                "stage": {
-                    "username": "my_login",
-                    "instance_url": "https://na1.salesforce.com",
-                    "password": "my_password",
-                    "organizationId": "OrgId",
-                },
-                "prod": {"username": "my_login", "password": "my_password", "organizationId": "OrgId"},
-            },
-        }
-    }
-}
-
-
-def test_from_dict():
-    Config().from_dict(data)
-    assert Config.data == data["config"]
-
-
 def test_from_json():
     json_path = get_path("grizly_dev", "notebooks", "config.json")
 
@@ -36,7 +12,11 @@ def test_from_json():
     data = {
         "standard": {
             "proxies": {"http": "first_proxy", "https": "second_proxy"},
-            "email": {"email_address": "my_email@example.com", "email_password": "my_password", "send_as": "Team"},
+            "email": {
+                "email_address": "my_email@example.com",
+                "email_password": "my_password",
+                "send_as": "Team",
+            },
             "github": {"username": "my_login", "pages": 100, "username_password": "my_password"},
             "sfdc": {
                 "stage": {
@@ -45,7 +25,11 @@ def test_from_json():
                     "password": "my_password",
                     "organizationId": "OrgId",
                 },
-                "prod": {"username": "my_login", "password": "my_password", "organizationId": "OrgId"},
+                "prod": {
+                    "username": "my_login",
+                    "password": "my_password",
+                    "organizationId": "OrgId",
+                },
             },
             "sqldb": {
                 "redshift_acoe": {"db": "redshift", "dialect": "postgresql"},
