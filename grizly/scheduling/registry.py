@@ -208,7 +208,7 @@ class SchedulerObject(ABC):
         return self.con.exists(self.hash_name)
 
     @property
-    def time_now(self)  -> datetime:
+    def time_now(self) -> datetime:
         return datetime.now(timezone.utc)
 
     @abstractmethod
@@ -433,6 +433,8 @@ class Job(SchedulerObject):
 
     @_check_if_exists()
     def info(self):
+        """Print a concise summary of the Job
+        """
         s = (
             f"name: {self.name}\n"
             f"owner: {self.owner}\n"
@@ -448,6 +450,13 @@ class Job(SchedulerObject):
 
     @property
     def crons(self) -> List[str]:
+        """Get Job's cron strings
+
+        Returns
+        -------
+        List[str]
+            List of cron strings
+        """
         return self._deserialize(self.con.hget(self.hash_name, "crons"))
 
     @crons.setter
@@ -874,6 +883,7 @@ class Job(SchedulerObject):
                 self.logger.info(f"{self} finished with status {status}")
                 if self.downstream:
                     self.__submit_downstream_jobs()
+                self.__notify_listeners_on_change()
             except Exception:
                 result = [None]
                 status = "fail"
@@ -1015,3 +1025,12 @@ class Trigger(SchedulerObject):
         self.con.delete(self.hash_name)
 
         self.logger.info(f"{self} successfully removed from registry")
+
+
+class Listener(Trigger):
+    prefix = "grizly:registry:listeners:"
+
+    @property
+    def listened_jobs(self) -> List[Optional["Job"]]:
+        job_names = self._deserialize(self.con.hget(self.hash_name, "listened_jobs"))
+        return [Job(name=job, logger=self.logger, db=self.db) for job in job_names]
