@@ -4,7 +4,7 @@ import os
 
 
 def test_from_json():
-    json_path = get_path("grizly_dev", "notebooks", "config.json")
+    json_path = get_path("grizly_dev", "tutorials", "resources", "config.json")
 
     Config.data = {}
     Config().from_json(json_path=json_path)
@@ -43,7 +43,7 @@ def test_from_json():
 
 
 def test_env():
-    json_path = get_path("grizly_dev", "notebooks", "config.json")
+    json_path = get_path("grizly_dev", "tutorials", "resources", "config.json")
     os.environ["GRIZLY_CONFIG_FILE"] = json_path
 
     Config.data = {}
