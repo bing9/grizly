@@ -4,6 +4,79 @@ from exchangelib.errors import ErrorFolderNotFound
 from datetime import date
 
 
+class EmailScanJob:
+    def __init__(self, address, title, folder: str = None, *args, **kwargs):
+        self.address = address
+        self.title = title
+        self.folder = folder
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _validate_folder(account, folder_name):
+        if not folder_name:
+            return True
+        try:
+            account.inbox / folder_name
+        except ErrorFolderNotFound:
+            raise
+
+    def get_last_email_date(self):
+        account = EmailAccount(alias=self.address).account
+        self._validate_folder(account, self.folder)
+        last_message = None
+
+        if self.folder:
+            try:
+                last_message = (
+                    account.inbox.glob("**/" + self.folder)
+                    .filter(subject=self.title)
+                    .order_by("-datetime_received")
+                    .only("datetime_received")[0]
+                )
+            except IndexError:
+                last_message = None
+        else:
+            try:
+                last_message = (
+                    account.inbox.filter(subject=self.title)
+                    .filter(subject=self.title)
+                    .order_by("-datetime_received")
+                    .only("datetime_received")[0]
+                )
+            except IndexError:
+                last_message = None
+
+        if not last_message:
+            return None
+
+        d = last_message.datetime_received.date()
+        last_received_date = date(d.year, d.month, d.day)
+
+        return last_received_date
+
+
+
+
+from grizly.scheduling.system_jobs import EmailListenerJob
+
+sales_daily_news_scan = EmailScanJob(
+    address="acoeteam@te.com",
+    folder="refresh_info",
+    title="acoe_sales_daily_news",
+)
+sales_daily_news_scan_job = Job("Sales Daily News Email Scan").register(
+    tasks=[sals_daily_news_scanner.get_last_email_date]
+)
+
+sales_daily_news_listener = Listener("Sales Daily News Listener").register(
+    listen_to: Job="Sales Daily News Email Scan")
+
+custom_job = Job("Sales Daily News RDS Data Load").register(
+    listeners= "Sales Daily News RDS Data Load"
+)
+# ------------------------------------------
+
+
 def get_email_account(address=None, password=None, search_address=None, proxy=None):
     account = EmailAccount(address, password, alias=search_address, proxy=proxy,).account
     return account

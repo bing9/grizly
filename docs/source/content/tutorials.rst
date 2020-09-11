@@ -4,10 +4,9 @@ Tutorials
 
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 4
    :caption: Tutorials:
 
-   api/qframe
-   api/config
-   api/crosstab
-   api/extract
+   tutorials/qframe
+   tutorials/crosstab
+   tutorials/extract

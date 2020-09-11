@@ -12,6 +12,7 @@
 #
 import os
 import sys
+
 # from grizly import __version__
 
 sys.path.insert(0, os.path.abspath("../.."))
@@ -39,6 +40,7 @@ extensions = [
     "sphinx.ext.autosummary",
     "nbsphinx",
     "jupyter_sphinx.execute",
+    "numpydoc",  # properties in summary tab
 ]
 
 # nbsphinx_execute = 'never'
@@ -139,7 +141,11 @@ def setup(app):
                     if "methods" in self.options:
                         _, methods = self.get_members(c, "method", ["__init__"])
 
-                        self.content = ["~%s.%s" % (clazz, method) for method in methods if not method.startswith("_")]
+                        self.content = [
+                            "~%s.%s" % (clazz, method)
+                            for method in methods
+                            if not method.startswith("_")
+                        ]
                 finally:
                     return super(AutoAutoSummary, self).run()
 
