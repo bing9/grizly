@@ -26,7 +26,7 @@ class Config:
 
         Examples
         --------
-        >>> json_path = get_path('grizly_dev', 'notebooks', 'config.json')
+        >>> json_path = get_path('grizly_dev', 'tutorials', 'resources', 'config.json')
         >>> conf = Config().from_json(json_path)
 
         Returns
@@ -77,8 +77,9 @@ class Config:
 
         Examples
         --------
-        >>> json_path = get_path('grizly_dev', 'notebooks', 'config.json')
-        >>> conf = Config().from_json(json_path)
+        >>> json_path = get_path('grizly_dev', 'tutorials', 'resources', 'config.json')
+        >>> conf = Config()
+        >>> conf.from_json(json_path)
         >>> conf.get_service(service='email')
         {'email_address': 'my_email@example.com', 'email_password': 'my_password', 'send_as': 'Team'}
         >>> conf.get_service(service='sfdc', env='stage')
@@ -106,7 +107,9 @@ class Config:
 
         if config_key not in Config.data.keys():
             print(Config.data)
-            raise KeyError(f"Key {config_key} not found in config. Please check Config class documentation.")
+            raise KeyError(
+                f"Key {config_key} not found in config. Please check Config class documentation."
+            )
 
         # _validate_config(self.data[config_key], services=service, env=env)
         if service == "sfdc":
