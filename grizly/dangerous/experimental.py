@@ -14,7 +14,7 @@ from dask.delayed import Delayed
 import gc
 from ..config import config
 
-JOBS_HOME = os.getenv("GRIZLY_WORKFLOWS_HOME", "home")
+WORKING_DIR = os.getcwd()
 
 
 class Extract:
@@ -33,11 +33,11 @@ class Extract:
         **kwargs,
     ):
         self.name = name
-        self.module_name = self._to_snake_case(name)
+        self.name_snake_case = self._to_snake_case(name)
         self.driver = driver
-        self.store_backend = store_backend
+        self.store_backend = store_backend.lower()
         self.bucket = s3_bucket or config.get_service("s3")["bucket"]
-        self.s3_key = s3_key or f"extracts/{self._to_snake_case(name)}/"
+        self.s3_key = s3_key or f"extracts/{self.name_snake_case}/"
         self.store_path = store_path or self._get_default_store_path()
         self.data_backend = data_backend
         self.client_str = client_str
@@ -60,7 +60,7 @@ class Extract:
 
     def _get_default_store_path(self):
         if self.store_backend == "local":
-            path = os.path.join(JOBS_HOME, "workflows", self.module_name, "store.json")
+            path = os.path.join(WORKING_DIR, "store.json")
         elif self.store_backend == "s3":
             path = "s3://" + os.path.join(self.bucket, self.s3_key, "store.json")
         else:
@@ -79,22 +79,20 @@ class Extract:
         pass
 
     def _load_attrs_from_store(self, store):
+        """Load vlaues defined in store into attributes"""
         self.partition_cols = store["partition_cols"]
-        self.output_dsn = (
-            store["output"].get("dsn") or self.driver.sqldb.dsn
-        )  # this will only work for SQL drivers
+        self.output_dsn = (store["output"].get("dsn") or self.driver.sqldb.dsn)
         self.output_external_schema = store["output"].get("external_schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
         )
         self.output_schema_prod = store["output"].get("schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_SCHEMA"
         )
-        self.output_external_table = store["output"].get(
-            "external_table") or self.module_name
-        self.output_table_prod = store["output"].get(
-            "table") or self.module_name
+        self.output_external_table = store["output"].get("external_table") or self.name_snake_case
+        self.output_table_prod = store["output"].get("table") or self.name_snake_case
 
     def load_store(self):
+        """Load store from backend into memory"""
         if self.store_backend == "local":
             with open(self.store_path) as f:
                 store = json.load(f)
@@ -111,7 +109,7 @@ class Extract:
     @dask.delayed
     def get_distinct_values(self):
         def _validate_columns(columns: Union[str, List[str]], existing_columns: List[str]):
-            """ Check whether the provided columns exist within the table """
+            """ Check whether columns exist within the table """
             if isinstance(columns, str):
                 column = [columns]
             for column in columns:
