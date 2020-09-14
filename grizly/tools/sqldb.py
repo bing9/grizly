@@ -664,7 +664,7 @@ class SQLDB:
                 col_names = [col for col in columns if col in col_names_and_types]
                 col_types = [col_names_and_types[col_name] for col_name in col_names]
             return col_names, col_types
-    
+
     @staticmethod
     def _parametrize_dtype(raw_dtype, varchar_len, precision, scale):
         if varchar_len is not None:
@@ -685,21 +685,23 @@ class SQLDB:
             else f"table_name = '{table}' "
         )
         sql = f"""
-            SELECT column_name,
+            SELECT ordinal_position,
+                   column_name,
                    data_type,
                    character_maximum_length,
                    numeric_precision,
                    numeric_scale
             FROM information_schema.columns
-            WHERE {where};
+            WHERE {where}
+            ORDER BY 1;
             """
         records = self._fetch_records(sql)
 
         cols_and_dtypes = {}
-        for colname, raw_dtype, varchar_len, precision, scale in records:
+        for _, colname, raw_dtype, varchar_len, precision, scale in records:
             dtype = self._parametrize_dtype(raw_dtype, varchar_len, precision, scale)
             cols_and_dtypes[colname] = dtype
-        
+
         if columns:
             # filter and sort columns and dtypes in the order provided by user
             colnames, dtypes = [], []
@@ -799,7 +801,7 @@ class SQLDB:
         finally:
             con.close()
             self.logger.debug("Connection closed")
-    
+
     def _fetch_records(self, sql):
         con = self.get_connection()
         SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
