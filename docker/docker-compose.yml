@@ -5,12 +5,12 @@ services:
       context: ../
       dockerfile: docker/Dockerfile
       args:
-        - HTTP_PROXY=${HTTP_PROXY}
-        - HTTPS_PROXY=${HTTPS_PROXY}
+        - HTTP_PROXY=${PROXY}
+        - HTTPS_PROXY=${PROXY}
     environment:
-      - HTTP_PROXY=${HTTP_PROXY}
-      - HTTPS_PROXY=${HTTPS_PROXY}
-      - GRIZLY_PROXY=${GRIZLY_PROXY}
+      - HTTP_PROXY=${PROXY}
+      - HTTPS_PROXY=${PROXY}
+      - GRIZLY_PROXY=${PROXY}
       - GRIZLY_DASK_SCHEDULER_ADDRESS=${GRIZLY_DASK_SCHEDULER_ADDRESS}
       - GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA=${GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA}
       - GRIZLY_EXTRACT_STAGING_SCHEMA=${GRIZLY_EXTRACT_STAGING_SCHEMA}
@@ -18,14 +18,14 @@ services:
     ports:
       - "8889:8888"
     volumes:
-      - ./docker_home:/home/analyst
-      - ./docker_home/.config/odbc.ini:/etc/odbc.ini
+      - ../..:/home/analyst
+      - ../../.config/odbc.ini:/etc/odbc.ini
     container_name: grizly_notebook
     restart: "always"
   sqlmanager:
     image: sqlpad/sqlpad:latest
     volumes:
-      - ./docker_home/sqlpad:/var/lib/sqlpad
+      - ../../sqlpad:/var/lib/sqlpad
     environment:
       - SQLPAD_SESSION_MINUTES=999999
     ports:
