@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Extract
 
 - Released first version
+- Moved from `dangerous/experimental.py` to `tools/extract.py`
+- Added tutorial in `tutorials`
 
 ## [0.3.7](https://github.com/kfk/grizly/compare/v0.3.7rc1...v0.3.7) - 04-09-2020
 
@@ -33,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       @dask.delayed
       def add(x, y):
           return x + y
-          
+
       sum_task_1 = add(1, 2)
       job = Job(name="job_name_1")
       job.register(tasks=[sum_task_1], 
