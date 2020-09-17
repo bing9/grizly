@@ -137,6 +137,7 @@ class Extract:
                 .groupby()
             )
         except KeyError:
+            # source QFrame queries multiple tables; use source QFrame
             qf_copy = self.driver.copy()
             partitions_qf = qf_copy.select(columns).groupby()
 
