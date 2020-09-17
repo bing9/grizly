@@ -41,6 +41,15 @@ class Store:
     def __init__(self, qf: "QFrame"):
         self.qf = qf
 
+    @staticmethod
+    def _to_local(path, serializable):
+        with open(path, "w") as f:
+            json.dump(serializable, f, indent=4)
+
+    @staticmethod
+    def _to_s3(url, serializable):
+        S3(url=url).from_serializable(serializable)
+
     def to_dict(self, subquery=None):
         return_dict = {}
         if subquery:
@@ -75,8 +84,10 @@ class Store:
                 self.qf.logger.warning("Overwriting existing store.")
             data = self.qf.data
 
-        with open(path, "w") as f:
-            json.dump(data, f, indent=4)
+        if path.startswith("s3://"):
+            self._to_s3(path, data)
+        else:
+            self._to_local(path, data)
 
         self.qf.logger.info(f"Data saved in {path}")
 
@@ -233,10 +244,7 @@ class QFrame(BaseTool):
         QFrame
         """
         if json_path.startswith("s3://"):
-            _, _, bucket, *s3_key_list = json_path.split("/")[:-1]
-            s3_key = "/".join(s3_key_list)
-            file_name = json_path.split("/")[-1]
-            data = S3(bucket=bucket, s3_key=s3_key, file_name=file_name).to_serializable()
+            data = S3(url=json_path).to_serializable()
         else:
             with open(json_path, "r") as f:
                 data = json.load(f)
