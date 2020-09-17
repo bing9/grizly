@@ -1,4 +1,3 @@
-
 import pandas as pd
 
 import re
@@ -38,6 +37,50 @@ def prepend_table(data, expression):
     return expression
 
 
+class Store:
+    def __init__(self, qf: "QFrame"):
+        self.qf = qf
+
+    def to_dict(self, subquery=None):
+        return_dict = {}
+        if subquery:
+            return_dict[subquery] = self.qf.data
+        else:
+            return_dict = self.qf.data
+        return return_dict
+
+    def to_json(self, path, subquery=None):
+        """Saves QFrame.data to json file.
+
+        Parameters
+        ----------
+        json_path : str
+            Path to json file.
+        subquery : str, optional
+            Key in json file, by default ''
+        """
+        existing_data = {}
+        data = {}
+
+        # attempt to load the json from provided location
+        if os.path.isfile(path):
+            with open(path, "r") as f:
+                existing_data = json.load(f)
+                if existing_data:
+                    data = existing_data
+        if subquery:
+            data[subquery] = self.qf.data
+        else:
+            if existing_data:
+                self.qf.logger.warning("Overwriting existing store.")
+            data = self.qf.data
+
+        with open(path, "w") as f:
+            json.dump(data, f, indent=4)
+
+        self.qf.logger.info(f"Data saved in {path}")
+
+
 class QFrame(BaseTool):
     """Class which builds a SQL statement.
 
@@ -50,6 +93,7 @@ class QFrame(BaseTool):
     def __init__(
         self,
         data: dict = {},
+        store: Store = None,
         dsn: str = None,
         sqldb: SQLDB = None,
         sql: str = None,
@@ -73,6 +117,7 @@ class QFrame(BaseTool):
             )
 
         self.sqldb = sqldb or SQLDB(dsn=dsn, **kwargs)
+        self.store = Store(self)
 
     @property
     def ncols(self):
@@ -238,7 +283,12 @@ class QFrame(BaseTool):
         return self.from_dict(data=data)
 
     def from_table(
-        self, table: str, schema: str = None, columns: list = None, json_path: str = None, subquery: str = None
+        self,
+        table: str,
+        schema: str = None,
+        columns: list = None,
+        json_path: str = None,
+        subquery: str = None,
     ):
         """Generates QFrame by pulling columns and types from specified table.
 
@@ -270,10 +320,14 @@ class QFrame(BaseTool):
         if schema is None:
             schema = ""
         schema = schema if schema is not None else ""
-        col_names, col_types = self.sqldb.get_columns(schema=schema, table=table, columns=columns, column_types=True)
+        col_names, col_types = self.sqldb.get_columns(
+            schema=schema, table=table, columns=columns, column_types=True
+        )
 
         if col_names == []:
-            raise ValueError("No columns were loaded. Please check if specified table exists and is not empty.")
+            raise ValueError(
+                "No columns were loaded. Please check if specified table exists and is not empty."
+            )
 
         if json_path:
             initiate(
@@ -483,7 +537,11 @@ class QFrame(BaseTool):
         if "union" in self.data["select"]:
             self.logger.info("You can't add where clause inside union. Use select() method first.")
         else:
-            if "where" not in self.data["select"] or self.data["select"]["where"] == "" or if_exists == "replace":
+            if (
+                "where" not in self.data["select"]
+                or self.data["select"]["where"] == ""
+                or if_exists == "replace"
+            ):
                 self.data["select"]["where"] = query
             elif if_exists == "append":
                 self.data["select"]["where"] += f" {operator} {query}"
@@ -530,14 +588,24 @@ class QFrame(BaseTool):
             )
 
         else:
-            if "having" not in self.data["select"] or self.data["select"]["having"] == "" or if_exists == "replace":
+            if (
+                "having" not in self.data["select"]
+                or self.data["select"]["having"] == ""
+                or if_exists == "replace"
+            ):
                 self.data["select"]["having"] = having
             elif if_exists == "append":
                 self.data["select"]["having"] += f" {operator} {having}"
-                    
         return self
 
-    def assign(self, type: str = "dim", group_by: str = "", order_by: str = "", custom_type: str = "", **kwargs):
+    def assign(
+        self,
+        type: str = "dim",
+        group_by: str = "",
+        order_by: str = "",
+        custom_type: str = "",
+        **kwargs,
+    ):
         """Assigns expressions.
 
         Parameters
@@ -581,7 +649,9 @@ class QFrame(BaseTool):
         QFrame
         """
         if type not in ["dim", "num"] and custom_type == "":
-            raise ValueError("Custom type is not provided and invalid value in type. Valid values: 'dim', 'num'.")
+            raise ValueError(
+                "Custom type is not provided and invalid value in type. Valid values: 'dim', 'num'."
+            )
         if group_by.lower() not in [
             "group",
             "sum",
@@ -598,7 +668,9 @@ class QFrame(BaseTool):
         if order_by.lower() not in ["asc", "desc", ""]:
             raise ValueError("Invalid value in order_by. Valid values: 'ASC', 'DESC', ''.")
         if "union" in self.data["select"]:
-            self.logger.warning("You can't assign expressions inside union. Use select() method first.")
+            self.logger.warning(
+                "You can't assign expressions inside union. Use select() method first."
+            )
         else:
             if kwargs is not None:
                 for key in kwargs:
@@ -636,7 +708,9 @@ class QFrame(BaseTool):
         -------
         QFrame
         """
-        assert "union" not in self.data["select"], "You can't group by inside union. Use select() method first."
+        assert (
+            "union" not in self.data["select"]
+        ), "You can't group by inside union. Use select() method first."
 
         if isinstance(fields, str):
             fields = [fields]
@@ -828,7 +902,13 @@ class QFrame(BaseTool):
 
         return self
 
-    def window(self, offset: int = None, limit: int = None, deterministic: bool = True, order_by: list = None):
+    def window(
+        self,
+        offset: int = None,
+        limit: int = None,
+        deterministic: bool = True,
+        order_by: list = None,
+    ):
         """Sorts records and adds LIMIT and OFFSET parameters to QFrame, creating a chunk.
 
         Parameters
@@ -919,7 +999,9 @@ class QFrame(BaseTool):
         qfs = []
         for chunk in range(0, no_rows, chunksize):
             qf = self.copy()
-            qf = qf.window(offset=chunk, limit=chunksize, deterministic=deterministic, order_by=order_by)
+            qf = qf.window(
+                offset=chunk, limit=chunksize, deterministic=deterministic, order_by=order_by
+            )
             qfs.append(qf)
 
         return qfs
@@ -952,10 +1034,12 @@ class QFrame(BaseTool):
         aliased_fields = self._get_fields(aliased=True, not_selected=True)
         not_aliased_fields = self._get_fields(aliased=False, not_selected=True)
 
-        if not set(set(aliased_fields) | set(not_aliased_fields)) >= set(fields) or len(not_aliased_fields) != len(
-            fields
-        ):
-            raise ValueError("Fields are not matching, make sure that fields are the same as in your QFrame.")
+        if not set(set(aliased_fields) | set(not_aliased_fields)) >= set(fields) or len(
+            not_aliased_fields
+        ) != len(fields):
+            raise ValueError(
+                "Fields are not matching, make sure that fields are the same as in your QFrame."
+            )
 
         fields = self._get_fields_names(fields)
 
@@ -971,7 +1055,13 @@ class QFrame(BaseTool):
         return self
 
     def pivot(
-        self, rows: list, columns: list, values: str, aggtype: str = "sum", prefix: str = None, sort: bool = True
+        self,
+        rows: list,
+        columns: list,
+        values: str,
+        aggtype: str = "sum",
+        prefix: str = None,
+        sort: bool = True,
     ):
         """Reshapes QFrame to generate pivot table
 
@@ -1039,7 +1129,9 @@ class QFrame(BaseTool):
             col_filter = " AND ".join(col_filter)
 
             self.assign(
-                **{col_name: f'CASE WHEN {col_filter} THEN "{values}" ELSE 0 END'}, type="num", group_by=aggtype
+                **{col_name: f'CASE WHEN {col_filter} THEN "{values}" ELSE 0 END'},
+                type="num",
+                group_by=aggtype,
             )
 
         return self
@@ -1111,7 +1203,16 @@ class QFrame(BaseTool):
         self.sql = _get_sql(data=self.data, sqldb=self.sqldb)
         return self.sql
 
-    def create_table(self, table, schema="", char_size=500, dsn=None, sqldb=None, if_exists: str = "skip", **kwargs):
+    def create_table(
+        self,
+        table,
+        schema="",
+        char_size=500,
+        dsn=None,
+        sqldb=None,
+        if_exists: str = "skip",
+        **kwargs,
+    ):
         """Creates a new empty QFrame table in database if the table doesn't exist.
         TODO: Remove engine_str, db, dsn and dialect and leave sqldb
 
@@ -1135,7 +1236,9 @@ class QFrame(BaseTool):
                 f"Parameter engine_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
             )
 
-        sqldb = sqldb or (self.sqldb if dsn is None else SQLDB(dsn=dsn, logger=self.logger, **kwargs))
+        sqldb = sqldb or (
+            self.sqldb if dsn is None else SQLDB(dsn=dsn, logger=self.logger, **kwargs)
+        )
 
         types = self.get_dtypes()
         if self.sqldb.dialect == "mysql" and sqldb.dialect == "postgresql":
@@ -1257,7 +1360,11 @@ class QFrame(BaseTool):
             char_size=char_size,
         )
         self.sqldb.write_to(
-            table=table, columns=self.get_fields(aliased=True), sql=self.get_sql(), schema=schema, if_exists=if_exists,
+            table=table,
+            columns=self.get_fields(aliased=True),
+            sql=self.get_sql(),
+            schema=schema,
+            if_exists=if_exists,
         )
         return self
 
@@ -1300,7 +1407,9 @@ class QFrame(BaseTool):
         columns = self.get_fields(aliased=True)
         records = self.to_records()
         for i, column in enumerate(columns):
-            column_values = [float(line[i]) if type(line[i]) == decimal.Decimal else line[i] for line in records]
+            column_values = [
+                float(line[i]) if type(line[i]) == decimal.Decimal else line[i] for line in records
+            ]
             _dict[column] = column_values
         return _dict
 
@@ -1324,7 +1433,9 @@ class QFrame(BaseTool):
         if verbose:
             process = psutil.Process(os.getpid())
             self.logger.info("Executing pd.read_sql()...")
-            self.logger.info(f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB")
+            self.logger.info(
+                f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB"
+            )
         try:
             df = pd.read_sql(sql, con)
             if verbose:
@@ -1337,7 +1448,9 @@ class QFrame(BaseTool):
             # engine.dispose()
         if verbose:
             self.logger.info("Successfully executed pd.read_sql()")
-            self.logger.info(f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB")
+            self.logger.info(
+                f"Current memory usage: {process.memory_info().rss / 1024. / 1024. / 1024.:.2f}GB"
+            )
         return df
 
     def to_arrow(self):
@@ -1349,7 +1462,9 @@ class QFrame(BaseTool):
         table = pa.Table.from_pydict(_dict, schema=schema)
         return table
 
-    @deprecation.deprecated(details="Use QFrame.to_csv or QFrame.to_df and then use SQLDB or S3 class instead",)
+    @deprecation.deprecated(
+        details="Use QFrame.to_csv or QFrame.to_df and then use SQLDB or S3 class instead",
+    )
     def to_sql(
         self,
         table,
@@ -1381,12 +1496,25 @@ class QFrame(BaseTool):
 
     @deprecation.deprecated(details="Use S3.from_file function instead",)
     def csv_to_s3(self, csv_path, s3_key=None, keep_csv=True, bucket=None):
-        s3 = S3(file_name=os.path.basename(csv_path), s3_key=s3_key, bucket=bucket, file_dir=os.path.dirname(csv_path),)
+        s3 = S3(
+            file_name=os.path.basename(csv_path),
+            s3_key=s3_key,
+            bucket=bucket,
+            file_dir=os.path.dirname(csv_path),
+        )
         return s3.from_file(keep_file=keep_csv)
 
     @deprecation.deprecated(details="Use S3.to_rds function instead",)
     def s3_to_rds(
-        self, table, s3_name, schema="", if_exists="fail", sep="\t", use_col_names=True, redshift_str=None, bucket=None,
+        self,
+        table,
+        s3_name,
+        schema="",
+        if_exists="fail",
+        sep="\t",
+        use_col_names=True,
+        redshift_str=None,
+        bucket=None,
     ):
         file_name = s3_name.split("/")[-1]
         s3_key = "/".join(s3_name.split("/")[:-1])
@@ -1470,7 +1598,11 @@ class QFrame(BaseTool):
 
         if aliased:
             for field in fields_data:
-                if not not_selected and "select" in fields_data[field] and fields_data[field]["select"] == 0:
+                if (
+                    not not_selected
+                    and "select" in fields_data[field]
+                    and fields_data[field]["select"] == 0
+                ):
                     continue
                 else:
                     alias = (
@@ -1481,7 +1613,11 @@ class QFrame(BaseTool):
                     fields_out.append(alias)
         else:
             for field in fields_data:
-                if not not_selected and "select" in fields_data[field] and fields_data[field]["select"] == 0:
+                if (
+                    not not_selected
+                    and "select" in fields_data[field]
+                    and fields_data[field]["select"] == 0
+                ):
                     continue
                 else:
                     fields_out.append(field)
@@ -1491,7 +1627,7 @@ class QFrame(BaseTool):
     def _build_column_strings(self):
         # quotes wrapping fields differ depending on database (NOT ONLY DIALECT)
         if self.sqldb.db == "mariadb":
-            quote = '`'
+            quote = "`"
         else:
             quote = '"'
         if self.data == {}:
@@ -1517,11 +1653,15 @@ class QFrame(BaseTool):
             else:
                 prefix = re.search(r"^sq\d*[.]", field)
                 if prefix is not None:
-                    expr = f'{prefix.group(0)}{quote}{field[len(prefix.group(0)):]}{quote}'
+                    expr = f"{prefix.group(0)}{quote}{field[len(prefix.group(0)):]}{quote}"
                 else:
-                    expr = f'{quote}{field}{quote}'
+                    expr = f"{quote}{field}{quote}"
 
-            alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
+            alias = (
+                field
+                if "as" not in fields[field] or fields[field]["as"] == ""
+                else fields[field]["as"]
+            )
             alias = alias.replace('"', "")
 
             # we take either position or expression - depends if field in select
@@ -1553,7 +1693,7 @@ class QFrame(BaseTool):
                 order_by.append(f"{pos_nm}{order}")
 
             if field in selected_fields:
-                select_name = expr if expr == f'{quote}{alias}{quote}' else f'{expr} as "{alias}"'
+                select_name = expr if expr == f"{quote}{alias}{quote}" else f'{expr} as "{alias}"'
 
                 if "custom_type" in fields[field] and fields[field]["custom_type"] != "":
                     type = fields[field]["custom_type"].upper()
@@ -1640,7 +1780,9 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     assert (
         len(qframes) == len(join_type) + 1 or len(qframes) == 2 and isinstance(join_type, str)
     ), "Incorrect list size."
-    assert len(qframes) == 2 and isinstance(on, (int, str)) or len(join_type) == len(on), "Incorrect list size."
+    assert (
+        len(qframes) == 2 and isinstance(on, (int, str)) or len(join_type) == len(on)
+    ), "Incorrect list size."
 
     data = {"select": {"fields": {}}}
     aliases = []
@@ -1662,15 +1804,22 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
             else:
                 aliases.append(alias)
                 for field in sq["fields"]:
-                    if field == alias or "as" in sq["fields"][field] and sq["fields"][field]["as"] == alias:
+                    if (
+                        field == alias
+                        or "as" in sq["fields"][field]
+                        and sq["fields"][field]["as"] == alias
+                    ):
                         data["select"]["fields"][f"sq{iterator}.{alias}"] = {
                             "type": sq["fields"][field]["type"],
                             "as": alias,
                         }
-                        if "custom_type" in sq["fields"][field] and sq["fields"][field]["custom_type"] != "":
-                            data["select"]["fields"][f"sq{iterator}.{alias}"]["custom_type"] = sq["fields"][field][
-                                "custom_type"
-                            ]
+                        if (
+                            "custom_type" in sq["fields"][field]
+                            and sq["fields"][field]["custom_type"] != ""
+                        ):
+                            data["select"]["fields"][f"sq{iterator}.{alias}"]["custom_type"] = sq[
+                                "fields"
+                            ][field]["custom_type"]
                         break
 
     if isinstance(join_type, str):
@@ -1770,7 +1919,11 @@ def union(qframes=[], union_type=None, union_by="position"):
             for new_field in new_fields:
                 fields = deepcopy(qf.data["select"]["fields"])
                 for field in fields:
-                    if field == new_field or "as" in fields[field] and fields[field]["as"] == new_field:
+                    if (
+                        field == new_field
+                        or "as" in fields[field]
+                        and fields[field]["as"] == new_field
+                    ):
                         ordered_fields.append(field)
                         break
             qf.rearrange(ordered_fields)
@@ -1818,7 +1971,12 @@ def _validate_data(data):
 
     select = data["select"]
 
-    if "table" not in select and "join" not in select and "union" not in select and "sq" not in data:
+    if (
+        "table" not in select
+        and "join" not in select
+        and "union" not in select
+        and "sq" not in data
+    ):
         raise AttributeError("Missing 'table' attribute.")
 
     if "fields" not in select:
@@ -1908,26 +2066,34 @@ def _validate_data(data):
     if "distinct" in select and select["distinct"] != "":
         distinct = select["distinct"]
         if str(int(distinct)) != "1":
-            raise ValueError(f"""Distinct attribute has invalid value: '{distinct}'.  Valid values: '', '1'""")
+            raise ValueError(
+                f"""Distinct attribute has invalid value: '{distinct}'.  Valid values: '', '1'"""
+            )
 
     if "offset" in select and select["offset"] != "":
         offset = select["offset"]
         try:
             int(offset)
         except:
-            raise ValueError(f"""Limit attribute has invalid value: '{offset}'.  Valid values: '', integer """)
+            raise ValueError(
+                f"""Limit attribute has invalid value: '{offset}'.  Valid values: '', integer """
+            )
 
     if "limit" in select and select["limit"] != "":
         limit = select["limit"]
         try:
             int(limit)
         except:
-            raise ValueError(f"""Limit attribute has invalid value: '{limit}'.  Valid values: '', integer """)
+            raise ValueError(
+                f"""Limit attribute has invalid value: '{limit}'.  Valid values: '', integer """
+            )
 
     return data
 
 
-def initiate(columns, schema, table, json_path=None, engine_str="", subquery="", col_types=None, logger=None):
+def initiate(
+    columns, schema, table, json_path=None, engine_str="", subquery="", col_types=None, logger=None
+):
     """Creates a dictionary with fields information for a Qframe and saves the data in json file.
 
     Parameters
@@ -2020,7 +2186,9 @@ def _get_duplicated_columns(data):
     fields = data["select"]["fields"]
 
     for field in fields:
-        alias = field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
+        alias = (
+            field if "as" not in fields[field] or fields[field]["as"] == "" else fields[field]["as"]
+        )
         if alias in columns.keys():
             columns[alias].append(field)
         else:
