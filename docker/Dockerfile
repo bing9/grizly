@@ -10,7 +10,7 @@ RUN useradd --create-home analyst && \
 WORKDIR /grizly
 
 COPY . .
-RUN export https_proxy=$HTTPS_PROXY && \
+RUN export https_proxy=${HTTPS_PROXY} && \
     pip install --upgrade pip && \
     python setup.py clean --all && \
     python setup.py install && \

@@ -2,13 +2,13 @@ version: '3'
 services:
   base_notebook:
     image: grizly_base:latest
-    build: 
+    build:
       context: ../../
       dockerfile: docker/base_notebook/Dockerfile
       args:
-      - HTTP_PROXY=${HTTP_PROXY}
-      - HTTPS_PROXY=${HTTPS_PROXY}
-      - ALTERNATIVE_PROXY=${ALTERNATIVE_PROXY}
+      - HTTP_PROXY=${PROXY}
+      - HTTPS_PROXY=${PROXY}
+      - ALTERNATIVE_PROXY=${PROXY}
     ports:
       - "8888:8888"
     container_name: base_notebook

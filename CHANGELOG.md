@@ -2,10 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) 
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
-## [0.3.8](https://github.com/kfk/grizly/compare/v0.3.7...v0.3.8) - 09-09-2020
+## [0.3.8](https://github.com/kfk/grizly/compare/v0.3.7...v0.3.8) - 17-09-2020
 
 ### Job
 
@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Extract
 
 - Released first version
+- Moved from `dangerous/experimental.py` to `tools/extract.py`
+- Added tutorial in `tutorials`
+
+### QFrame
+- Added QFrame.store with `to_dict()` and `to_json()` methods
 
 ## [0.3.7](https://github.com/kfk/grizly/compare/v0.3.7rc1...v0.3.7) - 04-09-2020
 
@@ -33,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       @dask.delayed
       def add(x, y):
           return x + y
-          
+
       sum_task_1 = add(1, 2)
       job = Job(name="job_name_1")
       job.register(tasks=[sum_task_1], 

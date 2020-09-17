@@ -33,7 +33,10 @@ orders = {
 
 customers = {
     "select": {
-        "fields": {"Country": {"type": "dim", "as": "Country"}, "Customer": {"type": "dim", "as": "Customer"},},
+        "fields": {
+            "Country": {"type": "dim", "as": "Country"},
+            "Customer": {"type": "dim", "as": "Customer"},
+        },
         "table": "Customers",
     }
 }
@@ -69,9 +72,13 @@ def test_save_json_and_from_json2():
     os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.data == customers
 
+
 def test_from_json_s3():
-    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json("s3://acoe-s3/test/test_from_json_s3.json", subquery="test_subquery")
+    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
+        "s3://acoe-s3/test/test_from_json_s3.json", subquery="test_subquery"
+    )
     assert len(q.get_fields()) == 41
+
 
 def test_validation_data():
     QFrame(dsn=dsn, db="sqlite", dialect="mysql").validate_data(orders)
@@ -117,7 +124,9 @@ def test_rename():
 
 def test_rename_aliased():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(orders)
-    q.rename({"Part1": "Part2", "not_found_test": "test", "Bookings": "Bookings_test", "Value": "Sales"})
+    q.rename(
+        {"Part1": "Part2", "not_found_test": "test", "Bookings": "Bookings_test", "Value": "Sales"}
+    )
     assert q.data["select"]["fields"]["Part"]["as"] == "Part2"
     assert q.data["select"]["fields"]["Order"]["as"] == "Bookings_test"
     assert q.data["select"]["fields"]["Value"]["as"] == "Sales"
@@ -160,6 +169,7 @@ def test_having_from_dict():
     q.having("count(Customer)<=65")
     testexpr = "sum(Value)>1000 and count(Customer)<=65"
     assert q.data["select"]["having"] == testexpr
+
 
 def test_having_from_table():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(table="Track")
@@ -480,11 +490,19 @@ def test_to_df():
     assert df_from_qf.equals(test_df)
 
 
-playlists = {"select": {"fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}}, "table": "Playlist",}}
+playlists = {
+    "select": {
+        "fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}},
+        "table": "Playlist",
+    }
+}
 
 
 playlist_track = {
-    "select": {"fields": {"PlaylistId": {"type": "dim"}, "TrackId": {"type": "dim"}}, "table": "PlaylistTrack",}
+    "select": {
+        "fields": {"PlaylistId": {"type": "dim"}, "TrackId": {"type": "dim"}},
+        "table": "PlaylistTrack",
+    }
 }
 
 
@@ -519,10 +537,16 @@ def test_copy():
 def test_join_1():
     # using grizly
 
-    playlist_track_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(deepcopy(playlist_track))
+    playlist_track_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(
+        deepcopy(playlist_track)
+    )
     playlists_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(deepcopy(playlists))
 
-    joined_qf = join([playlist_track_qf, playlists_qf], join_type="left join", on="sq1.PlaylistId=sq2.PlaylistId",)
+    joined_qf = join(
+        [playlist_track_qf, playlists_qf],
+        join_type="left join",
+        on="sq1.PlaylistId=sq2.PlaylistId",
+    )
     joined_df = joined_qf.to_df()
 
     # using pandas
@@ -594,7 +618,9 @@ def test_join_1():
 
 def test_join_2():
 
-    playlist_track_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(deepcopy(playlist_track))
+    playlist_track_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(
+        deepcopy(playlist_track)
+    )
     playlists_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(deepcopy(playlists))
 
     joined_qf = join([playlist_track_qf, playlists_qf], join_type="cross join", on=0)
@@ -687,7 +713,9 @@ def test_union():
     sql = unioned_qf.get_sql()
 
     assert clean_testexpr(sql) == clean_testexpr(testsql)
-    assert unioned_qf.to_df().equals(concat([playlists_qf.to_df(), playlists_qf.to_df()], ignore_index=True))
+    assert unioned_qf.to_df().equals(
+        concat([playlists_qf.to_df(), playlists_qf.to_df()], ignore_index=True)
+    )
 
     qf1 = playlists_qf.copy()
     qf1.rename({"Name": "Old_name"})
@@ -721,7 +749,12 @@ def test_initiate():
     json = "test.json"
     sq = "test"
     initiate(
-        columns=columns, schema="test_schema", table="test_table", engine_str="engine", json_path=json, subquery=sq,
+        columns=columns,
+        schema="test_schema",
+        table="test_table",
+        engine_str="engine",
+        json_path=json,
+        subquery=sq,
     )
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(json_path=json, subquery=sq)
     os.remove(json)
@@ -771,18 +804,24 @@ def test_from_table_sqlite():
 
 
 def test_from_table_sqlite_json():
-    QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(table="Playlist", json_path="test.json", subquery="q1")
+    QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(
+        table="Playlist", json_path="test.json", subquery="q1"
+    )
     QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(
         table="PlaylistTrack", json_path="test.json", subquery="q2"
     )
 
-    qf1 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(json_path="test.json", subquery="q1")
+    qf1 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
+        json_path="test.json", subquery="q1"
+    )
     sql = """SELECT "PlaylistId",
                 "Name"
             FROM Playlist"""
     assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
 
-    qf2 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(json_path="test.json", subquery="q2")
+    qf2 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
+        json_path="test.json", subquery="q2"
+    )
     sql = """SELECT "PlaylistId",
                 "TrackId"
             FROM PlaylistTrack"""
@@ -803,7 +842,12 @@ def test_from_table_rds():
 
     assert clean_testexpr(sql) == clean_testexpr(qf.get_sql())
 
-    dtypes = ["CHARACTER VARYING(500)", "DOUBLE PRECISION", "CHARACTER VARYING(500)", "DOUBLE PRECISION"]
+    dtypes = [
+        "CHARACTER VARYING(500)",
+        "DOUBLE PRECISION",
+        "CHARACTER VARYING(500)",
+        "DOUBLE PRECISION",
+    ]
 
     assert dtypes == qf.get_dtypes()
 
@@ -843,7 +887,9 @@ def test_pivot_rds():
 
 
 def test_join_pivot_sqlite():
-    playlist_track_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(deepcopy(playlist_track))
+    playlist_track_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(
+        deepcopy(playlist_track)
+    )
     playlists_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(deepcopy(playlists))
     tracks_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_dict(deepcopy(tracks))
 
@@ -857,7 +903,12 @@ def test_join_pivot_sqlite():
     joined_qf = joined_qf.window(offset=3500, limit=100, order_by=["PlaylistId", "TrackId"])
 
     qf1 = joined_qf.copy()
-    qf1.pivot(rows=["GenreId", "Composer"], columns=["Name", "PlaylistId"], values="UnitPrice", aggtype="sum")
+    qf1.pivot(
+        rows=["GenreId", "Composer"],
+        columns=["Name", "PlaylistId"],
+        values="UnitPrice",
+        aggtype="sum",
+    )
 
     qf2 = joined_qf.copy()
     qf2.pivot(
@@ -868,7 +919,12 @@ def test_join_pivot_sqlite():
     )
 
     qf3 = joined_qf.copy()
-    qf3.pivot(rows=["sq3.GenreId", "Composer"], columns=["Name", "sq1.PlaylistId"], values="UnitPrice", aggtype="sum")
+    qf3.pivot(
+        rows=["sq3.GenreId", "Composer"],
+        columns=["Name", "sq1.PlaylistId"],
+        values="UnitPrice",
+        aggtype="sum",
+    )
 
     assert clean_testexpr(qf1.get_sql()) == clean_testexpr(qf2.get_sql())
     assert clean_testexpr(qf2.get_sql()) == clean_testexpr(qf3.get_sql())
