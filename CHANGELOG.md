@@ -41,19 +41,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
       sum_task_1 = add(1, 2)
       job = Job(name="job_name_1")
-      job.register(tasks=[sum_task_1], 
+      job.register(tasks=[sum_task_1],
                    owner="johnsnow@example.com",
                    crons="* * * * *")
-                   
+
       sum_task_2 = add(2, 3)
       job = Job(name="job_name_2")
-      job.register(tasks=[sum_task_2], 
+      job.register(tasks=[sum_task_2],
                    owner="johnsnow@example.com",
                    upstream="job_name_1")
       ```
 
 ### Docker
-- Integrated platform with grizly repo 
+- Integrated platform with grizly repo
 
 ### S3
 - Adjusted `to_df()` and `from_df()` methods to load data to memory not local files  [#524](https://github.com/tedcs/grizly/issues/524)
@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the possibility to run and cancel control checks (eg. `grizly workflow run "sales daily news control check" --local`). To cancel checks running on prod, run eg. `grizly workflow cancel "sales daily news control check"`
 - **IMPORTANT**: Engine strings (`engine` or `engine_str` parameters) are deprecated since version `0.3.6`. They are replaced with suitable datasource names (`dsn` parameter) [#455](https://github.com/kfk/grizly/issues/455)
 - Added experimental.py with the experimental Extract class
-- Removed SQLAlchemy from requirements 
+- Removed SQLAlchemy from requirements
 
 ### Orchestrate
 
@@ -84,7 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Workflow
 
-- **IMPORTANT** run() method has been removed 
+- **IMPORTANT** run() method has been removed
 
 ### SQLDB
 
@@ -180,7 +180,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### SQLDB:
 
-- Added parameter `logger` 
+- Added parameter `logger`
 - Added parameter `interface` with options: "sqlalchemy", "turbodbc", "pyodbc"
 - `check_if_exists()` - added option `column`
 
@@ -290,6 +290,8 @@ For the S3 we use AWS configuration so if you don't have it in `.aws` folder ple
 - **PROXY**
 You can get some connection errors if you don't have at least one of `HTTPS_PROXY` or `HTTP_PROXY` specified in env variables. Some libraries may not be installed if you don't have `HTTPS_PROXY` specified.
 
+[0.3.8]: https://github.com/kfk/grizly/compare/v0.3.7...v0.3.8
+[0.3.7]: https://github.com/kfk/grizly/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/kfk/grizly/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/kfk/grizly/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/kfk/grizly/compare/v0.3.3...v0.3.4
