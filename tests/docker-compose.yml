@@ -17,11 +17,13 @@ services:
   pytest_grizly_notebook:
     image: grizly_notebook:latest
     environment:
+      - HTTPS_PROXY=${PROXY}
       - GRIZLY_REDIS_HOST=pytest_redis
     ports:
       - "1001:8888"
     volumes:
-      - ~\acoe_projects\platform\local\docker_home:/home/analyst
+      - ../..:/home/analyst
+      - ../../.config/odbc.ini:/etc/odbc.ini
     container_name: pytest_grizly_notebook
     restart: "always"
   pytest_rq-worker:
@@ -29,12 +31,15 @@ services:
     build:
       context: .
       dockerfile: rq-worker/Dockerfile
+      args:
+        - HTTPS_PROXY=${PROXY}
     links:
       - pytest_redis
     depends_on:
         - pytest_redis
     volumes:
-      - ~\acoe_projects\platform\local\docker_home:/home/analyst
+      - ../..:/home/analyst
+      - ../../.config/odbc.ini:/etc/odbc.ini
     restart: "always"
   pytest_rq-dashboard:
     image: rq-dashboard
@@ -42,6 +47,8 @@ services:
     build:
       context: .
       dockerfile: rq-dashboard/Dockerfile
+      args:
+        - HTTPS_PROXY=${PROXY}
     environment:
       - REDIS_HOST=pytest_redis
     ports:
@@ -53,6 +60,8 @@ services:
     restart: "always"
   pytest_rq-scheduler:
     image: rq-scheduler
+    volumes:
+      - ../..:/home/analyst
     container_name: pytest_rq-scheduler
     build:
       context: .
@@ -63,20 +72,20 @@ services:
       - pytest_redis
     depends_on:
       - pytest_redis
-  pytest_dask_scheduler:
-    image: acoeteam/grizly_scheduler:latest
+    restart: "always"
+  dask_scheduler:
+    image: acoeteam/dask_scheduler:latest
     ports:
       - "1003:8787"
-    container_name: pytest_dask_scheduler
+    container_name: dask_scheduler
     restart: "always"
-  pytest_dask_worker:
-    image: acoeteam/grizly_worker:latest
-    environment:
-      - SCHEDULER_ADDRESS=pytest_dask_scheduler:8786
+  dask_worker:
+    image: acoeteam/dask_worker:latest
     volumes:
-      - ~\acoe_projects\platform\local\docker_home:/home/analyst
+      - ../..:/home/analyst
+      - ../../.config/odbc.ini:/etc/odbc.ini
     depends_on:
-      - pytest_dask_scheduler
+      - dask_scheduler
     restart: "always"
 
 volumes:

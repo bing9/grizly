@@ -31,8 +31,8 @@ class SQLDB:
         engine_str = kwargs.get("engine_str")
         if engine_str is not None:
             dsn = engine_str.split("://")[-1]
-            self.logger.warning(
-                "Parameter engine_str in SQLDB is deprecated as of 0.3.5 and will be removed in 0.3.8. "
+            raise ValueError(
+                "Parameter engine_str in SQLDB is deprecated as of 0.3.5 and was removed in 0.3.8. "
                 f"Please use dsn='{dsn}' instead of engine_str='{engine_str}'."
             )
         if kwargs.get("interface") is not None:
@@ -40,17 +40,7 @@ class SQLDB:
                 f"Parameter interface in SQLDB will be ignored. Since version 0.3.6 grizly only supports 'pyodbc' interface."
             )
         if dsn is None:
-            self.logger.warning(
-                "Please specify dsn parameter in SQLDB. Since version 0.3.8 it will be obligatory."
-            )
-            if db is not None:
-                for key in config:
-                    if db == config[key]["db"]:
-                        dsn = key
-                        break
-
-            if dsn is None:
-                raise ValueError("Please specify dsn parameter")
+            raise ValueError("Parameter dsn is required since version 0.3.8")
         self.dsn = dsn
         if None in [dialect, db] and config.get(dsn) is None:
             raise ValueError(
@@ -369,8 +359,8 @@ class SQLDB:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
 
         full_table_name = f"{schema}.{table}" if schema else table
-        columns = ", ".join(columns)
         if columns:
+            columns = ", ".join(columns)
             sql = f"INSERT INTO {full_table_name} ({columns}) {sql}; commit;"
         else:
             sql = f"INSERT INTO {full_table_name} ({sql}); commit;"
@@ -675,12 +665,20 @@ class SQLDB:
                 col_types = [col_names_and_types[col_name] for col_name in col_names]
             return col_names, col_types
 
+    @staticmethod
+    def _parametrize_dtype(raw_dtype, varchar_len, precision, scale):
+        if varchar_len is not None:
+            dtype = f"{raw_dtype}({varchar_len})"
+        elif raw_dtype.upper() in ["DECIMAL", "NUMERIC"]:
+            dtype = f"{raw_dtype}({precision}, {scale})"
+        else:
+            dtype = raw_dtype
+        return dtype
+
     def _get_columns_general(
         self, table, schema: str = None, column_types: bool = False, columns: list = None
     ):
         """Get column names (and optionally types) from a Redshift, MariaDB or Aurora table."""
-        con = self.get_connection()
-        cursor = con.cursor()
         where = (
             f"table_name = '{table}' AND table_schema = '{schema}' "
             if schema
@@ -695,51 +693,33 @@ class SQLDB:
                    numeric_scale
             FROM information_schema.columns
             WHERE {where}
-            ORDER BY ordinal_position;
+            ORDER BY 1;
             """
-        SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
-        cursor.execute(sql)
+        records = self._fetch_records(sql)
 
-        col_names = []
+        cols_and_dtypes = {}
+        for _, colname, raw_dtype, varchar_len, precision, scale in records:
+            dtype = self._parametrize_dtype(raw_dtype, varchar_len, precision, scale)
+            cols_and_dtypes[colname] = dtype
+
+        if columns:
+            # filter and sort columns and dtypes in the order provided by user
+            colnames, dtypes = [], []
+            for col in columns:
+                if col in cols_and_dtypes:
+                    colnames.append(col)
+                    dtypes.append(cols_and_dtypes[col])
+                else:
+                    table_full_name = f"{schema}.{table}" if schema else table
+                    self.logger.warning(f"Column {col} not found in {table_full_name}")
+        else:
+            colnames = list(cols_and_dtypes.keys())
+            dtypes = list(cols_and_dtypes.values())
 
         if column_types:
-            col_types = []
-            while True:
-                column = cursor.fetchone()
-                if not column:
-                    break
-                col_name = column[1]
-                col_type = column[2]
-                if column[3] is not None:
-                    col_type = f"{col_type}({column[3]})"
-                elif col_type.upper() in ["DECIMAL", "NUMERIC"]:
-                    col_type = f"{col_type}({column[4]}, {column[5]})"
-                col_names.append(col_name)
-                col_types.append(col_type)
-            # leave only the cols provided in the columns argument
-            if columns:
-                col_names_and_types = {
-                    col_name: col_type
-                    for col_name, col_type in zip(col_names, col_types)
-                    if col_name in columns
-                }
-                col_names = [col for col in col_names_and_types]
-                col_types = [type for type in col_names_and_types.values()]
-            to_return = (col_names, col_types)
+            to_return = (colnames, dtypes)
         else:
-            while True:
-                column = cursor.fetchone()
-                if not column:
-                    break
-                col_name = column[1]
-                col_names.append(col_name)
-            # leave only the cols provided in the columns argument
-            if columns:
-                col_names = [col for col in col_names if col in columns]
-            to_return = col_names
-
-        cursor.close()
-        con.close()
+            to_return = colnames
 
         return to_return
 
@@ -822,6 +802,21 @@ class SQLDB:
             con.close()
             self.logger.debug("Connection closed")
 
+    def _fetch_records(self, sql):
+        con = self.get_connection()
+        SQLDB.last_commit = sqlparse.format(sql, reindent=True, keyword_case="upper")
+        records = []
+        try:
+            records = con.execute(sql).fetchall()
+            self.logger.debug(f"Successfully ran query\n {sql}")
+        except:
+            self.logger.exception(f"Error occured during running query\n {sql}")
+        finally:
+            con.close()
+            self.logger.debug("Connection closed")
+        records_tuples = [tuple(i) for i in records]  # cast from pyodbc records to python tuples
+        return records_tuples
+
 
 @deprecation.deprecated(details="Use SQLDB.check_if_exists function instead")
 def check_if_exists(table, schema=""):
@@ -884,3 +879,4 @@ def copy_table(schema, copy_from, to, redshift_str=None):
     sqldb = SQLDB(db="redshift", engine_str=redshift_str)
     sqldb.copy_table(in_table=copy_from, out_table=to, in_schema=schema, out_schema=schema)
     return "Success"
+

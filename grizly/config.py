@@ -10,80 +10,11 @@ class Config:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-
-    def from_dict(self, data: dict):
-        """Overwrites Config.data using dictionary data
-
-        Parameters
-        ----------
-        data : dict
-            Dictionary with config key.
-
-        Examples
-        --------
-        >>> standard = {
-        ...        "config": {
-        ...            "standard": {
-        ...            "email": {
-        ...                "email_address": "my_email@example.com",
-        ...                "email_password": "my_password",
-        ...                "send_as": "Team"
-        ...            },
-        ...            "github": {
-        ...                "username": "my_login",
-        ...                "username_password": "my_password",
-        ...                "pages": 100
-        ...            },
-        ...            "sfdc": {
-        ...                "stage": {
-        ...                "username": "my_login",
-        ...                "instance_url": "https://na1.salesforce.com",
-        ...                "password": "my_password",
-        ...                "organizationId": "OrgId"
-        ...                },
-        ...                "prod": {
-        ...                "username": "my_login",
-        ...                "password": "my_password",
-        ...                "organizationId": "OrgId"
-        ...                }
-        ...            },
-        ...            "proxies": {
-        ...                "http": "first_proxy",
-        ...                "https": "second_proxy"
-        ...            },
-        ...            "sqldb": {
-        ...                "redshift_acoe": {
-        ...                   "db": "redshift",
-        ...                   "dialect": "postgresql"
-        ...                },
-        ...                "DenodoPROD": {
-        ...                   "db": "denodo",
-        ...                   "dialect": "denodo"
-        ...                }
-        ...             }
-        ...             }
-        ...        }
-        ...        }
-        >>> conf = Config().from_dict(standard)
-
-        Returns
-        -------
-        Config
-        """
-        if "config" in data:
-            if not isinstance(data["config"], dict):
-                raise TypeError("config must be a dictionary")
-            if data["config"] == {}:
-                raise ValueError("config is empty")
-
-            for key in data["config"].keys():
-                _validate_config(data["config"][key], services=None)
-
-            Config.data = data["config"]
-            self.logger.debug("Config data has been saved.")
-            return Config()
+        config_path = os.environ.get("GRIZLY_CONFIG_FILE", get_path(".grizly", "config.json"))
+        if os.path.exists(config_path):
+            self.from_json(config_path)
         else:
-            raise KeyError("'config' key not found")
+            raise FileNotFoundError(f"Config file not found: {config_path}.")
 
     def from_json(self, json_path: str):
         """Overwrites Config.data using json file data
@@ -95,7 +26,7 @@ class Config:
 
         Examples
         --------
-        >>> json_path = get_path('grizly_dev', 'notebooks', 'config.json')
+        >>> json_path = get_path('grizly_dev', 'tutorials', 'resources', 'config.json')
         >>> conf = Config().from_json(json_path)
 
         Returns
@@ -111,91 +42,12 @@ class Config:
                 raise ValueError("config is empty")
 
             for key in data["config"].keys():
-                # updating old config to be romoved in 0.3.7
-                if "sqldb" not in data["config"][key] or "denodo" in data["config"][key]["sqldb"]:
-                    sqldb_config = {
-                        "redshift_acoe": {"db": "redshift", "dialect": "postgresql"},
-                        "Redshift": {"db": "redshift", "dialect": "postgresql"},
-                        "DenodoPROD": {"db": "denodo", "dialect": "denodo"},
-                        "DenodoODBC": {"db": "denodo", "dialect": "denodo"},
-                        "aurora_db": {"db": "aurora", "dialect": "postgresql"},
-                        "retool_dev_db": {"db": "mariadb", "dialect": "mysql"},
-                        "tableau_postgre": {"db": "tableau", "dialect": "postgresql"},
-                    }
-                    data["config"][key]["sqldb"] = sqldb_config
-                    with open(json_path, "w") as f:
-                        json.dump(data, f)
-                    self.logger.warning(
-                        f"File {json_path} has been overwritten. "
-                        "Old configuration for 'sqldb' has been replaced with new compatible with grizly 0.3.6."
-                    )
-
-                if "github" in data["config"][key] and "proxies" in data["config"][key]["github"]:
-                    data["config"][key]["github"].pop("proxies")
-                    with open(json_path, "w") as f:
-                        json.dump(data, f)
-                    self.logger.warning(
-                        f"File {json_path} has been overwritten. "
-                        "Old configuration for 'github' has been replaced with new compatible with grizly 0.3.6."
-                    )
-
                 _validate_config(data["config"][key], services=None)
 
             Config.data = data["config"]
             self.logger.debug(f"Config data loaded from {json_path}.")
-            return Config()
         else:
             raise KeyError(f"'config' key not found in config file {json_path}")
-
-    def add_keys(self, data: dict, if_exists: str = "skip"):
-        """Adds new keys to Config.data
-
-        Parameters
-        ----------
-        data : dict
-            Dictionary with keys to be added to Config.data
-        if_exists : {'skip', 'replace'}, default 'skip'
-            How to behave if the key already exists.
-
-            * skip: Skips existing key
-            * replace: Replaces existing key
-
-        Examples
-        --------
-        >>> personal_john = {
-        ...        "personal_john": {
-        ...        "email": {
-        ...            "email_address": "john_snow@example.com",
-        ...            "email_password": "wolf123",
-        ...            "send_as": "John Snow"
-        ...        }
-        ...        }
-        ...    }
-        >>> conf = Config().add_keys(personal_john)
-        >>> Config.data["personal_john"]
-        {'email': {'email_address': 'john_snow@example.com', 'email_password': 'wolf123', 'send_as': 'John Snow'}}
-
-        Returns
-        -------
-        Config
-        """
-        if if_exists not in ("skip", "replace"):
-            raise ValueError("'{}' is not valid for if_exists. Valid values: 'skip', 'replace'".format(if_exists))
-        for key in data.keys():
-            if key in list(Config.data.keys()):
-                if if_exists == "skip":
-                    print(
-                        f"Key '{key}' already exists and has been skipped. If you want to overwrite it please use if_exists='replace'"
-                    )
-                elif if_exists == "replace":
-                    _validate_config(data[key], services=None)
-                    Config.data.update({key: data[key]})
-                    print(f"Key '{key}' has been overwritten.")
-            else:
-                _validate_config(data[key], services=None)
-                Config.data[key] = data[key]
-                self.logger.debug(f"Key '{key}' has been added.")
-        return Config()
 
     def get_service(
         self, service: str, config_key: str = None, env: str = None,
@@ -213,6 +65,7 @@ class Config:
             * 'proxies'
             * 'sqldb'
             * 'schedule'
+            * 's3'
         config_key : str, optional
             Config key, by default 'standard'
         env : str, optional
@@ -224,8 +77,9 @@ class Config:
 
         Examples
         --------
-        >>> json_path = get_path('grizly_dev', 'notebooks', 'config.json')
-        >>> conf = Config().from_json(json_path)
+        >>> json_path = get_path('grizly_dev', 'tutorials', 'resources', 'config.json')
+        >>> conf = Config()
+        >>> conf.from_json(json_path)
         >>> conf.get_service(service='email')
         {'email_address': 'my_email@example.com', 'email_password': 'my_password', 'send_as': 'Team'}
         >>> conf.get_service(service='sfdc', env='stage')
@@ -253,7 +107,9 @@ class Config:
 
         if config_key not in Config.data.keys():
             print(Config.data)
-            raise KeyError(f"Key {config_key} not found in config. Please check Config class documentation.")
+            raise KeyError(
+                f"Key {config_key} not found in config. Please check Config class documentation."
+            )
 
         # _validate_config(self.data[config_key], services=service, env=env)
         if service == "sfdc":
@@ -405,3 +261,6 @@ else:
     home_env = "USERPROFILE"
 home_dir = os.getenv(home_env) or "/root"
 default_config_dir = os.path.join(home_dir, ".grizly")
+
+
+config = Config()
