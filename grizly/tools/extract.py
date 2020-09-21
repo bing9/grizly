@@ -4,6 +4,7 @@ import dask
 from ..tools.qframe import QFrame
 from ..tools.s3 import S3
 from ..scheduling.orchestrate import Workflow
+from ..scheduling.registry import Job
 import s3fs
 import pyarrow.parquet as pq
 from pyarrow import Table
@@ -331,6 +332,7 @@ class Extract:
             client.close()
         if not partitions:
             self.logger.warning("No partitions to download")
+        self.partition_tasks = [partitions_to_download]
 
         if len(self.partition_cols) > 1:
             partition_cols_casted = [
@@ -367,6 +369,7 @@ class Extract:
                 final_task = external_table
         else:
             final_task = uploads
+        self.extract_tasks = [final_task]
         wf = Workflow(name=self.name, tasks=[final_task])
         self.workflow = wf
         self.logger.debug("Workflow generated successfully")
@@ -387,6 +390,31 @@ class Extract:
         # client = self._get_client(scheduler_address)
         wf.submit(scheduler_address=scheduler_address, **kwargs)
         # client.close()
+
+    def register(self, **kwargs):
+        """Submit the partitions and/or extract job
+
+        Parameters
+        ----------
+        kwargs: arguments to pass to Job.register()
+
+        """
+        partitions_job_name = self.name + " - partitions"
+        self.partitions_job = Job(partitions_job_name, logger=self.logger)
+        self.extract_job = Job(self.name, logger=self.logger)
+        self.partitions_job.register(tasks=self.partition_tasks, **kwargs)
+        self.extract_job.register(tasks=self.extract_tasks, upstream=partitions_job_name, **kwargs)
+
+    def submit_new(self, **kwargs):
+        """Submit the extract job
+
+        Parameters
+        ----------
+        kwargs: arguments to pass to Job.register() and Job.submit()
+
+        """
+        self.register(**kwargs)
+        self.partitions_job.submit(**kwargs)
 
     def validate(self):
         # json1 = gen_json()
