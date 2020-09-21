@@ -818,6 +818,7 @@ class S3:
                 except ValueError:
                     return False
 
+            ### this should be a function
             count = 0
             for row in csv_reader:
                 if count == 0:
@@ -829,6 +830,7 @@ class S3:
                         column_isfloat[i].append(isfloat(item))
                         i += 1
                 count += 1
+            ###
 
             col_names = []
             col_types = []
