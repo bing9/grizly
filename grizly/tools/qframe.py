@@ -156,6 +156,24 @@ class QFrame(BaseTool):
         shape = (nrows, ncols)
         return shape
 
+    @property
+    def columns(self):
+        return self.get_fields()
+
+    @property
+    def fields(self):
+        """Alias for QFrame.columns"""
+        return self.columns
+
+    @property
+    def dtypes(self):
+        return self.get_dtypes()
+
+    @property
+    def types(self):
+        """Alias for QFrame.dtypes"""
+        return self.dtypes
+
     def create_sql_blocks(self):
         """Creates blocks which are used to generate an SQL"""
         if self.data == {}:
@@ -1144,7 +1162,7 @@ class QFrame(BaseTool):
 
         return self
 
-    def get_fields(self, aliased: bool = False, not_selected: bool = False):
+    def get_fields(self, aliased: bool = False, not_selected: bool = False, dtypes=False):
         """Returns list of QFrame fields.
 
         Parameters
@@ -1166,10 +1184,10 @@ class QFrame(BaseTool):
         list
             List of field names
         """
-        if self.data:
-            return self._get_fields(aliased=aliased, not_selected=not_selected)
-        else:
+        if not self.data:
             return []
+        fields = self._get_fields(aliased=aliased, not_selected=not_selected)
+        return dict(zip(fields, self.get_dtypes())) if dtypes else fields
 
     def get_dtypes(self):
         """Returns list of QFrame field data types.
@@ -1466,6 +1484,7 @@ class QFrame(BaseTool):
         colnames = self.get_fields(aliased=True)
         coltypes = [rds_to_pyarrow_type(dtype) for dtype in self.get_dtypes()]
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(colnames, coltypes)])
+        self.logger.info(f"Generating PyArrow table with schema: \n{schema}")
         _dict = self.to_dict()
         table = pa.Table.from_pydict(_dict, schema=schema)
         return table
