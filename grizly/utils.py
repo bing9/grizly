@@ -10,10 +10,50 @@ from time import sleep
 from functools import partial, wraps
 import deprecation
 import logging
+import datetime
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
 logger = logging.getLogger(__name__)
+
+
+def sql_to_python_dtype(dtype):
+    dtypes = {
+        "BOOL": bool,
+        "BOOLEAN": bool,
+        "INT": int,
+        "INTEGER": int,
+        "SMALLINT": int,
+        "BIGINT": int,
+        "INT2": int,
+        "INT4": int,
+        "INT8": int,
+        "NUMERIC": float,
+        "DECIMAL": float,
+        "FLOAT4": float,
+        "FLOAT8": float,
+        "DOUBLE PRECISION": float,
+        "REAL": float,
+        "NULL": None,
+        "DATE": datetime.date,
+        "VARCHAR": str,
+        "NVARCHAR": str,
+        "CHARACTER VARYING": str,
+        "TEXT": str,
+        "CHAR": str,
+        "CHARACTER": str,
+        "TIMESTAMP": datetime.datetime,
+        "TIMESTAMP WITHOUT TIME ZONE": datetime.datetime,
+        "TIMESTAMPTZ": datetime.datetime,
+        "TIMESTAMP WITH TIME ZONE": datetime.datetime,
+        "GEOMETRY": None,
+    }
+
+    for sql_dtype in dtypes:
+        if re.search(sql_dtype, dtype):
+            return dtypes[sql_dtype]
+    else:
+        return str
 
 
 def sfdc_to_sqlalchemy_dtype(sfdc_dtype):
