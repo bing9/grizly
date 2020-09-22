@@ -84,8 +84,12 @@ services:
     volumes:
       - ../..:/home/analyst
       - ../../.config/odbc.ini:/etc/odbc.ini
+    environment:
+      - HTTPS_PROXY=${PROXY}
     depends_on:
       - dask_scheduler
+    links:
+      - pytest_grizly_notebook
     restart: "always"
 
 volumes:
