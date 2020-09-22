@@ -379,3 +379,14 @@ def retry(exceptions, tries=4, delay=3, backoff=2, logger=None):
 def none_safe_loads(value):
     if value is not None:
         return json.loads(value)
+
+
+def dict_diff(first: dict, second: dict, by: str = "keys") -> dict:
+    """Inner join of two dictionaries"""
+    if by == "keys":
+        diff = {k: second[k] for k in set(second) - set(first)}
+    elif by == "values":
+        diff = {k: second[k] for k, _ in set(second.items()) - set(first.items())}
+    else:
+        raise NotImplementedError("Can only compare by keys or values.")
+    return diff
