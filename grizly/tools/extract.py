@@ -42,7 +42,7 @@ class Extract:
         self.s3_key = s3_key or f"extracts/{self.name_snake_case}/"
         self.store_path = store_path or self._get_default_store_path()
         self.data_backend = data_backend
-        self.scheduler_address = scheduler_address
+        self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
         self.if_exists = if_exists
         self.table_if_exists = self._map_if_exists(if_exists)
         self.priority = 0
@@ -291,7 +291,7 @@ class Extract:
 
     def generate_workflow(
         self,
-        scheduler_address: str,
+        scheduler_address: str = None,
         refresh_partitions_list: bool = True,
         download_if_older_than: int = 0,
         cache_distinct_values: bool = True,
@@ -346,7 +346,7 @@ class Extract:
             self.logger.info("Skipping...")
             return
 
-        # create the workflow
+        # crea te the workflow
         uploads = []
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
@@ -386,6 +386,8 @@ class Extract:
         --------
         Extract().submit(scheduler_address="grizly_scheduler:8786")
         """
+        if not scheduler_address:
+            scheduler_address = self.scheduler_address
         wf = self.generate_workflow(scheduler_address, **kwargs)
         # client = self._get_client(scheduler_address)
         wf.submit(scheduler_address=scheduler_address, **kwargs)
