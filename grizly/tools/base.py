@@ -20,7 +20,6 @@ class BaseTool:
         """TODO: Probably we don't need tool_name, df, dtypes and path"""
         self.tool_name = self.__class__.__name__
         self.df = None
-        self.dtypes = None
         self.path = None
         self.chunksize = chunksize
         self.logger = logger or logging.getLogger(__name__)
@@ -55,7 +54,9 @@ class BaseTool:
             self.logger.info(f"Downloading data into '{basename(csv_path)}'...")
             self.df.to_csv(csv_path)
         else:
-            raise NotImplementedError(f"This method is not supported for {self.__class__.__name__} class.")
+            raise NotImplementedError(
+                f"This method is not supported for {self.__class__.__name__} class."
+            )
 
     def to_parquet(self, parquet_path, debug=False):
         """Saves data to Parquet file.
@@ -95,7 +96,9 @@ class BaseTool:
         elif self.__class__.__name__ == "GitHub":
             self.df.astype(dtype=self.df.dtypes).to_parquet(parquet_path)
         else:
-            raise NotImplementedError(f"This method is not supported for {self.__class__.__name__} class.")
+            raise NotImplementedError(
+                f"This method is not supported for {self.__class__.__name__} class."
+            )
         if debug:
             return self.df.shape[0] or 0
 
@@ -140,7 +143,9 @@ class BaseTool:
         elif self.__class__.__name__ == "GitHub":
             df = self.df
         else:
-            raise NotImplementedError(f"This method is not supported for {self.__class__.__name__} class.")
+            raise NotImplementedError(
+                f"This method is not supported for {self.__class__.__name__} class."
+            )
 
         if os.path.exists(input_excel_path):
             copy_df_to_excel(
@@ -165,7 +170,14 @@ class BaseTool:
 
 
 def copy_df_to_excel(
-    df, input_excel_path, output_excel_path, sheet_name="", startrow=0, startcol=0, index=False, header=False,
+    df,
+    input_excel_path,
+    output_excel_path,
+    sheet_name="",
+    startrow=0,
+    startcol=0,
+    index=False,
+    header=False,
 ):
     writer = pd.ExcelWriter(input_excel_path, engine="openpyxl")
     book = openpyxl.load_workbook(input_excel_path)
@@ -174,7 +186,12 @@ def copy_df_to_excel(
     writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
 
     df.to_excel(
-        writer, sheet_name=sheet_name, startrow=startrow, startcol=startcol, index=index, header=header,
+        writer,
+        sheet_name=sheet_name,
+        startrow=startrow,
+        startcol=startcol,
+        index=index,
+        header=header,
     )
 
     writer.path = output_excel_path
