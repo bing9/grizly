@@ -81,7 +81,7 @@ class Extract:
         pass
 
     def _load_attrs_from_store(self, store):
-        """Load vlaues defined in store into attributes"""
+        """Load values defined in store into attributes"""
         self.partition_cols = store["partition_cols"]
         self.output_dsn = store["output"].get("dsn") or self.driver.sqldb.dsn
         self.output_external_schema = store["output"].get("external_schema") or os.getenv(
@@ -92,6 +92,7 @@ class Extract:
         )
         self.output_external_table = store["output"].get("external_table") or self.name_snake_case
         self.output_table_prod = store["output"].get("table") or self.name_snake_case
+        self.output_table_type = "base" if store["output"].get("table") else "external"
 
     def load_store(self):
         """Load store from backend into memory"""
@@ -295,7 +296,6 @@ class Extract:
         refresh_partitions_list: bool = True,
         download_if_older_than: int = 0,
         cache_distinct_values: bool = True,
-        output_table_type: str = "external",
         **kwargs,
     ):
 
@@ -361,7 +361,7 @@ class Extract:
                 uploads.append(arrow_table)
         if not self.if_exists == "skip":
             external_table = self.create_external_table(upstream=uploads)
-            if output_table_type == "base":
+            if self.output_table_type == "base":
                 regular_table = self.create_table(upstream=external_table)
                 # clear_spectrum = self.remove_table(self.output_schema, self.output_table, upstream=regular_table)
                 final_task = regular_table
@@ -393,17 +393,22 @@ class Extract:
         wf.submit(scheduler_address=scheduler_address, **kwargs)
         # client.close()
 
-    def register(self, **kwargs):
+    def register(self, db=None, **kwargs):
         """Submit the partitions and/or extract job
 
         Parameters
         ----------
         kwargs: arguments to pass to Job.register()
 
+        Examples
+        ----------
+        db_dev = SchedulerDB(dev_scheduler_addr)
+        Extract().register(db=db_dev, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
         """
         partitions_job_name = self.name + " - partitions"
-        self.partitions_job = Job(partitions_job_name, logger=self.logger)
-        self.extract_job = Job(self.name, logger=self.logger)
+        self.partitions_job = Job(partitions_job_name, logger=self.logger, db=db)
+        self.extract_job = Job(self.name, logger=self.logger, db=db)
+        self.generate_workflow()  # calculate partition tasks
         self.partitions_job.register(tasks=self.partition_tasks, **kwargs)
         self.extract_job.register(tasks=self.extract_tasks, upstream=partitions_job_name, **kwargs)
 
