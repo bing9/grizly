@@ -282,30 +282,17 @@ class S3:
             df = clean(df)
             df = clean_colnames(df)
 
-        if to_file:
-            filepath_or_buffer = os.path.join(self.file_dir, self.file_name)
-
-            if self.file_ext == "csv":
-                df.to_csv(filepath_or_buffer, index=index, sep=sep, **kwargs)
-            elif self.file_ext == "xlsx":
-                df.to_excel(filepath_or_buffer, index=index, **kwargs)
-            else:
-                df.to_parquet(filepath_or_buffer, index=index, **kwargs)
-
-            return self.from_file(keep_file=kwargs.get("keep_file", False), if_exists=if_exists)
-
+        output = os.path.join(self.file_dir, self.file_name) if to_file else StringIO()
+        if self.file_ext == "csv":
+            df.to_csv(output, index=index, sep=sep, **kwargs)
+        elif self.file_ext == "xlsx":
+            df.to_excel(output, index=index, **kwargs)
         else:
-            if self.file_ext == "csv":
-                filepath_or_buffer = StringIO()
-                df.to_csv(filepath_or_buffer, index=index, sep=sep, **kwargs)
-            elif self.file_ext == "xlsx":
-                filepath_or_buffer = BytesIO()
-                df.to_excel(filepath_or_buffer, index=index, **kwargs)
-            else:
-                filepath_or_buffer = BytesIO()
-                df.to_parquet(filepath_or_buffer, index=index, **kwargs)
-
-            return self._from_buffer(filepath_or_buffer)
+            df.to_parquet(output, index=index, **kwargs)
+        if to_file:
+            return self.from_file(keep_file=kwargs.get("keep_file", False), if_exists=if_exists)
+        else:
+            return self._from_buffer(output)
 
     def from_file(
         self,
