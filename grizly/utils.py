@@ -17,6 +17,12 @@ deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", re
 logger = logging.getLogger(__name__)
 
 
+def python_to_sql_dtype(dtype):
+    mapping = {str: "VARCHAR(50)", int: "INTEGER", float: "FLOAT8"}
+    sql_dtype = mapping[dtype]
+    return sql_dtype
+
+
 def sql_to_python_dtype(dtype):
     dtypes = {
         "BOOL": bool,
