@@ -907,13 +907,12 @@ class S3:
     def _to_bytes(self) -> bytes:
         s3_obj = resource("s3").Object(self.bucket, self.full_s3_key)
         s3_obj_bytes = s3_obj.get()["Body"].read()
-
         return s3_obj_bytes
 
     def _from_buffer(self, buffer: Union[BytesIO, StringIO]):
         s3_obj = resource("s3").Object(self.bucket, self.full_s3_key)
         s3_obj.put(Body=buffer.getvalue())
-
+        buffer.close()
         return self
 
     def __validate_output_table(self, table, schema, sqldb, if_exists, sep, types):
