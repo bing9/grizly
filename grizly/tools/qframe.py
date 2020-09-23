@@ -12,7 +12,7 @@ from .s3 import S3
 from .sqldb import SQLDB
 from .dialects import check_if_valid_type, mysql_to_postgres_type
 from ..ui.qframe import SubqueryUI
-from ..utils import get_path, rds_to_pyarrow_type
+from ..utils import get_path, rds_to_pyarrow_type, sql_to_python_dtype, dict_diff, python_to_sql_dtype
 from .base import BaseTool
 
 import deprecation
@@ -182,6 +182,38 @@ class QFrame(BaseTool):
         else:
             self.data["select"]["sql_blocks"] = self._build_column_strings()
             return self
+
+    def check_types(self):
+
+        qf = self.copy().limit(100)
+
+        expected_types = dict(zip(qf.columns, qf.dtypes))
+        expected_types_mapped = {
+            col: sql_to_python_dtype(val) for col, val in expected_types.items()
+        }
+        # this only checks the first 100 rows
+        retrieved_types = {}
+        d = qf.to_dict()
+        for col in d:
+            unique_types = {type(val) for val in d[col] if type(val) is not type(None)}
+            if len(unique_types) > 1:
+                raise NotImplementedError(
+                    f"Multiple types detected in {col}. This is not yet handled."
+                )
+            retrieved_types[col] = list(unique_types)[0]
+
+        mismatched_with_none = dict_diff(expected_types_mapped, retrieved_types, by="values")
+        mismatched = {
+            col: dtype for col, dtype in mismatched_with_none.items() if dtype is not type(None)
+        }
+        return mismatched
+
+    def fix_types(self, mismatched: dict):
+        mismatched = self.check_types()
+        for col in mismatched:
+            python_dtype = mismatched[col]
+            sql_dtype = python_to_sql_dtype(python_dtype)
+            self.data["select"]["fields"][col]["custom_type"] = sql_dtype
 
     def validate_data(self, data: dict):
         """Validates loaded data.
