@@ -215,6 +215,7 @@ class SQLDB:
         columns_str = ", ".join(col_tuples)
         sql = "CREATE TABLE {} ({}); commit;".format(full_table_name, columns_str)
         self._run_query(sql)
+        self.logger.info(f"Table {full_table_name} has been successfully created.")
 
         return self
 
@@ -253,15 +254,16 @@ class SQLDB:
             CREATE EXTERNAL TABLE {full_table_name} (
             {columns_and_dtypes}
             )
-            ROW FORMAT SERDE 
-            'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe' 
-            STORED AS INPUTFORMAT 
-            'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat' 
-            OUTPUTFORMAT 
+            ROW FORMAT SERDE
+            'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+            STORED AS INPUTFORMAT
+            'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
+            OUTPUTFORMAT
             'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
             location 's3://{bucket}/{s3_key}';
             """
             self._run_query(sql, autocommit=True)
+            self.logger.info(f"Table {full_table_name} has been successfully created.")
         else:
             raise NotImplementedError(f"Unsupported database. Supported database: {supported_dbs}.")
 
@@ -795,7 +797,7 @@ class SQLDB:
         try:
             SQLDB.last_commit = sql
             con.execute(sql)
-            self.logger.info(f"Successfully ran query\n {sql}")
+            self.logger.debug(f"Successfully ran query\n {sql}")
         except:
             self.logger.exception(f"Error occured during running query\n {sql}")
         finally:
