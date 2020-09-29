@@ -154,8 +154,8 @@ class SchedulerDB:
 
     def _check_if_exists(
         self, values: Union[List[str], str], object_type: Literal["job"] = "job",
-        """Iterate through list of names of objects and check if they exist - if not raise error"""
     ):
+        """Iterate through list of names of objects and check if they exist - if not raise error"""
         if isinstance(values, str):
             values = [values]
         if object_type == "job":
@@ -661,7 +661,7 @@ class Job(SchedulerObject):
             downstream_job.remove_upstream_jobs(self.name)
         # 2. Add as a downstream job to the jobs in new_job_names
         for new_downstream_job_name in new_job_names:
-            new_downstream_job = Job(new_downstream_job_name)
+            new_downstream_job = Job(new_downstream_job_name, db=self.db, logger=self.logger)
             new_downstream_job.add_upstream_jobs(self.name)
         # 3. Update upstream jobs with the new job
         self.con.hset(
@@ -701,7 +701,7 @@ class Job(SchedulerObject):
 
         # remove the job as an upstream of the specified jobs
         for job_name in removed_job_names:
-            downstream_job = Job(job_name)
+            downstream_job = Job(job_name, db=self.db, logger=self.logger)
             if self in downstream_job.upstream:
                 downstream_job.remove_upstream_jobs(self.name)
 
@@ -710,7 +710,7 @@ class Job(SchedulerObject):
         """Get list of upstream jobs
         """
         upstream_job_names = self._deserialize(self.con.hget(self.hash_name, "upstream"))
-        upstream_jobs = [Job(job_name) for job_name in upstream_job_names]
+        upstream_jobs = [Job(job_name, db=self.db, logger=self.logger) for job_name in upstream_job_names]
         return upstream_jobs
 
     @upstream.setter
@@ -770,7 +770,7 @@ class Job(SchedulerObject):
 
         # remove the job from the downstream jobs of the specified jobs
         for job_name in removed_job_names:
-            upstream_job = Job(job_name)
+            upstream_job = Job(job_name, db=self.db, logger=self.logger)
             if self in upstream_job.downstream:
                 upstream_job.remove_downstream_jobs(self.name)
 
@@ -883,6 +883,7 @@ class Job(SchedulerObject):
 
         # remove job from upstream in all downstream jobs
         for downstream_job in self.downstream:
+            self.logger.info(downstream_job)
             downstream_job.remove_upstream_jobs(self.name)
 
         # remove job from all triggers
