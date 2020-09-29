@@ -126,7 +126,7 @@ class SchedulerDB:
             job_name = job_hash_name[len(prefix) :]
             job = Job(name=job_name, logger=self.logger, db=self)
             jobs.append(job)
-        return jobs
+        return sorted(jobs, key=lambda job: job.name)
 
     def get_job_runs(self, job_name: Optional[str] = None) -> List["JobRun"]:
         job_runs = []
@@ -152,10 +152,10 @@ class SchedulerDB:
     ):
         self._check_if_exists(values=job_names, object_type="job")
 
-    def _check_if_exists(
+    def _check_if_exists(a
         self, values: Union[List[str], str], object_type: Literal["job"] = "job",
-    ):
         """Iterate through list of names of objects and check if they exist - if not raise error"""
+    ):
         if isinstance(values, str):
             values = [values]
         if object_type == "job":
