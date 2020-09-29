@@ -4,7 +4,7 @@ Class QFrame
 
 QFrame
 ~~~~~~~~~~~
-.. currentmodule:: grizly
+.. currentmodule:: grizly.tools.qframe
 
 .. autoclass:: QFrame
    :members:
