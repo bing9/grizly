@@ -152,7 +152,7 @@ class SchedulerDB:
     ):
         self._check_if_exists(values=job_names, object_type="job")
 
-    def _check_if_exists(a
+    def _check_if_exists(
         self, values: Union[List[str], str], object_type: Literal["job"] = "job",
         """Iterate through list of names of objects and check if they exist - if not raise error"""
     ):
