@@ -640,7 +640,9 @@ class Job(SchedulerObject):
         """Get list of downstream jobs
         """
         downstream_job_names = self._deserialize(self.con.hget(self.hash_name, "downstream"))
-        downstream_jobs = [Job(job_name) for job_name in downstream_job_names]
+        downstream_jobs = [
+            Job(job_name, db=self.db, logger=self.logger) for job_name in downstream_job_names
+        ]
         return downstream_jobs
 
     @downstream.setter
@@ -710,7 +712,9 @@ class Job(SchedulerObject):
         """Get list of upstream jobs
         """
         upstream_job_names = self._deserialize(self.con.hget(self.hash_name, "upstream"))
-        upstream_jobs = [Job(job_name, db=self.db, logger=self.logger) for job_name in upstream_job_names]
+        upstream_jobs = [
+            Job(job_name, db=self.db, logger=self.logger) for job_name in upstream_job_names
+        ]
         return upstream_jobs
 
     @upstream.setter
@@ -730,7 +734,7 @@ class Job(SchedulerObject):
             upstream_job.remove_downstream_jobs(self.name)
         # 2. Add as a downstream job to the jobs in new_job_names
         for new_upstream_job_name in new_job_names:
-            new_upstream_job = Job(new_upstream_job_name)
+            new_upstream_job = Job(new_upstream_job_name, db=self.db, logger=self.logger)
             new_upstream_job.add_downstream_jobs(self.name)
         # 3. Update upstream jobs with the new job
         self.con.hset(
@@ -883,7 +887,6 @@ class Job(SchedulerObject):
 
         # remove job from upstream in all downstream jobs
         for downstream_job in self.downstream:
-            self.logger.info(downstream_job)
             downstream_job.remove_upstream_jobs(self.name)
 
         # remove job from all triggers
