@@ -2,5 +2,5 @@
 Class Config
 =============
 
-.. autoclass:: grizly.Config
+.. autoclass:: grizly.config.Config
    :members:
