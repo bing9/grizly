@@ -7,12 +7,18 @@ from copy import deepcopy
 import json
 import pyarrow as pa
 import decimal
-
 from .s3 import S3
 from .sqldb import SQLDB
 from .dialects import check_if_valid_type, mysql_to_postgres_type
 from ..ui.qframe import SubqueryUI
-from ..utils import get_path, rds_to_pyarrow_type, sql_to_python_dtype, dict_diff, python_to_sql_dtype
+from ..utils import (
+    get_path,
+    rds_to_pyarrow_type,
+    sql_to_python_dtype,
+    dict_diff,
+    python_to_sql_dtype,
+)
+from ..store import Store
 from .base import BaseTool
 
 import deprecation
@@ -20,76 +26,6 @@ import psutil
 from functools import partial
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
-
-
-def prepend_table(data, expression):
-    field_regex = r"\w+[a-z]"
-    escapes_regex = r"""[^"]+"|'[^']+'|and\s|or\s"""
-    column_names = re.findall(field_regex, expression)
-    columns_to_escape = " ".join(re.findall(escapes_regex, expression))
-    for column_name in column_names:
-        if column_name in columns_to_escape:
-            pass
-        else:
-            _column_name = data["table"] + "." + column_name
-            expression = expression.replace(column_name, _column_name)
-            columns_to_escape += " {}".format(column_name)
-    return expression
-
-
-class Store:
-    def __init__(self, qf: "QFrame"):
-        self.qf = qf
-
-    @staticmethod
-    def _to_local(path, serializable):
-        with open(path, "w") as f:
-            json.dump(serializable, f, indent=4)
-
-    @staticmethod
-    def _to_s3(url, serializable):
-        S3(url=url).from_serializable(serializable)
-
-    def to_dict(self, subquery=None):
-        return_dict = {}
-        if subquery:
-            return_dict[subquery] = self.qf.data
-        else:
-            return_dict = self.qf.data
-        return return_dict
-
-    def to_json(self, path, subquery=None):
-        """Saves QFrame.data to json file.
-
-        Parameters
-        ----------
-        json_path : str
-            Path to json file.
-        subquery : str, optional
-            Key in json file, by default ''
-        """
-        existing_data = {}
-        data = {}
-
-        # attempt to load the json from provided location
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                existing_data = json.load(f)
-                if existing_data:
-                    data = existing_data
-        if subquery:
-            data[subquery] = self.qf.data
-        else:
-            if existing_data:
-                self.qf.logger.warning("Overwriting existing store.")
-            data = self.qf.data
-
-        if path.startswith("s3://"):
-            self._to_s3(path, data)
-        else:
-            self._to_local(path, data)
-
-        self.qf.logger.info(f"Data saved in {path}")
 
 
 class QFrame(BaseTool):
@@ -104,7 +40,6 @@ class QFrame(BaseTool):
     def __init__(
         self,
         data: dict = {},
-        store: Store = None,
         dsn: str = None,
         sqldb: SQLDB = None,
         sql: str = None,
@@ -113,7 +48,7 @@ class QFrame(BaseTool):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.data = data
+        self.data = Store(data)
         self.sql = sql or ""
         self.getfields = getfields
 
@@ -128,7 +63,11 @@ class QFrame(BaseTool):
             )
 
         self.sqldb = sqldb or SQLDB(dsn=dsn, **kwargs)
-        self.store = Store(self)
+
+    @property
+    def store(self):
+        # TODO: raplace data with store and deprecate data
+        return self.data
 
     @property
     def ncols(self):
