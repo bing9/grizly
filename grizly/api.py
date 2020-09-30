@@ -1,5 +1,5 @@
 from .utils import set_cwd, get_path, file_extension, read_config, retry
-from .store import Store
+from .old_store import Store
 from .config import Config
 from .config import config
 
