@@ -393,7 +393,7 @@ class Extract:
         wf.submit(scheduler_address=scheduler_address, **kwargs)
         # client.close()
 
-    def register(self, db=None, **kwargs):
+    def register(self, db=None, crons=None, **kwargs):
         """Submit the partitions and/or extract job
 
         Parameters
@@ -409,7 +409,7 @@ class Extract:
         self.partitions_job = Job(partitions_job_name, logger=self.logger, db=db)
         self.extract_job = Job(self.name, logger=self.logger, db=db)
         self.generate_workflow()  # calculate partition tasks
-        self.partitions_job.register(tasks=self.partition_tasks, **kwargs)
+        self.partitions_job.register(tasks=self.partition_tasks, crons=crons, **kwargs)
         self.extract_job.register(tasks=self.extract_tasks, upstream=partitions_job_name, **kwargs)
 
     def submit_new(self, **kwargs):
