@@ -2,6 +2,13 @@ import json
 from .tools.sqldb import SQLDB
 
 
+import deprecation
+from functools import partial
+
+deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3.9", removed_in="0.4")
+
+
+@deprecation.deprecated()
 class Store:
     def __init__(self, path):
         self.path = path
@@ -54,13 +61,9 @@ class Store:
             elif isinstance(kwargs[kwarg], str):
                 self.new_data[kwarg] = kwargs[kwarg]
             else:
-                raise ValueError(
-                    "The key value passed to this method is not a dictionary"
-                )
+                raise ValueError("The key value passed to this method is not a dictionary")
 
-    def add_query(
-        self, columns, schema, table, key_query, engine_str="", col_types=None
-    ):
+    def add_query(self, columns, schema, table, key_query, engine_str="", col_types=None):
         """Creates a dictionary with fields information for a Qframe and saves the data in json file.
 
         Parameters
