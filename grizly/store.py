@@ -1,136 +1,84 @@
+import logging
+from box import Box
 import json
-from .tools.sqldb import SQLDB
+import os
 
 
-class Store:
-    def __init__(self, path):
-        self.path = path
-        print(path)
-        try:
-            with open(self.path, "r") as json_file:
-                d = json.load(json_file)
-        except FileNotFoundError:
-            with open(self.path, "w") as json_file:
-                d = json.dump({"sample_key": "sample_key_value"}, json_file)
-        self.data = d
-        self.new_data = {}
+from .tools.s3 import S3
 
-    def to_store(self, key=None):
-        if self.data == None:
-            self.data = {}
-        if key == None:
-            for k in self.new_data:
-                if k in self.data:
-                    msg = f"Key # {k} # already in store. Use remove_key() if you don't need it"
-                    raise KeyError(msg)
-                else:
-                    # 1
-                    self.data[k] = self.new_data[k]
-                    with open(self.path, "w") as json_file:
-                        json.dump(self.data, json_file)
-                        self.new_data = {}
-        else:
-            if key in self.data:
-                msg = f"Key # {key} # already in store. Use remove_key() if you don't need it"
-                raise KeyError(msg)
-            else:
-                # 2
-                self.data[key] = self.new_data[key]
-                with open(self.path, "w") as json_file:
-                    json.dump(self.data, json_file)
-                    self.new_data = {}
 
-    def add_qframe_expression(self, subquery, field_name, expression):
-        if self.new_data == {}:
-            self.new_data = self.data
-        self.new_data[subquery]["select"][field_name] = expression
+class Store(Box):
+    logger = logging.getLogger("store")
 
-    def add_key(self, **kwargs):
-        for kwarg in kwargs:
-            if isinstance(kwargs[kwarg], dict):
-                self.new_data[kwarg] = kwargs[kwarg]
-            elif isinstance(kwargs[kwarg], list):
-                self.new_data[kwarg] = kwargs[kwarg]
-            elif isinstance(kwargs[kwarg], str):
-                self.new_data[kwarg] = kwargs[kwarg]
-            else:
-                raise ValueError(
-                    "The key value passed to this method is not a dictionary"
-                )
+    def __repr__(self):
+        return f"Store({self.to_dict()})"
 
-    def add_query(
-        self, columns, schema, table, key_query, engine_str="", col_types=None
-    ):
-        """Creates a dictionary with fields information for a Qframe and saves the data in json file.
+    def from_json(self, json_path: str, subquery: str = None):
+        """Reads QFrame.data from json file.
 
         Parameters
         ----------
-        columns : list
-            List of columns.
-        schema : str
-            Name of schema.
-        table : str
-            Name of table.
-        key_query : str, optional
-            Name of the query in json file. If this name already exists it will be overwritten, by default ''
-        col_type : list
-            List of data types of columns (in 'columns' list)
+        json_path : str
+            Path to json file.
+        subquery : str, optional
+            Key in json file, by default None
+
+        Returns
+        -------
+        QFrame
         """
-        fields = {}
-        if col_types == None:
-            for col in columns:
-                type = "num" if "amount" in col else "dim"
-                field = {
-                    "type": type,
-                    "as": "",
-                    "group_by": "",
-                    "order_by": "",
-                    "expression": "",
-                    "select": "",
-                    "custom_type": "",
-                }
-                fields[col] = field
+        if json_path.startswith("s3://"):
+            data = S3(url=json_path).to_serializable()
+        else:
+            with open(json_path, "r") as f:
+                data = json.load(f)
 
-        elif isinstance(col_types, list):
-            for index, col in enumerate(columns):
-                custom_type = col_types[index]
-                field = {
-                    "type": "",
-                    "as": "",
-                    "group_by": "",
-                    "order_by": "",
-                    "expression": "",
-                    "select": "",
-                    "custom_type": custom_type,
-                }
-                fields[col] = field
-
-        data = {
-            "select": {
-                "table": table,
-                "schema": schema,
-                "fields": fields,
-                "engine": engine_str,
-                "where": "",
-                "distinct": "",
-                "having": "",
-                "limit": "",
-            }
-        }
-
-        self.new_data[key_query] = data
+        self.clear()
+        if data and subquery:
+            self.update(data[subquery])
+        else:
+            self.update(data)
 
         return self
 
-    def remove_key(self, key):
-        del self.data[key]
+    def to_json(self, json_path: str, subquery: str = None):
+        """Save Store to json file
 
-    def get_key(self, key, oftype="dict"):
-        if oftype == "dict":
-            return self.data[key]
-        elif oftype == "list":
-            l = [k for k in self.data[key]]
-            return l
+        Parameters
+        ----------
+        json_path : str
+            Path to json file.
+        subquery : str, optional
+            Key in json file, by default None
+        """
+        json_data = {}
+        data = {}
+
+        # attempt to load the json from provided location
+        if os.path.isfile(json_path):
+            with open(json_path, "r") as f:
+                json_data = json.load(f)
+                if json_data:
+                    data = json_data
+        if subquery:
+            data[subquery] = self.qf.data
         else:
-            raise BaseException(f"oftype value # {str(oftype)} # not supported")
+            if json_data:
+                self.qf.logger.warning("Overwriting existing store.")
+            data = self.to_dict()
 
+        if json_path.startswith("s3://"):
+            self._to_s3(json_path, data)
+        else:
+            self._to_local(json_path, data)
+
+        self.logger.info(f"Data saved in {json_path}")
+
+    @staticmethod
+    def _to_local(path, serializable):
+        with open(path, "w") as f:
+            json.dump(serializable, f, indent=4)
+
+    @staticmethod
+    def _to_s3(url, serializable):
+        S3(url=url).from_serializable(serializable)
