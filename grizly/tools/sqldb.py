@@ -106,6 +106,19 @@ class SQLDB:
 
         self.dialect = dialect or config[dsn]["dialect"]
 
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(dsn='{self.dsn}', db='{self.db}', dialect='{self.dialect}')"
+        )
+
+    def __eq__(self, other):
+        return (
+            self.__class__ == other.__class__
+            and self.db == other.db
+            and self.dsn == other.dsn
+            and self.dialect == other.dialect
+        )
+
     def get_connection(self, autocommit=False):
         """Returns sqlalchemy connection.
 
@@ -828,19 +841,6 @@ class SQLDB:
             col_types = [typ for _, _, typ in records]
 
         return (col_names, col_types) if column_types else col_names
-
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}(dsn='{self.dsn}', db='{self.db}', dialect='{self.dialect}')"
-        )
-
-    def __eq__(self, other):
-        return (
-            self.__class__ == other.__class__
-            and self.db == other.db
-            and self.dsn == other.dsn
-            and self.dialect == other.dialect
-        )
 
     def _run_query(self, sql: str, autocommit: bool = False):
         con = self.get_connection(autocommit=autocommit)

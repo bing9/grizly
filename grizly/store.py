@@ -1,8 +1,9 @@
-import logging
-from box import Box
+from copy import deepcopy
 import json
+import logging
 import os
 
+from box import Box
 
 from .tools.s3 import S3
 
@@ -13,8 +14,19 @@ class Store(Box):
     def __repr__(self):
         return f"Store({self.to_dict()})"
 
+    def deepcopy(self) -> "Store":
+        """Make deep copy of Store
+
+        Returns
+        -------
+        Store
+            deep copy of store
+        """
+        d = deepcopy(self.to_dict())
+        return Store(d)
+
     def from_json(self, json_path: str, subquery: str = None):
-        """Reads QFrame.data from json file.
+        """Read QFrame.data from json file
 
         Parameters
         ----------
@@ -28,16 +40,18 @@ class Store(Box):
         QFrame
         """
         if json_path.startswith("s3://"):
-            data = S3(url=json_path).to_serializable()
+            json_data = S3(url=json_path).to_serializable()
         else:
             with open(json_path, "r") as f:
-                data = json.load(f)
+                json_data = json.load(f)
+
+        if json_data and subquery:
+            new_data = json_data[subquery]
+        else:
+            new_data = json_data
 
         self.clear()
-        if data and subquery:
-            self.update(data[subquery])
-        else:
-            self.update(data)
+        self.update(new_data)
 
         return self
 
@@ -61,10 +75,10 @@ class Store(Box):
                 if json_data:
                     data = json_data
         if subquery:
-            data[subquery] = self.qf.data
+            data[subquery] = self.to_dict()
         else:
             if json_data:
-                self.qf.logger.warning("Overwriting existing store.")
+                self.logger.warning("Overwriting existing store.")
             data = self.to_dict()
 
         if json_path.startswith("s3://"):
