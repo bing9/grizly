@@ -203,7 +203,7 @@ class SchedulerObject(ABC):
 
     @property
     def created_at(self) -> datetime:
-        return self.meta.get("created_at")
+        return self._deserialize(self.con.hget(self.hash_name, "created_at"), type="datetime")
 
     @property
     def exists(self):
@@ -361,7 +361,7 @@ class JobRun(SchedulerObject):
 
     @property
     def duration(self) -> int:
-        return self.meta.get("duration")
+        return self._deserialize(self.con.hget(self.hash_name, "duration"))
 
     @duration.setter
     @_check_if_exists()
@@ -372,7 +372,7 @@ class JobRun(SchedulerObject):
 
     @property
     def error(self) -> str:
-        return self.meta.get("error")
+        return self._deserialize(self.con.hget(self.hash_name, "error"))
 
     @error.setter
     @_check_if_exists()
@@ -383,7 +383,7 @@ class JobRun(SchedulerObject):
 
     @property
     def finished_at(self) -> datetime:
-        return self.meta.get("finished_at")
+        return self._deserialize(self.con.hget(self.hash_name, "finished_at"))
 
     @finished_at.setter
     @_check_if_exists()
@@ -394,7 +394,7 @@ class JobRun(SchedulerObject):
 
     @property
     def name(self) -> str:
-        return self.meta.get("name")
+        return self._deserialize(self.con.hget(self.hash_name, "name"))
 
     @name.setter
     @_check_if_exists()
@@ -405,7 +405,7 @@ class JobRun(SchedulerObject):
 
     @property
     def result(self) -> List[Any]:
-        return self.meta.get("result")
+        return self._deserialize(self.con.hget(self.hash_name, "result"))
 
     @result.setter
     @_check_if_exists()
@@ -416,7 +416,7 @@ class JobRun(SchedulerObject):
 
     @property
     def status(self) -> Literal["fail", "running", "success", None]:
-        return self.meta.get("status")
+        return self._deserialize(self.con.hget(self.hash_name, "status"))
 
     @status.setter
     @_check_if_exists()
@@ -470,7 +470,7 @@ class Job(SchedulerObject):
     def crons(self) -> List[str]:
         """Get Job's cron strings
         """
-        return self.meta.get("crons")
+        return self._deserialize(self.con.hget(self.hash_name, "crons"))
 
     @crons.setter
     @_check_if_exists()
@@ -494,7 +494,7 @@ class Job(SchedulerObject):
 
     @property
     def description(self) -> str:
-        return self.meta.get("description")
+        return self._deserialize(self.con.hget(self.hash_name, "description"))
 
     @description.setter
     @_check_if_exists()
@@ -523,7 +523,7 @@ class Job(SchedulerObject):
     def owner(self) -> str:
         """Get Job's owner
         """
-        return self.meta.get("owner")
+        return self._deserialize(self.con.hget(self.hash_name, "owner"))
 
     @owner.setter
     @_check_if_exists()
@@ -540,9 +540,8 @@ class Job(SchedulerObject):
 
     @property
     def tasks(self) -> List[Delayed]:
-        """Get list of Job's tasks
-        """
-        return self.meta.get("tasks")
+        """Get list of Job's tasks"""
+        return self._deserialize(self.con.hget(self.hash_name, "tasks"), type="dask")
 
     @tasks.setter
     @_check_if_exists()
@@ -555,7 +554,7 @@ class Job(SchedulerObject):
     def timeout(self) -> int:
         """Get Job's timeout
         """
-        return self.meta.get("timeout")
+        return self._deserialize(self.con.hget(self.hash_name, "timeout"))
 
     @timeout.setter
     @_check_if_exists()
@@ -568,7 +567,7 @@ class Job(SchedulerObject):
 
     @property
     def _result_ttl(self) -> int:
-        return self.meta.get("_result_ttl")
+        return self._deserialize(self.con.hget(self.hash_name, "_result_ttl"))
 
     @_result_ttl.setter
     def _result_ttl(self, _result_ttl: int):
@@ -578,7 +577,7 @@ class Job(SchedulerObject):
 
     @property
     def _rq_job_ids(self) -> List[str]:
-        return self.meta.get("_rq_job_ids")
+        return self._deserialize(self.con.hget(self.hash_name, "_rq_job_ids"))
 
     @_rq_job_ids.setter
     def _rq_job_ids(self, _rq_job_ids: List[str]):
@@ -591,7 +590,7 @@ class Job(SchedulerObject):
     def triggers(self) -> List["Trigger"]:
         """Get list of Job's triggers
         """
-        trigger_names = self.meta.get("triggers")
+        trigger_names = self._deserialize(self.con.hget(self.hash_name, "triggers"))
         triggers = [
             Trigger(name=trigger_name, logger=self.logger, db=self.db)
             for trigger_name in trigger_names
@@ -657,7 +656,7 @@ class Job(SchedulerObject):
     def downstream(self) -> List["Job"]:
         """Get list of downstream jobs
         """
-        downstream_job_names = self.meta.get("downstream")
+        downstream_job_names = self._deserialize(self.con.hget(self.hash_name, "downstream"))
         downstream_jobs = [
             Job(job_name, db=self.db, logger=self.logger) for job_name in downstream_job_names
         ]
@@ -729,7 +728,7 @@ class Job(SchedulerObject):
     def upstream(self) -> List["Job"]:
         """Get list of upstream jobs
         """
-        upstream_job_names = self.meta.get("upstream")
+        upstream_job_names = self._deserialize(self.con.hget(self.hash_name, "upstream"))
         upstream_jobs = [
             Job(job_name, db=self.db, logger=self.logger) for job_name in upstream_job_names
         ]
@@ -1041,7 +1040,7 @@ class Trigger(SchedulerObject):
 
     @property
     def is_triggered(self) -> bool:
-        return self.meta.get("is_triggered")
+        return self._deserialize(self.con.hget(self.hash_name, "is_triggered"))
 
     @is_triggered.setter
     @_check_if_exists()
@@ -1052,7 +1051,7 @@ class Trigger(SchedulerObject):
 
     @property
     def jobs(self) -> List[Optional["Job"]]:
-        job_names = self.meta.get("jobs")
+        job_names = self._deserialize(self.con.hget(self.hash_name, "jobs"))
         return [Job(name=job, logger=self.logger, db=self.db) for job in job_names]
 
     # @property
