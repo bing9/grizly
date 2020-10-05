@@ -127,3 +127,45 @@ def pyarrow_to_rds_type(dtype):
             return dtypes[pyarrow_dtype]
     else:
         return "VARCHAR(500)"
+
+def sfdc_to_sqlalchemy_dtype(sfdc_dtype):
+    """Get SQLAlchemy equivalent of the given SFDC data type.
+
+    Parameters
+    ----------
+    sfdc_dtype : str
+        SFDC data type.
+
+    Returns
+    ----------
+    sqlalchemy_dtype : str
+        The string representing a SQLAlchemy data type.
+    """
+
+    sqlalchemy_dtypes = {
+        "address": "NVARCHAR",
+        "anytype": "NVARCHAR",
+        "base64": "NVARCHAR",
+        "boolean": "BOOLEAN",
+        "combobox": "NVARCHAR",
+        "currency": "NUMERIC(precision=14)",
+        "datacategorygroupreference": "NVARCHAR",
+        "date": "DATE",
+        "datetime": "DATETIME",
+        "double": "NUMERIC",
+        "email": "NVARCHAR",
+        "encryptedstring": "NVARCHAR",
+        "id": "NVARCHAR",
+        "int": "INT",
+        "multipicklist": "NVARCHAR",
+        "percent": "NUMERIC(precision=6)",
+        "phone": "NVARCHAR",
+        "picklist": "NVARCHAR",
+        "reference": "NVARCHAR",
+        "string": "NVARCHAR",
+        "textarea": "NVARCHAR",
+        "time": "DATETIME",
+        "url": "NVARCHAR",
+    }
+    sqlalchemy_dtype = sqlalchemy_dtypes[sfdc_dtype]
+    return sqlalchemy_dtype

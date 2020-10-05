@@ -1,7 +1,6 @@
-from .utils import set_cwd, get_path, file_extension, read_config, retry
+from .utils.functions import set_cwd, get_path, file_extension, read_config, retry
 from .old_store import Store
-from .config import Config
-from .config import config
+from .config import Config, config
 
 from . import dangerous
 from .ui.start import UI

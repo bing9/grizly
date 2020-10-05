@@ -1,5 +1,5 @@
 import json
-from .utils import get_path
+from .utils.functions import get_path
 import logging
 
 
