@@ -1,250 +1,199 @@
-import csv
-import pandas as pd
-import openpyxl
-from .sqldb import SQLDB
-import logging
-from os.path import basename
 import os
+import json
+import logging
+from logging import Logger
+from copy import deepcopy
+import pandas
+from abc import ABC, abstractmethod
+from ..experimental import Extract
 
 
-class BaseTool:
-    def __init__(
-        self,
-        chunksize: int = None,
-        logger: logging.Logger = None,
-        debug: bool = False,
-        config_key: str = "standard",
-        *args,
-        **kwargs,
-    ):
-        """TODO: Probably we don't need tool_name, df, dtypes and path"""
-        self.tool_name = self.__class__.__name__
-        self.df = None
-        self.path = None
-        self.chunksize = chunksize
+class BaseDriver(ABC):
+    def __init__(self, driver_name: str = None, driver=None, flow=None, logger: Logger = None):
         self.logger = logger or logging.getLogger(__name__)
-        self.debug = debug
-        self.config_key = config_key
+        self.driver_name = driver_name
+        self.flow = flow
 
-    def to_csv(self, csv_path, sep="\t", chunksize=None, debug=False):
+    @abstractmethod
+    def connect(self):
+        pass
 
-        if self.__class__.__name__ == "QFrame":
-            self.sql = self.get_sql()
-            if self.sqldb.db == "denodo":
-                self.sql += " CONTEXT('swap' = 'ON', 'swapsize' = '400', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
+    @abstractmethod
+    def from_source(self):
+        pass
 
-            self.logger.info(f"Downloading data into '{basename(csv_path)}'...")
+    @abstractmethod
+    def to_records(self):
+        pass
+
+    @abstractmethod
+    def to_file(self):
+        pass
+
+    def save(self, json_path: str, key: str = None):
+        """Saves flow in text file format
+        """
+        if os.path.isfile(json_path):
+            with open(json_path, "r") as f:
+                json_data = json.load(f)
+                if json_data == "":
+                    json_data = {}
+        else:
+            json_data = {}
+
+        if key is not None:
+            json_data[key] = self.flow
+        else:
+            json_data = self.flow
+
+        with open(json_path, "w") as f:
+            json.dump(json_data, f, indent=4)
+
+        self.logger.info(f"Data saved in {json_path}")
+
+    def copy(self):
+        """Makes a copy of QFlow.
+
+        Returns
+        -------
+        QFlow
+        """
+        flow = deepcopy(self.flow)
+        driver = deepcopy(self.driver)
+        return QFlow(driver_name=self.driver_name, driver=driver, flow=flow)
+
+    def rename(self, fields: dict):
+        if not isinstance(fields, dict):
+            raise ValueError("Fields parameter should be of type dict.")
+        if "fields" not in self.flow:
+            raise ValueError("Fields are not in your flow. Try doing select() first")
+
+        for field in fields:
+            self.flow["fields"][field]["as"] = fields[field]
+        return self
+
+    def help(self):
+        methods = [m for m in dir(self) if not m.startswith("__")]
+        print(self.__init__.__doc__)
+        for method in methods:
+            header = f"""{method}
+                        =========
+                     """
+            print(header)
             try:
-                row_count = to_csv(
-                    columns=self.get_fields(aliased=True, not_selected=False),
-                    csv_path=csv_path,
-                    sql=self.sql,
-                    sqldb=self.sqldb,
-                    sep=sep,
-                    chunksize=chunksize,
-                )
-            except:
-                self.logger.exception(f"There was an error when running the query {self.sql}")
-                raise
-            self.logger.info(f"Successfully wrote to '{basename(csv_path)}'")
-            if debug:
-                return row_count
-            return self
-        elif self.__class__.__name__ == "GitHub":
-            self.logger.info(f"Downloading data into '{basename(csv_path)}'...")
-            self.df.to_csv(csv_path)
-        else:
-            raise NotImplementedError(
-                f"This method is not supported for {self.__class__.__name__} class."
-            )
+                print(eval(f"self.{method}.__doc__"))
+            except AttributeError:
+                print(eval(f"self.{method}.__doc__"))
+        return self
 
-    def to_parquet(self, parquet_path, debug=False):
-        """Saves data to Parquet file.
-        TO CHECK: I don't think we need chunksize anymore since we do chunks with
-        sql
-
-        Note: You need to use BIGINT and not INTEGER as custom_type in QFrame. The
-        problem is that parquet files use int64 and INTEGER is only int4
-
+    def select(self, fields: list or dict or str):
+        """TO Review: if select is dict create fields
+        maybe this is not good workflow though might
+        be confusing
 
         Parameters
         ----------
-        parquet_path : str
-            Path to template Parquet file
-        debug : str, optional
-            Whether to display the number of rows returned by the query
+        fields : listordictorstr
+            [description]
+
         Returns
         -------
-        Class
+        [type]
+            [description]
         """
-        if self.__class__.__name__ == "QFrame":
-            self.df = self.to_df()
-            if not self.df.empty:
-                dtypes = {}
-                qf_dtypes = self.get_dtypes()
-                qf_fields = self.get_fields(aliased=True)
-                for col in self.df.columns:
-                    if col in qf_fields:
-                        _type = qf_dtypes[qf_fields.index(col)]
-                        dtype = "object"
-                        if _type == "num":
-                            dtype = "float64"
-                        elif _type == "dim":
-                            dtype == "object"
-                        dtypes[col] = dtype
-                self.df.astype(dtype=dtypes).to_parquet(parquet_path)
-        elif self.__class__.__name__ == "GitHub":
-            self.df.astype(dtype=self.df.dtypes).to_parquet(parquet_path)
-        else:
-            raise NotImplementedError(
-                f"This method is not supported for {self.__class__.__name__} class."
-            )
-        if debug:
-            return self.df.shape[0] or 0
+        if isinstance(fields, dict):
+            self.flow["fields"] = fields
+        return self
 
-    def to_excel(
-        self,
-        input_excel_path: str = None,
-        output_excel_path: str = None,
-        sheet_name="",
-        startrow=0,
-        startcol=0,
-        index=False,
-        header=True,
-    ):
-        """Saves data to Excel file.
+    def where(self, where):
+        """Implements API filters (SQL where)
 
         Parameters
         ----------
-        input_excel_path : str
-            Path to template Excel file, if None then 'grizly_test.xlsx'
-        output_excel_path : str
-            Path to Excel file in which we want to save data, if None then input_excel_path
-        sheet_name : str, optional
-            Sheet name, by default ''
-        startrow : int, optional
-            Upper left cell row to dump data, by default 0
-        startcol : int, optional
-            Upper left cell column to dump data, by default 0
-        index : bool, optional
-            Write row index, by default False
-        header : bool, optional
-            Write header, by default False
+        where : str
+            URL API filter parameters
 
-        Returns
-        -------
-        Class
+        Examples
+        --------
+        Get All
+        >>> #qf.where("filter=all")
+        >>> #qf.where("filter=all&state=open")
         """
-        input_excel_path = input_excel_path or "grizly_test.xlsx"
-        output_excel_path = output_excel_path or input_excel_path
+        self.flow["where"] = where
+        return self
 
-        if self.__class__.__name__ == "QFrame":
-            df = self.to_df()
-        elif self.__class__.__name__ == "GitHub":
-            df = self.df
-        else:
-            raise NotImplementedError(
-                f"This method is not supported for {self.__class__.__name__} class."
-            )
+    def limit(self, limit):
+        self.flow["limit"] = limit
+        return self
 
-        if os.path.exists(input_excel_path):
-            copy_df_to_excel(
-                df=df,
-                input_excel_path=input_excel_path,
-                output_excel_path=output_excel_path,
-                sheet_name=sheet_name,
-                startrow=startrow,
-                startcol=startcol,
-                index=index,
-                header=header,
-            )
-        else:
-            df.to_excel(
-                output_excel_path,
-                sheet_name=sheet_name,
-                startrow=startrow,
-                startcol=startcol,
-                index=index,
-                header=header,
-            )
+    def get_fields(self):
+        return self.flow["fields"].keys()
 
+    def get_query(self):
+        """Returns the final API url REST query string
+        """
+        url = self.flow["url"] + "?" + self.flow["url_params"]
+        return url
 
-def copy_df_to_excel(
-    df,
-    input_excel_path,
-    output_excel_path,
-    sheet_name="",
-    startrow=0,
-    startcol=0,
-    index=False,
-    header=False,
-):
-    writer = pd.ExcelWriter(input_excel_path, engine="openpyxl")
-    book = openpyxl.load_workbook(input_excel_path)
-    writer.book = book
+    def get_flow(self):
+        return self.flow
 
-    writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
+    def from_json(self, json_path: str, key: str = None):
+        """Reads from a json file
 
-    df.to_excel(
-        writer,
-        sheet_name=sheet_name,
-        startrow=startrow,
-        startcol=startcol,
-        index=index,
-        header=header,
-    )
-
-    writer.path = output_excel_path
-    writer.save()
-    writer.close()
-
-
-def to_csv(columns, csv_path, sql, sqldb, sep="\t", chunksize=None, debug=False):
-    """
-    Writes table to csv file.
-
-    Parameters
-    ----------
-    csv_path : string
-        Path to csv file.
-    sql : string
-        SQL query.
-    engine : str, optional
-        Engine string. Required if cursor is not provided.
-    sep : string, default '\t'
-        Separtor/delimiter in csv file.
-    chunksize : int, default None
-        If specified, return an iterator where chunksize is the number of rows to include in each chunk.
-    """
-    con = sqldb.get_connection()
-    cursor = con.cursor()
-    cursor.execute(sql)
-
-    with open(csv_path, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.writer(csvfile, delimiter=sep)
-        writer.writerow(columns)
-        cursor_row_count = 0
-        if isinstance(chunksize, int):
-            if chunksize == 1:
-                while True:
-                    row = cursor.fetchone()
-                    cursor_row_count += 1
-                    if not row:
-                        break
-                    writer.writerow(row)
+        Parameters
+        ----------
+        json_path : str
+            [description]
+        key : str, optional
+            [description], by default None
+        """
+        with open(json_path, "r") as f:
+            data = json.load(f)
+            if data != {}:
+                if key == "":
+                    self.flow = data
+                else:
+                    self.flow = data[key]
             else:
-                while True:
-                    rows = cursor.fetchmany(chunksize)
-                    cursor_row_count += len(rows)
-                    if not rows:
-                        break
-                    writer.writerows(rows)
-        else:
-            rows = cursor.fetchall()
-            cursor_row_count += len(rows)
-            writer.writerows(rows)
+                self.flow = data
+        return self
 
-    cursor.close()
-    con.close()
+    def to_csv(self, path):
+        """Create a CSV using the Pandas DataFrame
 
-    return cursor_row_count
+        Parameters
+        ----------
+        path : str
+            path to the csv file
+
+        Returns
+        -------
+        class
+            self
+        """
+        df = self.to_df()
+        df.to_csv(path)
+        return self
+
+    def to_arrow(self):
+        pass
+
+    def to_df(self):
+        dicts = self.to_records()
+        return pandas.DataFrame.from_records(dicts)
+
+    def to_extract(self, name, *args, **kwargs):
+        return Extract(name=name, driver=self, *args, **kwargs)
+
+    def schedule(self, extract_name, *args, **kwargs):
+        """ Schedule an extract job described by the flow """
+        Extract(name=extract_name, driver=self, *args, **kwargs).register(**kwargs)
+
+    def from_dict(self, flow: dict):
+        self.flow = flow
+        return self
+
+    def __str__(self):
+        sql = self.get_query()
+        return sql
