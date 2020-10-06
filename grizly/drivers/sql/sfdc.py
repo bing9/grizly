@@ -21,7 +21,7 @@ def build_query(data):
     return query
 
 
-class SF(BaseDriver):
+class SFDC(BaseDriver):
     def __init__(self, logger: Logger = None):
         """Pulls Salesforce data
         Parameters

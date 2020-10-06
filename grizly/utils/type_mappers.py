@@ -127,3 +127,127 @@ def pyarrow_to_rds_type(dtype):
             return dtypes[pyarrow_dtype]
     else:
         return "VARCHAR(500)"
+
+def rds_to_pyarrow_type(dtype):
+    dtypes = {
+        "BOOL": pa.bool_(),
+        "BOOLEAN": pa.bool_(),
+        "INT": pa.int32(),
+        "INTEGER": pa.int32(),
+        "SMALLINT": pa.int8(),
+        "BIGINT": pa.int64(),
+        "INT2": pa.int8(),
+        "INT4": pa.int8(),
+        "INT8": pa.int8(),
+        "NUMERIC": pa.float64(),
+        "DECIMAL": pa.float64(),
+        "FLOAT4": pa.float32(),
+        "FLOAT8": pa.float64(),
+        "DOUBLE PRECISION": pa.float64(),
+        "REAL": pa.float32(),
+        "NULL": pa.null(),
+        "DATE": pa.date64(),
+        "VARCHAR": pa.string(),
+        "NVARCHAR": pa.string(),
+        "CHARACTER VARYING": pa.string(),
+        "TEXT": pa.string(),
+        "CHAR": pa.string(),
+        "CHARACTER": pa.string(),
+        "TIMESTAMP": pa.date64(),
+        "TIMESTAMP WITHOUT TIME ZONE": pa.date64(),
+        "TIMESTAMPTZ": pa.date64(),
+        "TIMESTAMP WITH TIME ZONE": pa.date64(),
+        "GEOMETRY": None,
+    }
+
+    for redshift_dtype in dtypes:
+        if re.search(redshift_dtype, dtype):
+            return dtypes[redshift_dtype]
+    else:
+        return pa.string()
+
+def sfdc_to_sqlalchemy_dtype(sfdc_dtype):
+    """Get SQLAlchemy equivalent of the given SFDC data type.
+
+    Parameters
+    ----------
+    sfdc_dtype : str
+        SFDC data type.
+
+    Returns
+    ----------
+    sqlalchemy_dtype : str
+        The string representing a SQLAlchemy data type.
+    """
+
+    sqlalchemy_dtypes = {
+        "address": "NVARCHAR",
+        "anytype": "NVARCHAR",
+        "base64": "NVARCHAR",
+        "boolean": "BOOLEAN",
+        "combobox": "NVARCHAR",
+        "currency": "NUMERIC(precision=14)",
+        "datacategorygroupreference": "NVARCHAR",
+        "date": "DATE",
+        "datetime": "DATETIME",
+        "double": "NUMERIC",
+        "email": "NVARCHAR",
+        "encryptedstring": "NVARCHAR",
+        "id": "NVARCHAR",
+        "int": "INT",
+        "multipicklist": "NVARCHAR",
+        "percent": "NUMERIC(precision=6)",
+        "phone": "NVARCHAR",
+        "picklist": "NVARCHAR",
+        "reference": "NVARCHAR",
+        "string": "NVARCHAR",
+        "textarea": "NVARCHAR",
+        "time": "DATETIME",
+        "url": "NVARCHAR",
+    }
+    sqlalchemy_dtype = sqlalchemy_dtypes[sfdc_dtype]
+    return sqlalchemy_dtype
+
+
+def sql_to_python_dtype(dtype):
+    dtypes = {
+        "BOOL": bool,
+        "BOOLEAN": bool,
+        "INT": int,
+        "INTEGER": int,
+        "SMALLINT": int,
+        "BIGINT": int,
+        "INT2": int,
+        "INT4": int,
+        "INT8": int,
+        "NUMERIC": float,
+        "DECIMAL": float,
+        "FLOAT4": float,
+        "FLOAT8": float,
+        "DOUBLE PRECISION": float,
+        "REAL": float,
+        "NULL": None,
+        "DATE": datetime.date,
+        "VARCHAR": str,
+        "NVARCHAR": str,
+        "CHARACTER VARYING": str,
+        "TEXT": str,
+        "CHAR": str,
+        "CHARACTER": str,
+        "TIMESTAMP": datetime.datetime,
+        "TIMESTAMP WITHOUT TIME ZONE": datetime.datetime,
+        "TIMESTAMPTZ": datetime.datetime,
+        "TIMESTAMP WITH TIME ZONE": datetime.datetime,
+        "GEOMETRY": None,
+    }
+
+    for sql_dtype in dtypes:
+        if re.search(sql_dtype, dtype):
+            return dtypes[sql_dtype]
+    else:
+        return str
+
+def python_to_sql_dtype(dtype):
+    mapping = {str: "VARCHAR(50)", int: "INTEGER", float: "FLOAT8"}
+    sql_dtype = mapping[dtype]
+    return sql_dtype

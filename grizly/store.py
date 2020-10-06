@@ -5,7 +5,7 @@ import os
 
 from box import Box
 
-from .tools.s3 import S3
+from .sources.filesystem.old_s3 import S3
 
 
 class Store(Box):
