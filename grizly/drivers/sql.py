@@ -8,11 +8,12 @@ import re
 import deprecation
 import sqlparse
 
-from ...store import Store
+from ..store import Store
+from ..sources.rdbms.rdbms_factory import RDBMS
 
-from ...utils.type_mappers import mysql_to_postgres_type
-from ...sources.filesystem.old_s3 import S3
-from ...sources.rdbms.old_sqldb import SQLDB
+from ..utils.type_mappers import mysql_to_postgres_type
+from ..sources.filesystem.old_s3 import S3
+from ..sources.rdbms.old_sqldb import SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
@@ -24,12 +25,23 @@ class SQLDriver(BaseDriver):
         schema: str = None,
         table: str = None,
         columns: list = None,
+        source: Source = None,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        if not self.source:
-            self.source = SQLDB(dsn=dsn, *args, **kwargs)
+
+        sqldb = kwargs.get("sqldb")
+        if sqldb:
+            source = sqldb
+            self.logger.warning(
+                "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
+                " Please use source parameter instead.",
+            )
+        if source is None and dsn is None:
+            raise ValueError("Please specify either source or dsn parameter")
+
+        self.source = source or RDBMS(dsn=dsn, *args, **kwargs)
 
         if self.store == Store() and table:
             self.store = self._load_store_from_table(schema=schema, table=table, columns=columns,)
@@ -595,6 +607,11 @@ class SQLDriver(BaseDriver):
         }
 
         return sql_blocks
+
+    @deprecation.deprecated(details="Use QFrame.source instead",)
+    @property
+    def sqldb(self):
+        return self.source
 
     @deprecation.deprecated(details="Use QFrame.store.to_json instead",)
     def save_json(self, json_path: str, subquery: str = ""):

@@ -1,5 +1,7 @@
-from .base import RDBMS
+from .base import RDBMSBase
 
 
-class AuroraDB(RDBMS):
+class AuroraPostgresql(RDBMSBase):
+    allowed_statements = ["select", "from", "where", "limit", "offset"]
+    quotes = '"'
     pass

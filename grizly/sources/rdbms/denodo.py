@@ -1,5 +1,5 @@
-from .base import RDBMS
+from .base import RDBMSBase
 
 
-class DenodoDB(RDBMS):
+class DenodoDB(RDBMSBase):
     pass

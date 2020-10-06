@@ -20,8 +20,6 @@ from ..utils.functions import dict_diff
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
 
-Source = TypeVar("Source")
-
 
 class BaseDriver(ABC):
     _allowed_agg = ["SUM", "COUNT", "MAX", "MIN", "AVG", "STDDEV", ""]
@@ -33,21 +31,13 @@ class BaseDriver(ABC):
         store: Optional[Store] = None,
         json_path: str = None,
         subquery: str = None,
-        source: Source = None,
         logger: logging.Logger = None,
+        *args,
         **kwargs,
     ):
         self.logger = logger or logging.getLogger(__name__)
         self.getfields = kwargs.get("getfields")
 
-        sqldb = kwargs.get("sqldb")
-        if sqldb:
-            source = sqldb
-            self.logger.warning(
-                "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                " Please use source parameter instead.",
-            )
-        self.source = source
         data = kwargs.get("data")
         if data:
             store = data
@@ -55,6 +45,7 @@ class BaseDriver(ABC):
                 "Parameter data in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
                 " Please use store parameter instead.",
             )
+
         self.store = self._load_store(store=store, json_path=json_path, subquery=subquery,)
 
     def _load_store(
@@ -83,6 +74,11 @@ class BaseDriver(ABC):
         else:
             self.getfields = getfields
         return self
+
+    @property
+    @abstractmethod
+    def source(self):
+        pass
 
     @abstractmethod
     def to_records(self) -> List[Tuple[Any]]:
@@ -126,6 +122,27 @@ class BaseDriver(ABC):
     def types(self):
         """Alias for QFrame.dtypes"""
         return self.dtypes
+
+    def select(self, fields: List[str]):
+        """TO Review: if select is dict create fields
+        maybe this is not good workflow though might
+        be confusing
+
+        Parameters
+        ----------
+        fields : list
+            List of fields to select
+
+        Returns
+        -------
+        QFrame
+        """
+        fields = self._get_fields_names(fields)
+
+        for field in self.get_fields():
+            if field not in fields:
+                self.store["select"]["fields"].pop(field, None)
+        return self
 
     def rename(self, fields: dict):
         """Renames columns (changes the field alias).
@@ -1022,10 +1039,10 @@ class BaseDriver(ABC):
         return Store(data)
 
     def _validate_field(self, field: str, data: dict):
-        if "dtype" in data:
-            self._validate_key(key="dtype", data=data, func=lambda x: isinstance(x, str))
-        else:
-            raise AttributeError(f"Missing type attribute in field '{field}'.")
+        if "dtype" not in data:
+            self.__adjust_field_type(field, data)
+
+        self._validate_key(key="dtype", data=data, func=lambda x: isinstance(x, str))
 
         self._validate_key(
             key="group_by", data=data, func=lambda x: x.upper() in self._allowed_group_by,
@@ -1037,6 +1054,24 @@ class BaseDriver(ABC):
 
         self._validate_key(
             key="select", data=data, func=lambda x: str(x) == "0",
+        )
+
+    def __adjust_field_type(self, field: str, data: dict):
+        """Replace 'custom_type' and 'type' with 'dtype' key"""
+        if "custom_type" in data and data["custom_type"] != "":
+            dtype = data["custom_type"].upper()
+        elif data["type"] == "num":
+            dtype = "FLOAT(53)"
+        else:
+            dtype = "VARCHAR(500)"
+        data["dtype"] = dtype
+        data.pop("custom_type", None)
+        data.pop("type", None)
+        self.logger.warning(
+            f"Missing 'dtype' key in field '{field}'. "
+            "Since version 0.4 of grizly uses 'dtype' key instead "
+            "of 'type' and 'custom_type' keys. To update your "
+            "json file please use qf.store.to_json() method."
         )
 
     @staticmethod

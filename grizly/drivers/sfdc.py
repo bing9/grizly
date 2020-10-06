@@ -3,7 +3,7 @@ from logging import Logger
 from copy import deepcopy
 from simple_salesforce import Salesforce
 from .base import BaseDriver
-from ...config import Config
+from ..config import Config
 import datetime
 import time
 import os
@@ -21,7 +21,7 @@ def build_query(data):
     return query
 
 
-class SFDC(BaseDriver):
+class SFDCDriver(BaseDriver):
     def __init__(self, logger: Logger = None):
         """Pulls Salesforce data
         Parameters

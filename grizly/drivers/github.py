@@ -15,7 +15,7 @@ def get_final(d, keys, lastkey):
         return ", ".join([item[lastkey] for item in d])
 
 
-class GitHub(BaseDriver):
+class GitHubDriver(BaseDriver):
     def __init__(self, logger: Logger = None):
         """Pulls GitHub data
 
@@ -30,7 +30,13 @@ class GitHub(BaseDriver):
         """
         self.logger = logger or logging.getLogger(__name__)
 
-    def connect(self, username: str = None, username_password: str = None, pages: int = 100, proxies: dict = None):
+    def connect(
+        self,
+        username: str = None,
+        username_password: str = None,
+        pages: int = 100,
+        proxies: dict = None,
+    ):
         self.flow["username"] = username
         self.flow["username_password"] = username_password
         self.flow["pages"] = pages
@@ -59,7 +65,9 @@ class GitHub(BaseDriver):
     def to_records(self, flatten=True, sep="_"):
         flow = self.flow
         url = self.get_query() + f"&page={flow['limit']}"
-        data = requests.get(url, auth=(flow["username"], flow["username_password"]), proxies=flow["proxies"])
+        data = requests.get(
+            url, auth=(flow["username"], flow["username_password"]), proxies=flow["proxies"]
+        )
         if flatten:
             records = []
             fields = self.get_fields()
@@ -83,7 +91,9 @@ class GitHub(BaseDriver):
             msg = f"In from_source() you are missing owner or/and repo and or content_path"
             return self.logger.warning(msg)
         data = requests.get(
-            self.flow["base_url"], auth=(flow["username"], flow["username_password"]), proxies=flow["proxies"]
+            self.flow["base_url"],
+            auth=(flow["username"], flow["username_password"]),
+            proxies=flow["proxies"],
         )
         decoded_content = str(base64.b64decode(data.json()["content"]), "utf-8")
         with open(path, "w") as f:

@@ -1,5 +1,5 @@
-from .base import RDBMS
+from .base import RDBMSBase
 
 
-class RedshiftDB(RDBMS):
+class Redshift(RDBMSBase):
     pass

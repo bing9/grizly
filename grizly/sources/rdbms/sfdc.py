@@ -2,9 +2,9 @@ import logging
 import os
 from logging import Logger
 
-from grizly.config import Config
-from grizly.config import config as default_config
-from grizly.sources.base import BaseSource
+from ...config import Config
+from ...config import config as default_config
+from ..base import BaseSource
 from ...utils.type_mappers import sfdc_to_sqlalchemy_dtype
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
