@@ -4,6 +4,10 @@ import logging
 from logging import Logger
 
 
+class BaseObject(ABC):
+
+
+
 class BaseSource(ABC):
     def __init__(
         self, config: Config = None, logger: Logger = None,
@@ -31,4 +35,8 @@ class BaseSource(ABC):
     @property
     @abstractmethod
     def objects(self):
+        pass
+
+    @abstractmethod
+    def object(self, name):
         pass

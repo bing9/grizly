@@ -8,8 +8,9 @@ class RDBMS(BaseSource, metaclass=ABCMeta):
         pass
 
 class BaseTable(ABC):
-    def __init__(self, name, schema=None):
+    def __init__(self, name, source, schema=None):
         self.name = name
+        self.source = source
         self.schema = schema
         self.fully_qualified_name = name if not schema else f"{schema}.{name}"
 

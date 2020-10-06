@@ -11,20 +11,19 @@ from simple_salesforce.login import SalesforceAuthenticationFailed
 
 
 class SFDCTable(BaseTable):
-    def __init__(self, name, con):
+    def __init__(self, name):
         super().__init__(name=name)
-        self.con = con
 
     @property
     def fields(self):
-        sf_table = getattr(self.con, self.name)
+        sf_table = getattr(self.source.con, self.name)
         field_descriptions = sf_table.describe()["fields"]
         fields = [field["name"] for field in field_descriptions]
         return fields
 
     @property
     def types(self):
-        sf_table = getattr(self.con, self.name)
+        sf_table = getattr(self.source.con, self.name)
         field_descriptions = sf_table.describe()["fields"]
 
         types_and_lengths = [(field["type"], field["length"]) for field in field_descriptions]
@@ -39,7 +38,7 @@ class SFDCTable(BaseTable):
     @property
     def nrows(self):
         query = f"SELECT COUNT() FROM {self.name}"
-        return self.con.query(query)["totalSize"]
+        return self.source.con.query(query)["totalSize"]
 
     @property
     def ncols(self):
