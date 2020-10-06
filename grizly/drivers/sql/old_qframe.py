@@ -12,11 +12,12 @@ import psutil
 import pyarrow as pa
 import sqlparse
 
-from ..store import Store
-from ..ui.qframe import SubqueryUI
-from ..utils import (
+from ...store import Store
+from ...utils.functions import (
     dict_diff,
-    get_path,
+    get_path
+)
+from ...utils.type_mappers import (
     python_to_sql_dtype,
     rds_to_pyarrow_type,
     sql_to_python_dtype,
