@@ -1,5 +1,5 @@
 from .base import FileSystem
 
 
-class S3FS(FileSystem):
+class LocalFS(FileSystem):
     pass

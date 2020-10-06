@@ -5,7 +5,7 @@ from logging import Logger
 from grizly.config import Config
 from grizly.config import config as default_config
 from grizly.sources.base import BaseSource
-from ...type_mappers import sfdc_to_sqlalchemy_dtype
+from ...utils.type_mappers import sfdc_to_sqlalchemy_dtype
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
 
@@ -96,8 +96,8 @@ class SFDB(BaseSource):
 
                 dtypes[field] = field_sqlalchemy_type
             return dtypes
-    else:
-        raise NotImplementedError("Retrieving columns only is currently not supported")
+        else:
+            raise NotImplementedError("Retrieving columns only is currently not supported")
 
     def copy_object(self):
         pass

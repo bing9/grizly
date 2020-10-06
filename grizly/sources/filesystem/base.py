@@ -1,5 +1,5 @@
 from ..base import BaseSource
 
 
-class FS(BaseSource):
+class FileSystem(BaseSource):
     pass

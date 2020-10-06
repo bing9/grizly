@@ -14,9 +14,9 @@ import deprecation
 from pandas import DataFrame, read_csv, read_excel, read_parquet
 import pyarrow.parquet as pq
 
-from ..utils import clean, clean_colnames, file_extension, get_path
-from .dialects import pyarrow_to_rds_type
-from .sqldb import SQLDB
+from ...utils.functions import clean, clean_colnames, file_extension, get_path
+from ...utils.type_mappers import pyarrow_to_rds_type
+from ..rdbms.old_sqldb import SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
