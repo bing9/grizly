@@ -5,8 +5,7 @@ from logging import Logger
 
 
 class BaseObject(ABC):
-
-
+    pass
 
 class BaseSource(ABC):
     def __init__(

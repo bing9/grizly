@@ -1,19 +1,12 @@
 import pytest
-import warnings
 import os
 from copy import deepcopy
-import pyodbc
 from pandas import read_sql, read_csv, merge, concat
 
-from ..grizly.utils import get_path
+from ..grizly.utils.functions import get_path
 
-from ..grizly.tools.qframe import (
-    QFrame,
-    union,
-    join,
-    initiate,
-    _get_sql,
-)
+from ..grizly.drivers.frames import QFrame
+from ..grizly.drivers.sql.base import SQLDriver, union, join
 
 excel_path = get_path("tables.xlsx", from_where="here")
 engine_string = "sqlite:///" + get_path("Chinook.sqlite", from_where="here")
@@ -435,7 +428,7 @@ def test_get_sql():
     sql = q.get_sql()
     # write_out(str(sql))
     assert clean_testexpr(sql) == clean_testexpr(testsql)
-    assert sql == _get_sql(q.data, q.sqldb)
+    assert sql == SQLDriver._get_sql(q.data, q.sqldb)
 
 
 def test_to_csv():
@@ -750,31 +743,6 @@ def test_union():
     sql = unioned_qf.get_sql()
 
     # write_out(sql)
-    assert clean_testexpr(sql) == clean_testexpr(testsql)
-
-
-def test_initiate():
-    columns = ["customer", "billings"]
-    json = "test.json"
-    sq = "test"
-    initiate(
-        columns=columns,
-        schema="test_schema",
-        table="test_table",
-        engine_str="engine",
-        json_path=json,
-        subquery=sq,
-    )
-    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", json_path=json, subquery=sq)
-    os.remove(json)
-
-    testsql = """
-        SELECT "customer",
-            "billings"
-        FROM test_schema.test_table
-        """
-
-    sql = q.get_sql()
     assert clean_testexpr(sql) == clean_testexpr(testsql)
 
 

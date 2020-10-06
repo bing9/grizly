@@ -3,48 +3,49 @@ from copy import deepcopy
 import decimal
 from functools import partial
 import logging
-from typing import List, Optional, TypeVar, Callable
+import re
+from typing import Any, Callable, List, Optional, Tuple, TypeVar, Union
 
 import deprecation
 from pandas import DataFrame
 import pyarrow as pa
 
 from ..store import Store
-from ..utils.type_mappers import python_to_sql_dtype, rds_to_pyarrow_type, sql_to_python_dtype
+from ..utils.type_mappers import (
+    python_to_sql_dtype,
+    rds_to_pyarrow_type,
+    sql_to_python_dtype,
+)
+from ..utils.functions import dict_diff
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
 
-Source = TypeVar("Source")
-
 
 class BaseDriver(ABC):
+    _allowed_agg = ["SUM", "COUNT", "MAX", "MIN", "AVG", "STDDEV", ""]
+    _allowed_group_by = _allowed_agg + ["GROUP"]
+    _allowed_order_by = ["ASC", "DESC", ""]
+
     def __init__(
         self,
         store: Optional[Store] = None,
         json_path: str = None,
         subquery: str = None,
-        source: Source = None,
         logger: logging.Logger = None,
+        *args,
         **kwargs,
     ):
         self.logger = logger or logging.getLogger(__name__)
         self.getfields = kwargs.get("getfields")
 
-        sqldb = kwargs.get("sqldb")
-        if sqldb:
-            source = sqldb
-            self.logger.warning(
-                "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                f" Please use source parameter instead.",
-            )
-        self.source = source
         data = kwargs.get("data")
         if data:
             store = data
             self.logger.warning(
                 "Parameter data in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                f" Please use store parameter instead.",
+                " Please use store parameter instead.",
             )
+
         self.store = self._load_store(store=store, json_path=json_path, subquery=subquery,)
 
     def _load_store(
@@ -61,7 +62,7 @@ class BaseDriver(ABC):
             store = self.validate_data(store)
         return store
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.nrows
 
     # TODO: todl
@@ -74,21 +75,26 @@ class BaseDriver(ABC):
             self.getfields = getfields
         return self
 
+    @property
     @abstractmethod
-    def to_records(self):
+    def source(self):
+        pass
+
+    @abstractmethod
+    def to_records(self) -> List[Tuple[Any]]:
         pass
 
     @property
-    @abstractmethod
-    def nrows(self):
-        pass
+    def nrows(self) -> int:
+        records = self.to_records()
+        return len(records)
 
     @property
     def data(self):
         return self.store
 
     @property
-    def ncols(self):
+    def ncols(self) -> int:
         ncols = len(self.get_fields())
         return ncols
 
@@ -117,72 +123,25 @@ class BaseDriver(ABC):
         """Alias for QFrame.dtypes"""
         return self.dtypes
 
-    def select(self, fields: list):
-        """Creates a subquery that looks like "SELECT sq.col1, sq.col2 FROM (some sql) sq".
-
-        NOTE: Selected fields will be placed in the new QFrame. Names of new fields are created
-        as a concat of "sq." and alias in the parent QFrame.
+    def select(self, fields: List[str]):
+        """TO Review: if select is dict create fields
+        maybe this is not good workflow though might
+        be confusing
 
         Parameters
         ----------
-        fields : list or str
-            Fields in list or field as a string.
-            If Fields is * then Select will contain all columns
-
-        Examples
-        --------
-        >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
-        >>> qf = qf.rename({"customer_id": "Id"})
-        >>> print(qf)
-        SELECT "customer_id" AS "Id",
-               "sales"
-        FROM grizly.sales
-        >>> qf = qf.select(["customer_id", "sales"])
-        >>> print(qf)
-        SELECT sq."Id" AS "Id",
-               sq."sales" AS "sales"
-        FROM
-          (SELECT "customer_id" AS "Id",
-                  "sales"
-           FROM grizly.sales) sq
+        fields : list
+            List of fields to select
 
         Returns
         -------
         QFrame
         """
-        # self.create_sql_blocks()
-        sq_fields = deepcopy(self.store["select"]["fields"])
-        new_fields = {}
-
-        if isinstance(fields, str):
-            if fields == "*":
-                fields = self._get_fields(aliased=False, not_selected=False)
-            else:
-                fields = [fields]
-
         fields = self._get_fields_names(fields)
 
-        for field in fields:
-            if field not in sq_fields:
-                self.logger.warning(f"Field {field} not found")
-
-            elif "select" in sq_fields[field] and sq_fields[field]["select"] == 0:
-                self.logger.warning(f"Field {field} is not selected in subquery.")
-
-            else:
-                if "as" in sq_fields[field] and sq_fields[field]["as"] != "":
-                    alias = sq_fields[field]["as"]
-                else:
-                    alias = field
-                new_fields[f"sq.{alias}"] = {
-                    "dtype": sq_fields[field]["dtype"],
-                    "as": alias,
-                }
-
-        if new_fields:
-            data = {"select": {"fields": new_fields}, "sq": self.store.to_dict()}
-            self.store = Store(data)
-
+        for field in self.get_fields():
+            if field not in fields:
+                self.store["select"]["fields"].pop(field, None)
         return self
 
     def rename(self, fields: dict):
@@ -407,36 +366,25 @@ class BaseDriver(ABC):
         QFrame
         """
         # TODO: add deprecation on type and custom_type
-        if group_by.lower() not in [
-            "group",
-            "sum",
-            "count",
-            "min",
-            "max",
-            "avg",
-            "stddev",
-            "",
-        ]:
-            raise ValueError(
-                "Invalid value in group_by. Valid values: 'group', 'sum', 'count', 'min', 'max', 'avg', 'stddev', ''."
-            )
-        if order_by.lower() not in ["asc", "desc", ""]:
-            raise ValueError("Invalid value in order_by. Valid values: 'ASC', 'DESC', ''.")
-        if "union" in self.store["select"]:
-            self.logger.warning(
-                "You can't assign expressions inside union. Use select() method first."
-            )
-        else:
-            if kwargs is not None:
-                for key in kwargs:
-                    expression = kwargs[key]
-                    self.store["select"]["fields"][key] = {
-                        "dtype": dtype,
-                        "as": key,
-                        "group_by": group_by,
-                        "order_by": order_by,
-                        "expression": expression,
-                    }
+        if group_by.upper() not in self._allowed_group_by:
+            raise ValueError(f"Invalid value in group_by. Valid values: {self._allowed_group_by}.")
+        if order_by.upper() not in self._allowed_order_by:
+            raise ValueError(f"Invalid value in order_by. Valid values: {self._allowed_order_by}.")
+        # if "union" in self.store["select"]:
+        #     self.logger.warning(
+        #         "You can't assign expressions inside union. Use select() method first."
+        #     )
+        # else:
+        if kwargs is not None:
+            for key in kwargs:
+                expression = kwargs[key]
+                self.store["select"]["fields"][key] = {
+                    "dtype": dtype,
+                    "as": key,
+                    "group_by": group_by,
+                    "order_by": order_by,
+                    "expression": expression,
+                }
         return self
 
     def groupby(self, fields: list = None):
@@ -503,18 +451,8 @@ class BaseDriver(ABC):
         -------
         QFrame
         """
-        if aggtype.lower() not in [
-            "group",
-            "sum",
-            "count",
-            "min",
-            "max",
-            "avg",
-            "stddev",
-        ]:
-            raise ValueError(
-                "Invalid value in aggtype. Valid values: 'group', 'sum', 'count', 'min', 'max', 'avg','stddev'."
-            )
+        if aggtype.upper() not in self._allowed_agg:
+            raise ValueError(f"Invalid value in aggtype. Valid values: {self._allowed_agg}.")
 
         # if "union" in self.store["select"]:
         #     self.logger.warning("You can't aggregate inside union. Use select() method first.")
@@ -546,14 +484,11 @@ class BaseDriver(ABC):
         """
         fields = []
         for field in self.store["select"]["fields"]:
-            if (
-                "group_by" not in self.store["select"]["fields"][field]
-                or self.store["select"]["fields"][field]["group_by"] == ""
-            ):
+            if self.store["select"]["fields"][field].get("group_by", "") == "":
                 fields.append(field)
         return self[fields].agg("sum")
 
-    def orderby(self, fields: list, ascending: bool = True):
+    def orderby(self, fields: list, ascending: Union[bool, List[bool]] = True):
         """Adds ORDER BY statement.
 
         Parameters
@@ -588,7 +523,7 @@ class BaseDriver(ABC):
         if isinstance(fields, str):
             fields = [fields]
         if isinstance(ascending, bool):
-            ascending = [ascending for item in fields]
+            ascending = [ascending for _ in fields]
 
         assert len(fields) == len(ascending), "Incorrect list size."
 
@@ -695,19 +630,10 @@ class BaseDriver(ABC):
         -------
         QFrame
         """
-
         if deterministic:
             if order_by is not None:
 
-                def check_if_values_are_distinct(qf, columns):
-                    qf1 = qf.copy()
-                    qf2 = qf.copy()
-                    qf2.select(columns)
-                    if len(qf1.distinct()) != len(qf2.distinct()):
-                        return False
-                    return True
-
-                if not check_if_values_are_distinct(qf=self, columns=order_by):
+                if not self.__check_if_values_are_distinct(columns=order_by):
                     raise ValueError(
                         "Selected columns don't give distinct records. Please change 'order_by' parameter or remove it."
                     )
@@ -724,6 +650,14 @@ class BaseDriver(ABC):
             self.limit(limit)
 
         return self
+
+    def __check_if_values_are_distinct(self, columns):
+        qf1 = self.copy()
+        qf2 = self.copy()
+        qf2.select(columns)
+        if len(qf1.distinct()) != len(qf2.distinct()):
+            return False
+        return True
 
     def cut(self, chunksize: int, deterministic: bool = True, order_by: list = None):
         """Divides a QFrame into multiple smaller QFrames, each containing chunksize rows.
@@ -808,90 +742,7 @@ class BaseDriver(ABC):
 
         return self
 
-    def pivot(
-        self,
-        rows: list,
-        columns: list,
-        values: str,
-        aggtype: str = "sum",
-        prefix: str = None,
-        sort: bool = True,
-    ):
-        """Reshapes QFrame to generate pivot table
-
-        Parameters
-        ----------
-        rows : list
-            Columns which will be grouped
-        columns : list
-            Columns to use to make new QFrame columns
-        values : str
-            Column(s) to use for populating new QFrame values
-        aggtype : str, optional
-            Aggregation type to perform on values, by default "sum"
-        prefix : str, optional
-            Prefix to add to new columns, by default None
-        sort : bool, optional
-            Whether to sort columns, by default True
-
-        Returns
-        -------
-        QFrame
-        """
-
-        if isinstance(rows, str):
-            rows = [rows]
-        if isinstance(columns, str):
-            columns = [columns]
-        if not isinstance(values, str):
-            raise ValueError("Parameter 'value' has to be of type str.")
-        if values not in set(self.get_fields()) | set(self.get_fields(aliased=True)):
-            raise ValueError(f"'{values}' not found in fields.")
-        if aggtype not in ["sum"]:
-            raise ValueError(f"Aggregation '{aggtype}' not supperted yet.")
-
-        qf = self.copy()
-        print(qf.store)
-        qf.select(columns).groupby()
-        if sort:
-            qf.orderby(qf.get_fields())
-        col_values = qf.to_records()
-
-        values = self._get_fields_names([values], aliased=True)[0]
-        columns = self._get_fields_names(columns, aliased=True)
-
-        self.select(rows).groupby()
-
-        for col_value in col_values:
-            col_name = []
-            for val in col_value:
-                val = str(val)
-                if not re.match("^[a-zA-Z0-9_]*$", val):
-                    self.logger.warning(
-                        f"Value '{val}' contains special characters. You may consider"
-                        " cleaning your columns first with QFrame.assign method before pivoting."
-                    )
-                col_name.append(val)
-            col_name = "_".join(col_name)
-            if prefix is not None:
-                col_name = f"{prefix}{col_name}"
-            col_filter = []
-            for col, val in zip(columns, col_value):
-                if val is not None:
-                    col_filter.append(f""""{col}"='{val}'""")
-                else:
-                    col_filter.append(f""""{col}" IS NULL""")
-            col_filter = " AND ".join(col_filter)
-
-            self.assign(
-                **{col_name: f'CASE WHEN {col_filter} THEN "{values}" ELSE 0 END'},
-                type="num",
-                group_by=aggtype,
-            )
-
-        return self
-
-    def get_fields(self, aliased: bool = False, not_selected: bool = False, dtypes=False):
+    def get_fields(self, aliased: bool = False, not_selected: bool = False, **kwargs) -> List[str]:
         """Returns list of QFrame fields.
 
         Parameters
@@ -914,12 +765,19 @@ class BaseDriver(ABC):
         """
         if not self.store:
             return []
+
         fields = self._get_fields(aliased=aliased, not_selected=not_selected)
-        return dict(zip(fields, self.get_dtypes())) if dtypes else fields
+
+        if kwargs.get("dtypes"):
+            self.logger.warning(
+                "Parameter dtypes in QFrame.get_dtypes is deprecated as of 0.4 and will be removed in 0.4.5."
+            )
+            return dict(zip(fields, self.get_dtypes()))
+
+        return fields
 
     def get_dtypes(self):
-        """Returns list of QFrame field data types.
-        The dtypes are resolved to SQL types, e.g. 'dim' will resolved to VARCHAR(500)
+        """Return list of QFrame field data types
 
         Examples
         --------
@@ -980,7 +838,39 @@ class BaseDriver(ABC):
         """
         return deepcopy(self)
 
-    def validate_data(self, data: dict):
+    def _fix_types(self, mismatched: dict):
+        mismatched = self._check_types()
+        for col in mismatched:
+            python_dtype = mismatched[col]
+            sql_dtype = python_to_sql_dtype(python_dtype)
+            self.store["select"]["fields"][col]["dtype"] = sql_dtype
+
+    def _check_types(self):
+
+        qf = self.copy().limit(100)
+
+        expected_types = dict(zip(qf.columns, qf.dtypes))
+        expected_types_mapped = {
+            col: sql_to_python_dtype(val) for col, val in expected_types.items()
+        }
+        # this only checks the first 100 rows
+        retrieved_types = {}
+        d = qf.to_dict()
+        for col in d:
+            unique_types = {type(val) for val in d[col] if type(val) is not type(None)}
+            if len(unique_types) > 1:
+                raise NotImplementedError(
+                    f"Multiple types detected in {col}. This is not yet handled."
+                )
+            retrieved_types[col] = list(unique_types)[0]
+
+        mismatched_with_none = dict_diff(expected_types_mapped, retrieved_types, by="values")
+        mismatched = {
+            col: dtype for col, dtype in mismatched_with_none.items() if dtype is not type(None)
+        }
+        return mismatched
+
+    def validate_data(self, data: Union[dict, Store]) -> Store:
         """Validates loaded data.
 
         Parameters
@@ -995,14 +885,17 @@ class BaseDriver(ABC):
         """
         return self._validate_data(deepcopy(data))
 
-    def _get_fields_names(self, fields, aliased=False, not_found=False):
+    def _get_fields_names(
+        self, fields, aliased=False, not_found=False
+    ) -> Union[List[str], Tuple[List[str]]]:
         """Returns a list of fields keys or fields aliases.
         Input parameters 'fields' can contain both aliased and not aliased fields
 
         not_found - whether to return not found fields"""
+        # TODO: TO BE REFACTORED
 
-        not_aliased_fields = self._get_fields(aliased=False, not_selected=True)
-        aliased_fields = self._get_fields(aliased=True, not_selected=True)
+        not_aliased_fields = self._get_fields_key_names(not_selected=True)
+        aliased_fields = self._get_fields_aliases(not_selected=True)
 
         not_found_fields = []
         output_fields = []
@@ -1030,34 +923,47 @@ class BaseDriver(ABC):
         return output_fields if not not_found else (output_fields, not_found_fields)
 
     def _get_fields(self, aliased=False, not_selected=False):
+        if aliased:
+            return self._get_fields_aliases(not_selected=not_selected)
+        else:
+            return self._get_fields_key_names(not_selected=not_selected)
+
+    def _get_fields_aliases(self, not_selected=False):
+        """Return list of fields aliases (field["as"] or field key name)"""
         fields_data = self.store["select"]["fields"]
         fields_out = []
 
-        if aliased:
-            for field in fields_data:
-                if (
-                    not not_selected
-                    and "select" in fields_data[field]
-                    and fields_data[field]["select"] == 0
-                ):
-                    continue
-                else:
-                    alias = (
-                        field
-                        if "as" not in fields_data[field] or fields_data[field]["as"] == ""
-                        else fields_data[field]["as"]
-                    )
-                    fields_out.append(alias)
-        else:
-            for field in fields_data:
-                if (
-                    not not_selected
-                    and "select" in fields_data[field]
-                    and fields_data[field]["select"] == 0
-                ):
-                    continue
-                else:
-                    fields_out.append(field)
+        for field in fields_data:
+            if (
+                not not_selected
+                and "select" in fields_data[field]
+                and fields_data[field]["select"] == 0
+            ):
+                continue
+            else:
+                alias = (
+                    field
+                    if "as" not in fields_data[field] or fields_data[field]["as"] == ""
+                    else fields_data[field]["as"]
+                )
+                fields_out.append(alias)
+
+        return fields_out
+
+    def _get_fields_key_names(self, not_selected=False):
+        """Return list of keys in store["select"]["fields"]"""
+        fields_data = self.store["select"]["fields"]
+        fields_out = []
+
+        for field in fields_data:
+            if (
+                not not_selected
+                and "select" in fields_data[field]
+                and fields_data[field]["select"] == 0
+            ):
+                continue
+            else:
+                fields_out.append(field)
 
         return fields_out
 
@@ -1068,7 +974,7 @@ class BaseDriver(ABC):
         -------
         QFrame
         """
-        duplicates = self._get_duplicated_columns(self.store)
+        duplicates = self._get_duplicated_columns()
 
         if duplicates != {}:
             print("\033[1m", "DUPLICATED COLUMNS: \n", "\033[0m")
@@ -1079,10 +985,9 @@ class BaseDriver(ABC):
         else:
             self.logger.info("There are no duplicated columns.")
 
-    @staticmethod
-    def _get_duplicated_columns(data):
+    def _get_duplicated_columns(self):
         columns = {}
-        fields = data["select"]["fields"]
+        fields = self.store["select"]["fields"]
 
         for field in fields:
             alias = (
@@ -1102,7 +1007,7 @@ class BaseDriver(ABC):
 
         return duplicates
 
-    def _validate_data(self, data):
+    def _validate_data(self, data) -> Store:
         if data == {}:
             raise AttributeError("Your data is empty.")
 
@@ -1120,7 +1025,7 @@ class BaseDriver(ABC):
             self._validate_field(field=field_name, data=field_data)
 
         self._validate_key(
-            key="distinct", data=select_data, func=lambda x: str(int(x)) == "1",
+            key="distinct", data=select_data, func=lambda x: str(x) == "1",
         )
 
         self._validate_key(
@@ -1131,26 +1036,42 @@ class BaseDriver(ABC):
             key="limit", data=select_data, func=lambda x: isinstance(x, int),
         )
 
-        return data
+        return Store(data)
 
     def _validate_field(self, field: str, data: dict):
-        if "dtype" in data:
-            self._validate_key(key="dtype", data=data, func=lambda x: isinstance(x, str))
+        if "dtype" not in data:
+            self.__adjust_field_type(field, data)
+
+        self._validate_key(key="dtype", data=data, func=lambda x: isinstance(x, str))
+
+        self._validate_key(
+            key="group_by", data=data, func=lambda x: x.upper() in self._allowed_group_by,
+        )
+
+        self._validate_key(
+            key="order_by", data=data, func=lambda x: x.upper() in self._allowed_order_by,
+        )
+
+        self._validate_key(
+            key="select", data=data, func=lambda x: str(x) == "0",
+        )
+
+    def __adjust_field_type(self, field: str, data: dict):
+        """Replace 'custom_type' and 'type' with 'dtype' key"""
+        if "custom_type" in data and data["custom_type"] != "":
+            dtype = data["custom_type"].upper()
+        elif data["type"] == "num":
+            dtype = "FLOAT(53)"
         else:
-            raise AttributeError(f"Missing type attribute in field '{field}'.")
-
-        self._validate_key(
-            key="group_by",
-            data=data,
-            func=lambda x: x.upper() in ["GROUP", "SUM", "COUNT", "MAX", "MIN", "AVG", "STDDEV"],
-        )
-
-        self._validate_key(
-            key="order_by", data=data, func=lambda x: x.upper() in ["DESC", "ASC"],
-        )
-
-        self._validate_key(
-            key="select", data=data, func=lambda x: str(x) in {"0", "0.0"},
+            dtype = "VARCHAR(500)"
+        data["dtype"] = dtype
+        data.pop("custom_type", None)
+        data.pop("type", None)
+        self.logger.warning(
+            f"Missing 'dtype' key in field '{field}'. "
+            "Since version 0.4 of grizly uses 'dtype' key instead "
+            "of 'type' and 'custom_type' keys. To update your "
+            "json file please use qf.store.to_json() method."
         )
 
     @staticmethod
@@ -1180,11 +1101,11 @@ class BaseDriver(ABC):
         for col, dtype in zip(columns, dtypes):
             field = {
                 "as": "",
+                "dtype": dtype,
                 "group_by": "",
                 "order_by": "",
                 "select": "",
                 "expression": "",
-                "dtype": dtype,
             }
             fields[col] = field
 
