@@ -17,12 +17,6 @@ deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", re
 logger = logging.getLogger(__name__)
 
 
-def python_to_sql_dtype(dtype):
-    mapping = {str: "VARCHAR(50)", int: "INTEGER", float: "FLOAT8"}
-    sql_dtype = mapping[dtype]
-    return sql_dtype
-
-
 def sfdc_to_sqlalchemy_dtype(sfdc_dtype):
     """Get SQLAlchemy equivalent of the given SFDC data type.
 
@@ -64,7 +58,6 @@ def sfdc_to_sqlalchemy_dtype(sfdc_dtype):
     }
     sqlalchemy_dtype = sqlalchemy_dtypes[sfdc_dtype]
     return sqlalchemy_dtype
-
 
 
 def get_sfdc_columns(table, columns=None, column_types=True):

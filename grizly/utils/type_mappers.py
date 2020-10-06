@@ -246,3 +246,8 @@ def sql_to_python_dtype(dtype):
             return dtypes[sql_dtype]
     else:
         return str
+
+def python_to_sql_dtype(dtype):
+    mapping = {str: "VARCHAR(50)", int: "INTEGER", float: "FLOAT8"}
+    sql_dtype = mapping[dtype]
+    return sql_dtype

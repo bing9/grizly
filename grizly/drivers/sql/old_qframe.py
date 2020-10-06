@@ -21,16 +21,16 @@ from ...utils.type_mappers import (
     python_to_sql_dtype,
     rds_to_pyarrow_type,
     sql_to_python_dtype,
+    mysql_to_postgres_type
 )
-from .base import BaseTool
-from .dialects import check_if_valid_type, mysql_to_postgres_type
-from .s3 import S3
-from .sqldb import SQLDB
+from .base import BaseDriver
+from ...sources.filesystem.old_s3 import S3
+from ...sources.rdbms.old_sqldb import SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
 
-class QFrame(BaseTool):
+class QFrame(BaseDriver):
     """Class which builds a SQL statement
 
     Parameters

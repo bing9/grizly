@@ -10,7 +10,7 @@ from pandas import DataFrame
 import pyarrow as pa
 
 from ..store import Store
-from ..utils import python_to_sql_dtype, rds_to_pyarrow_type, sql_to_python_dtype
+from ..utils.type_mappers import python_to_sql_dtype, rds_to_pyarrow_type, sql_to_python_dtype
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
 

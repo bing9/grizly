@@ -1,8 +1,8 @@
 import json
 import os
 import dask
-from ..tools.qframe import QFrame
-from ..tools.s3 import S3
+from ..drivers.sql.old_qframe import QFrame
+from ..sources.filesystem.old_s3 import S3
 from ..scheduling.orchestrate import Workflow
 from ..scheduling.registry import Job
 import s3fs

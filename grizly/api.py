@@ -6,12 +6,12 @@ from .config import Config, config
 from .drivers.sql.old_qframe import QFrame, union, join
 from .tools.crosstab import Crosstab
 from .tools.email import Email
-from .drivers.sql import SFDC
+from .drivers.sql.sfdc import SFDC
 from .sources.filesystem.old_s3 import S3
 from .sources.rdbms.old_sqldb import SQLDB
 from .drivers.github import GitHub
 
-from .scheduling.orchestrate import Workflow, Listener, EmailListener, Schedule, Runner
+# from .scheduling.orchestrate import Workflow, Listener, EmailListener, Schedule, Runner
 from .scheduling.registry import SchedulerDB, Job, Trigger
 from .tools.extract import Extract
 

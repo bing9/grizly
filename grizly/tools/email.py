@@ -11,7 +11,7 @@ from exchangelib import (
     FileAttachment,
 )
 from ..config import Config
-from ..utils import get_path
+from ..utils.functions import get_path
 from os.path import basename
 import os
 import logging
