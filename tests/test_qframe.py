@@ -27,8 +27,8 @@ orders = {
 customers = {
     "select": {
         "fields": {
-            "Country": {"type": "dim", "as": "Country"},
-            "Customer": {"type": "dim", "as": "Customer"},
+            "Country": {"dtype": "VARCHAR(500)", "as": "Country"},
+            "Customer": {"dtype": "VARCHAR(500)", "as": "Customer"},
         },
         "table": "Customers",
     }
@@ -91,10 +91,10 @@ def test_validation_data():
 
 def test_from_dict():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=customers)
-    assert q.data["select"]["fields"]["Country"] == {"type": "dim", "as": "Country"}
+    assert q.data["select"]["fields"]["Country"] == {"dtype": "VARCHAR(500)", "as": "Country"}
 
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
-    assert q.data["select"]["fields"]["Value"] == {"type": "num"}
+    assert q.data["select"]["fields"]["Value"] == {"dtype": "FLOAT(53)"}
 
 
 def test_create_sql_blocks():
@@ -188,18 +188,16 @@ def test_assign():
     q.assign(Value_div="Value/100", type="num", order_by="DESC")
     assert q.data["select"]["fields"]["value_x_two"]["expression"] == "Value * 2"
     assert q.data["select"]["fields"]["Value_div"] == {
-        "type": "num",
+        "dtype": "FLOAT(53)",
         "as": "Value_div",
         "group_by": "",
         "order_by": "DESC",
-        "custom_type": "",
         "expression": "Value/100",
     }
     assert q.data["select"]["fields"]["extract_date"] == {
-        "type": "dim",
+        "dtype": "date",
         "as": "extract_date",
         "group_by": "",
-        "custom_type": "date",
         "order_by": "",
         "expression": "format('yyyy-MM-dd', '2019-04-05 13:00:09')",
     }
@@ -208,8 +206,8 @@ def test_assign():
 def test_groupby():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
     q.groupby(["Order", "Customer"])
-    order = {"type": "dim", "as": "Bookings", "group_by": "group"}
-    customer = {"type": "dim", "as": "Customer", "group_by": "group"}
+    order = {"dtype": "VARCHAR(500)", "as": "Bookings", "group_by": "group"}
+    customer = {"dtype": "VARCHAR(500)", "as": "Customer", "group_by": "group"}
     assert q.data["select"]["fields"]["Order"] == order
     assert q.data["select"]["fields"]["Customer"] == customer
 
@@ -217,8 +215,8 @@ def test_groupby():
 def test_groupby_aliased():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
     q.groupby(["Bookings", "Customer"])
-    order = {"type": "dim", "as": "Bookings", "group_by": "group"}
-    customer = {"type": "dim", "as": "Customer", "group_by": "group"}
+    order = {"dtype": "VARCHAR(500)", "as": "Bookings", "group_by": "group"}
+    customer = {"dtype": "VARCHAR(500)", "as": "Customer", "group_by": "group"}
     assert q.data["select"]["fields"]["Order"] == order
     assert q.data["select"]["fields"]["Customer"] == customer
 
@@ -234,7 +232,7 @@ def test_groupby_all():
 def test_agg():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
     q.groupby(["Order", "Customer"])["Value"].agg("sum")
-    value = {"type": "num", "group_by": "sum"}
+    value = {"dtype": "FLOAT(53)", "group_by": "sum"}
     assert q.data["select"]["fields"]["Value"] == value
 
 
@@ -242,7 +240,7 @@ def test_agg_aliased():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
     q.rename({"Value": "NewValue"})
     q.groupby(["Order", "Customer"])["NewValue"].agg("sum")
-    value = {"as": "NewValue", "type": "num", "group_by": "sum"}
+    value = {"as": "NewValue", "dtype": "FLOAT(53)", "group_by": "sum"}
     assert q.data["select"]["fields"]["Value"] == value
 
 
@@ -377,7 +375,7 @@ def test_not_selected_fields():
     q.orderby(["InvoiceLineId", "InvoiceId"])
     q.rename({"InvoiceId": "NewName"})
     assert q.data["select"]["fields"]["InvoiceId"] == {
-        "type": "dim",
+        "dtype": "VARCHAR(500)",
         "select": 0,
         "group_by": "group",
         "order_by": "ASC",
@@ -428,7 +426,6 @@ def test_get_sql():
     sql = q.get_sql()
     # write_out(str(sql))
     assert clean_testexpr(sql) == clean_testexpr(testsql)
-    assert sql == SQLDriver._get_sql(q.data, q.sqldb)
 
 
 def test_to_csv():
@@ -458,7 +455,7 @@ def test_to_csv():
 
     os.remove(csv_path)
 
-    con = q.sqldb.get_connection()
+    con = q.source.get_connection()
     test_df = read_sql(sql=q.get_sql(), con=con)
     # write_out(str(test_df))
     assert df_from_qf.equals(test_df)
@@ -483,7 +480,7 @@ def test_to_df():
     q.groupby(["TrackId"])["Quantity"].agg("sum")
     df_from_qf = q.to_df()
 
-    con = q.sqldb.get_connection()
+    con = q.source.get_connection()
     test_df = read_sql(sql=q.get_sql(), con=con)
     # write_out(str(test_df))
     assert df_from_qf.equals(test_df)

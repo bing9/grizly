@@ -24,7 +24,7 @@ class RDBMSBase(BaseSource):
         return f"{self.__class__.__name__}(dsn='{self.dsn}')"
 
     def __eq__(self, other):
-        return self.__class__ == other.__class__ and self.dsn == other.dsn
+        return self.dsn == other.dsn
 
     def copy_object(self):
         pass

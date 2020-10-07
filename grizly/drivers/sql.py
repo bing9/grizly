@@ -85,7 +85,11 @@ class SQLDriver(BaseDriver):
     @property
     def nrows(self):
         query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
-        nrows = self.source._fetch_records(query)[0]
+        records = self.source._fetch_records(query)
+        if records:
+            nrows = records[0][0]
+        else:
+            nrows = 0
         return nrows
 
     def create_sql_blocks(self):
@@ -605,8 +609,8 @@ class SQLDriver(BaseDriver):
 
         return sql_blocks
 
-    @deprecation.deprecated(details="Use QFrame.source instead",)
     @property
+    @deprecation.deprecated(details="Use QFrame.source instead",)
     def sqldb(self):
         return self.source
 
@@ -740,9 +744,9 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     iterator = 0
     for q in qframes:
         if iterator == 0:
-            first_sqldb = q.sqldb
+            first_source = q.source
         else:
-            assert first_sqldb == q.sqldb, "QFrames have different datasources."
+            assert first_source == q.source, f"QFrames have different datasources"
         q.create_sql_blocks()
         iterator += 1
         data[f"sq{iterator}"] = deepcopy(q.data)
@@ -845,12 +849,12 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     iterator = 2
     for qf in qframes:
-        assert main_qf.sqldb == qf.sqldb, "QFrames have different datasources."
+        assert main_qf.source == qf.source, f"QFrames have different datasources"
         qf.create_sql_blocks()
         qf_aliases = qf.data["select"]["sql_blocks"]["select_aliases"]
         assert len(new_fields) == len(
             qf_aliases
-        ), f"Amount of fields in {iterator}. QFrame doesn't match amount of fields in 1. QFrame."
+        ), f"Amount of fields in {iterator}. QFrame doesn't match amount of fields in 1. QFrame"
 
         if union_by == "name":
             field_diff_1 = set(new_fields) - set(qf_aliases)

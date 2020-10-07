@@ -360,7 +360,24 @@ class BaseDriver(ABC):
         -------
         QFrame
         """
-        # TODO: add deprecation on type and custom_type
+        custom_type = kwargs.get("custom_type")
+        _type = kwargs.get("type")
+        if custom_type:
+            dtype = custom_type
+            self.logger.warning(
+                "Parameter 'custom_type' in method QFrame.assign"
+                " is deprecated as of 0.4 and will be removed"
+                " in 0.4.5. Use 'dtype' instead."
+            )
+        elif _type:
+            self.logger.warning(
+                "Parameter 'type' in method QFrame.assign"
+                " is deprecated as of 0.4 and will be removed"
+                " in 0.4.5. Use 'dtype' instead."
+            )
+            if _type == "num":
+                dtype = "FLOAT(53)"
+
         if group_by.upper() not in self._allowed_group_by:
             raise ValueError(f"Invalid value in group_by. Valid values: {self._allowed_group_by}.")
         if order_by.upper() not in self._allowed_order_by:
@@ -371,8 +388,9 @@ class BaseDriver(ABC):
         #     )
         # else:
         if kwargs is not None:
-            for key in kwargs:
-                expression = kwargs[key]
+            for key, expression in kwargs.items():
+                if key in ["custom_type", "type"]:
+                    continue
                 self.store["select"]["fields"][key] = {
                     "dtype": dtype,
                     "as": key,
@@ -787,7 +805,7 @@ class BaseDriver(ABC):
         """
         dtypes = []
         for field in self._get_fields():
-            dtype = self.store["select"]["fields"][field]["dtypes"]
+            dtype = self.store["select"]["fields"][field]["dtype"].upper()
             dtypes.append(dtype)
         return dtypes
 
