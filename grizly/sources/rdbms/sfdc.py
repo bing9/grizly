@@ -5,6 +5,7 @@ from logging import Logger
 from ...config import Config
 from ...config import config as default_config
 from ..base import BaseSource
+from .base import BaseTable
 from ...utils.type_mappers import sfdc_to_sqlalchemy_dtype
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
@@ -106,7 +107,7 @@ class SFDB(BaseSource):
     def object(self, name):
         return SFDCTable(name=name, source=self)
 
-    def table(self, name):
+    def table(self, name, schema=None):
         """Alias for object"""
         return self.object(name=name)
 

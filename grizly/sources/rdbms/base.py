@@ -8,6 +8,8 @@ from logging import Logger
 from functools import partial
 import deprecation
 
+from typing import Literal
+
 import os
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
@@ -174,7 +176,7 @@ class RDBMSBase(BaseSource):
         columns: list,
         types: list,
         schema: str = None,
-        if_exists: Union["fail", "skip", "drop"] = "skip",
+        if_exists: Literal["fail", "skip", "drop"] = "skip",
         **kwargs,
     ):
         """Creates a new table.

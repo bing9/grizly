@@ -2,7 +2,7 @@ from .base import RDBMSBase
 from typing import List, Tuple, Any
 
 
-class DenodoDB(RDBMSBase):
+class Denodo(RDBMSBase):
     def insert_into(self, *args, **kwargs):
         raise NotImplementedError("Unsupported database")
 
