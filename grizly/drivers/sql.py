@@ -50,25 +50,22 @@ class SQLDriver(BaseDriver):
     def _load_store_from_table(
         self, schema: str = None, table: str = None, columns: list = None,
     ) -> Store:
-        schema = schema or ""
-        col_names, col_types = self.source.get_columns(
-            schema=schema, table=table, columns=columns, column_types=True
-        )
+        table = self.source.table(table, schema=schema)
 
-        if col_names == []:
-            raise ValueError(
-                "No columns were loaded. Please check if specified table exists and is not empty."
-            )
+        if not table:
+            raise ValueError(f"Table {table} does not exist")
+        if not table.columns:
+            raise ValueError(f"Table {table} is empty")
 
-        _dict = self._build_store(columns=col_names, dtypes=col_types)
+        _dict = self._build_store(columns=table.columns, dtypes=table.types)
         _dict["select"]["table"] = table
-        _dict["select"]["schema"] = schema
+        _dict["select"]["schema"] = schema or ""
 
         return Store(_dict)
 
     @property
     def nrows(self):
-        con = self.source.get_connection()
+        con = self.source.con
         query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
         if self.source.db == "denodo":
             query += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
@@ -414,7 +411,7 @@ class SQLDriver(BaseDriver):
                 " 'queryTimeout' = '9000000000', 'simplify' = 'on')"
             )
 
-        con = self.source.get_connection()
+        con = self.source.con
         cursor = con.cursor()
 
         cursor.execute(sql)

@@ -13,6 +13,7 @@ from simple_salesforce.login import SalesforceAuthenticationFailed
 class SFDCTable(BaseTable):
     def __init__(self, name, source, schema=None):
         super().__init__(name=name, source=source, schema=schema)
+        self.db = "sfdc"
 
     @property
     def fields(self):

@@ -3,6 +3,9 @@ import datetime
 
 
 class SFDCDriver(SQLDriver):
+    def __init__(self, source, table=None):
+        super().__init__(source=source, table=table)
+
     def _validate_fields(self):
         """Check if requested fields are in SF table
         and if can be pulled (we can't pull compound fields)

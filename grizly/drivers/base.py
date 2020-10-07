@@ -75,11 +75,6 @@ class BaseDriver(ABC):
             self.getfields = getfields
         return self
 
-    @property
-    @abstractmethod
-    def source(self):
-        pass
-
     @abstractmethod
     def to_records(self) -> List[Tuple[Any]]:
         pass
