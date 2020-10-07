@@ -1,79 +1,23 @@
-from ..base import BaseSource
 from abc import ABC, abstractmethod
-from pandas import read_sql_query
-import sqlparse
-import logging
-from logging import Logger
-
 from functools import partial
-import deprecation
-
 from typing import Literal
 
-import os
+import deprecation
+
+from ..base import BaseSource
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
 
-class BaseTable(ABC):
-    def __init__(self, name, source, schema=None):
-        self.name = name
-        self.source = source
-        self.schema = schema
-        self.fully_qualified_name = name if not schema else f"{schema}.{name}"
-
-    def __repr__(self):
-        return f'{self.__class__.__name__}("{self.name}")'
-
-    def info(self):
-        print(
-            f"""
-        Table: {self.fully_qualified_name}
-        Fields: {self.ncols}
-        Rows: {self.nrows}
-        """
-        )
-
-    @property
-    @abstractmethod
-    def fields(self):
-        pass
-
-    @property
-    def columns(self):
-        """Alias for fields"""
-        return self.fields
-
-    @property
-    @abstractmethod
-    def types(self):
-        pass
-
-    @property
-    def dtypes(self):
-        """Alias for types"""
-        return self.types
-
-    @property
-    @abstractmethod
-    def nrows(self):
-        pass
-
-    @property
-    @abstractmethod
-    def ncols(self):
-        pass
-
-    def __len__(self):
-        return self.nrows
-
-
 class RDBMSBase(BaseSource):
-    last_commit = ""
+    _context = ""
+    _quote = '"'
+    dialect = "postgresql"
 
     def __init__(
-        self, dsn: str, **kwargs,
+        self, dsn: str, *args, **kwargs,
     ):
+        super().__init__(*args, **kwargs)
         self.dsn = dsn
 
     def __repr__(self):
@@ -82,13 +26,29 @@ class RDBMSBase(BaseSource):
     def __eq__(self, other):
         return self.__class__ == other.__class__ and self.dsn == other.dsn
 
+    def copy_object(self):
+        pass
+
+    def delete_object(self):
+        pass
+
+    def create_object(self):
+        pass
+
+    @property
+    def objects(self):
+        pass
+
+    def object(self, name):
+        pass
+
     def get_connection(self, autocommit=False):
         # TODO: DEPRECATE
         return self.con
 
     @property
     def con(self):
-        """Return sqlalchemy connection
+        """Return pyodbc connection
 
         Examples
         --------
@@ -468,6 +428,7 @@ class RDBMSBase(BaseSource):
         return dtype
 
     def _run_query(self, sql: str, autocommit: bool = False):
+        sql = self._add_context(sql)
         con = self.con
         con.autocommit = autocommit
         try:
@@ -479,7 +440,8 @@ class RDBMSBase(BaseSource):
             con.close()
             self.logger.debug("Connection closed")
 
-    def _fetch_records(self, sql):
+    def _fetch_records(self, sql: str):
+        sql = self._add_context(sql)
         con = self.con
         records = []
         try:
@@ -492,3 +454,62 @@ class RDBMSBase(BaseSource):
             self.logger.debug("Connection closed")
         records_tuples = [tuple(i) for i in records]  # cast from pyodbc records to python tuples
         return records_tuples
+
+    def _add_context(self, sql: str):
+        if self._context:
+            return sql + self._context
+        else:
+            return sql
+
+
+class BaseTable(ABC):
+    def __init__(self, name, source, schema=None):
+        self.name = name
+        self.source = source
+        self.schema = schema
+        self.fully_qualified_name = name if not schema else f"{schema}.{name}"
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}("{self.name}")'
+
+    def __len__(self):
+        return self.nrows
+
+    def info(self):
+        print(
+            f"""
+        Table: {self.fully_qualified_name}
+        Fields: {self.ncols}
+        Rows: {self.nrows}
+        """
+        )
+
+    @property
+    @abstractmethod
+    def fields(self):
+        pass
+
+    @property
+    @abstractmethod
+    def types(self):
+        pass
+
+    @property
+    @abstractmethod
+    def nrows(self):
+        pass
+
+    @property
+    @abstractmethod
+    def ncols(self):
+        pass
+
+    @property
+    def columns(self):
+        """Alias for fields"""
+        return self.fields
+
+    @property
+    def dtypes(self):
+        """Alias for types"""
+        return self.types

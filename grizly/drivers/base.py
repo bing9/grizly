@@ -1024,11 +1024,11 @@ class BaseDriver(ABC):
         )
 
         self._validate_key(
-            key="offset", data=select_data, func=lambda x: isinstance(x, int),
+            key="offset", data=select_data, func=lambda x: str(x).isdigit(),
         )
 
         self._validate_key(
-            key="limit", data=select_data, func=lambda x: isinstance(x, int),
+            key="limit", data=select_data, func=lambda x: str(x).isdigit(),
         )
 
         return Store(data)
