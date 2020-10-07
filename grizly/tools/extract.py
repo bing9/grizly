@@ -1,7 +1,7 @@
 import json
 import os
 import dask
-from ..drivers.sql.old_qframe import QFrame
+from ..drivers.old_qframe import QFrame
 from ..sources.filesystem.old_s3 import S3
 from ..scheduling.orchestrate import Workflow
 from ..scheduling.registry import Job

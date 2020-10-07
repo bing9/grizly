@@ -1,4 +1,4 @@
-from ..base import BaseDriver
+from .base import BaseDriver
 from copy import deepcopy
 from functools import partial
 import json
@@ -8,6 +8,7 @@ import re
 import deprecation
 import sqlparse
 
+from ..types import Source
 from ..store import Store
 from ..sources.rdbms.rdbms_factory import RDBMS
 
@@ -255,6 +256,10 @@ class SQLDriver(BaseDriver):
         """
         self.create_sql_blocks()
         return self._get_sql(data=self.store, sqldb=self.source)
+
+    @property
+    def sql(self):
+        return self.get_sql()
 
     def create_table(
         self,

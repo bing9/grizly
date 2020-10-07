@@ -2,23 +2,17 @@ import logging
 import os
 from logging import Logger
 
-<<<<<<< HEAD
 from grizly.config import Config
 from grizly.config import config as default_config
-from grizly.sources.rdbms.base import RDBMS, BaseTable
-=======
-from ...config import Config
-from ...config import config as default_config
-from ..base import BaseSource
->>>>>>> 917cc49cd1b6ff26cab4fe338d36e74484988671
+from grizly.sources.rdbms.base import BaseSource, BaseTable
 from ...utils.type_mappers import sfdc_to_sqlalchemy_dtype
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
 
 
 class SFDCTable(BaseTable):
-    def __init__(self, name):
-        super().__init__(name=name)
+    def __init__(self, name, source, schema=None):
+        super().__init__(name=name, source=source, schema=schema)
 
     @property
     def fields(self):
@@ -51,7 +45,7 @@ class SFDCTable(BaseTable):
         pass
 
 
-class SFDB(RDBMS):
+class SFDB(BaseSource):
     def __init__(
         self,
         config: Config = None,
@@ -108,8 +102,12 @@ class SFDB(RDBMS):
         table_names = [obj["name"] for obj in self.con.describe()["sobjects"]]
         return table_names
 
+    def object(self, name):
+        return SFDCTable(name=name, source=self)
+
     def table(self, name):
-        return SFDCTable(name, con=self.con)
+        """Alias for object"""
+        return self.object(name=name)
 
     def copy_object(self):
         raise NotImplementedError
