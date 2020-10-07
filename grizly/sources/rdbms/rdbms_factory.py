@@ -1,5 +1,5 @@
 from ...config import config
-from .aurora import Aurora
+from .aurora import AuroraPostgreSQL
 from .redshift import Redshift
 from .denodo import Denodo
 

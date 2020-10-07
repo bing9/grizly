@@ -12,20 +12,20 @@ import psutil
 import pyarrow as pa
 import sqlparse
 
-from ...store import Store
-from ...utils.functions import (
+from ..store import Store
+from ..utils.functions import (
     dict_diff,
     get_path
 )
-from ...utils.type_mappers import (
+from ..utils.type_mappers import (
     python_to_sql_dtype,
     rds_to_pyarrow_type,
     sql_to_python_dtype,
     mysql_to_postgres_type
 )
 from .base import BaseDriver
-from ...sources.filesystem.old_s3 import S3
-from ...sources.rdbms.old_sqldb import SQLDB
+from ..sources.filesystem.old_s3 import S3
+from ..sources.rdbms.old_sqldb import SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 

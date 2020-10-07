@@ -3,13 +3,13 @@ from .store import Store
 from .config import Config, config
 
 # from .tools.base import copy_df_to_excel
-from .drivers.sql.old_qframe import QFrame, union, join
+from .drivers.old_qframe import QFrame, union, join
 from .tools.crosstab import Crosstab
 from .tools.email import Email
-from .drivers.sql.sfdc import SFDC
+from .drivers.sfdc import SFDCDriver
 from .sources.filesystem.old_s3 import S3
 from .sources.rdbms.old_sqldb import SQLDB
-from .drivers.github import GitHub
+from .drivers.github import GitHubDriver
 
 # from .scheduling.orchestrate import Workflow, Listener, EmailListener, Schedule, Runner
 from .scheduling.registry import SchedulerDB, Job, Trigger

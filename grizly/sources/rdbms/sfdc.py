@@ -11,8 +11,8 @@ from simple_salesforce.login import SalesforceAuthenticationFailed
 
 
 class SFDCTable(BaseTable):
-    def __init__(self, name):
-        super().__init__(name=name)
+    def __init__(self, name, source, schema=None):
+        super().__init__(name=name, source=source, schema=schema)
 
     @property
     def fields(self):
@@ -102,8 +102,12 @@ class SFDB(BaseSource):
         table_names = [obj["name"] for obj in self.con.describe()["sobjects"]]
         return table_names
 
+    def object(self, name):
+        return SFDCTable(name=name, source=self)
+
     def table(self, name):
-        return SFDCTable(name, con=self.con)
+        """Alias for object"""
+        return self.object(name=name)
 
     def copy_object(self):
         raise NotImplementedError
