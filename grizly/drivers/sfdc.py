@@ -10,7 +10,7 @@ class SFDCDriver(SQLDriver):
         """Check if requested fields are in SF table
         and if can be pulled (we can't pull compound fields)
         """
-        fields_and_types = zip(dict(self.fields, self.types))
+        fields_and_types = dict(zip(self.fields, self.types))
         compound_types = ("address", "location")
         compound_fields = [
             field for field in fields_and_types if fields_and_types[field] in compound_types
@@ -52,25 +52,12 @@ class SFDCDriver(SQLDriver):
     def to_dict(self):
         _dict = {}
         records = self.to_records()
-        dtypes = self.get_dtypes()
-        colnames = self.get_fields()
-        for i, column in enumerate(colnames):
-            column_dtype = str(self._to_pyarrow_dtype(dtype=dtypes[i]))
+        columns = self.columns
+        types = self.dtypes
+        for i, column in enumerate(columns):
+            dtype_mapped = self._to_pyarrow_dtype(dtype=types[i])
             column_values = self._cast_column_values(
                 column_number=i, column_dtype=column_dtype, records=records
             )
             _dict[self.data["select"]["fields"][column]["as"]] = column_values
         return _dict
-
-
-# def build_query(self):
-#     data = self.data
-#     query = '"""SELECT '
-#     columns = ", ".join([field for field in list(data["select"]["fields"].keys())])
-#     query += f"{columns} FROM {data['select']['table']}"
-#     if "where" in data["select"] and len(data["select"]["where"]):
-#         query += f" WHERE {data['select']['where']}"
-#     if "limit" in data["select"]:
-#         query += f" LIMIT {data['select']['limit']}"
-#     query += '"""'
-#     return query

@@ -43,9 +43,14 @@ class SQLDriver(BaseDriver):
             raise ValueError("Please specify either source or dsn parameter")
 
         self.source = source or RDBMS(dsn=dsn, *args, **kwargs)
+        self.schema = schema
+        self.table = table
 
         if self.store == Store() and table:
-            self.store = self._load_store_from_table(schema=schema, table=table, columns=columns,)
+            self.store = self._load_store_from_table(schema=schema, table=table, columns=columns)
+
+    def __str__(self):
+        return self.get_sql()
 
     def _load_store_from_table(
         self, schema: str = None, table: str = None, columns: list = None,
@@ -58,7 +63,7 @@ class SQLDriver(BaseDriver):
             raise ValueError(f"Table {table} is empty")
 
         _dict = self._build_store(columns=table.columns, dtypes=table.types)
-        _dict["select"]["table"] = table
+        _dict["select"]["table"] = table.name
         _dict["select"]["schema"] = schema or ""
 
         return Store(_dict)

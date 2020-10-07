@@ -787,7 +787,7 @@ class BaseDriver(ABC):
         """
         dtypes = []
         for field in self._get_fields():
-            dtype = self.store["select"]["fields"][field]["dtypes"]
+            dtype = self.store["select"]["fields"][field]["dtype"]
             dtypes.append(dtype)
         return dtypes
 
