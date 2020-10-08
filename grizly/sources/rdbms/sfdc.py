@@ -48,6 +48,10 @@ class SFDCTable(BaseTable):
 
 
 class SFDB(BaseSource):
+    _context = ""
+    _quote = ''
+    dialect = "sfc"
+
     def __init__(
         self,
         config: Config = None,
@@ -98,6 +102,12 @@ class SFDB(BaseSource):
     def tables(self):
         """Alias for objects"""
         return self.objects
+
+    # TODO: delete
+    def get_columns(self, schema=None, table=None, columns=None, column_types=True):
+        if column_types:
+            return self.table(table).columns, self.table(table).types
+        return self.table(table).columns
 
     @property
     def objects(self):

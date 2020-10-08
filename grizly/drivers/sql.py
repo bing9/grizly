@@ -52,34 +52,45 @@ class SQLDriver(BaseDriver):
     def __str__(self):
         return self.get_sql()
 
+    # def _load_store_from_table(
+    #     self, schema: str = None, table: str = None, columns: list = None,
+    # ) -> Store:
+    #     table = self.source.table(table, schema=schema)
+
+    #     if not table:
+    #         raise ValueError(f"Table {table} does not exist")
+    #     if not table.columns:
+    #         raise ValueError(f"Table {table} is empty")
+
+    #     _dict = self._build_store(columns=table.columns, dtypes=table.types)
+    #     _dict["select"]["table"] = table
+    #     _dict["select"]["schema"] = schema or ""
+
+    #     return Store(_dict)
+
     def _load_store_from_table(
         self, schema: str = None, table: str = None, columns: list = None,
     ) -> Store:
-        table = self.source.table(table, schema=schema)
+        schema = schema or ""
+        col_names, col_types = self.source.get_columns(
+            schema=schema, table=table, columns=columns, column_types=True
+        )
 
-        if not table:
-            raise ValueError(f"Table {table} does not exist")
-        if not table.columns:
-            raise ValueError(f"Table {table} is empty")
+        if col_names == []:
+            raise ValueError(
+                "No columns were loaded. Please check if specified table exists and is not empty."
+            )
 
-        _dict = self._build_store(columns=table.columns, dtypes=table.types)
-        _dict["select"]["table"] = table.name
-        _dict["select"]["schema"] = schema or ""
+        _dict = self._build_store(columns=col_names, dtypes=col_types)
+        _dict["select"]["table"] = table
+        _dict["select"]["schema"] = schema
 
         return Store(_dict)
 
     @property
     def nrows(self):
-        con = self.source.con
         query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
-        if self.source.db == "denodo":
-            query += " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
-        try:
-            nrows = con.execute(query).fetchone()[0]
-        except:
-            print(query)
-            raise
-        con.close()
+        nrows = self.source._fetch_records(query)[0]
         return nrows
 
     def create_sql_blocks(self):
@@ -410,20 +421,7 @@ class SQLDriver(BaseDriver):
         """
 
         sql = self.get_sql()
-        if self.source.db == "denodo":
-            sql += (
-                " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est',"
-                " 'queryTimeout' = '9000000000', 'simplify' = 'on')"
-            )
-
-        con = self.source.con
-        cursor = con.cursor()
-
-        cursor.execute(sql)
-        records = cursor.fetchall()
-        cursor.close()
-
-        con.close()
+        records = self.source._fetch_records(sql)
 
         return records
 
@@ -529,10 +527,7 @@ class SQLDriver(BaseDriver):
 
     def _build_column_strings(self):
         # quotes wrapping fields differ depending on database (NOT ONLY DIALECT)
-        if self.source.db == "mariadb":
-            quote = "`"
-        else:
-            quote = '"'
+        quote = self.source._quote
         if self.store == {}:
             return {}
 

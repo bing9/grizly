@@ -1,10 +1,29 @@
 from .sql import SQLDriver
 import datetime
+from ..utils.type_mappers import sfdc_to_pyarrow_dtype
 
 
 class SFDCDriver(SQLDriver):
     def __init__(self, source, table=None):
         super().__init__(source=source, table=table)
+
+    def to_records(self):
+        self._validate_fields()
+        query = self.get_sql()
+        response = self.source.con.query(query)
+        records_raw = response["records"]
+        records = self._sfdc_records_to_records(records_raw)
+        columns, types = self.columns, self.dtypes
+        _dict = {}
+        for i, column in enumerate(columns):
+            col_dtype = types[i]
+            col_dtype_mapped = sfdc_to_pyarrow_dtype(col_dtype)
+            for record in records:
+                record = [self._cast(val, dtype=col_dtype_mapped) for val in record]
+            col_dtype_mapped = sfdc_to_pyarrow_dtype(col_dtype)
+            col_values_casted = self._cast(column, col_dtype_mapped)
+            _dict[column] = col_values_casted
+        return records
 
     def _validate_fields(self):
         """Check if requested fields are in SF table
@@ -21,43 +40,59 @@ class SFDCDriver(SQLDriver):
                 f"{compound_fields}"
             )
 
-    def _cast_column_values(self, column_number, column_dtype, records):
+    @staticmethod
+    def _cast(val, dtype):
         """Fix columns with mixed dtypes"""
-        if "string" in column_dtype:
-            column_values = [str(line[column_number]) for line in records]
-        elif "float" in column_dtype:
-            column_values = [float(line[column_number]) for line in records]
-        elif "date" in column_dtype and type(records[0][column_number]) == str:
-            column_values = [
-                None
-                if not line[column_number]
-                else datetime.datetime.strptime(line[column_number], "%Y-%m-%d")
-                for line in records
-            ]
-        else:
-            column_values = [line[column_number] for line in records]
-        return column_values
 
-    def to_records(self):
-        self._validate_fields()
-        query = self.get_sql()
-        sf_table = getattr(self.source.con, self.data["table"])
-        response = sf_table.query(query)
+        if not val:
+            return None
+
+        dtype_str = str(dtype)
+        if "string" in dtype_str:
+            val = str(val)
+        elif "float" in dtype_str:
+            val = float(val)
+        elif "date" in dtype_str and type(val) == str:
+            val = datetime.datetime.strptime(val, "%Y-%m-%d")
+        else:
+            return val
+        return val
+
+    @staticmethod
+    def _sfdc_records_to_records(sfdc_records):
+        """Convert weird SFDC response to records"""
         records = []
-        for i in range(len(response)):
-            response[i].pop("attributes")
-            records.append(tuple(response[i].values()))
+        for i in range(len(sfdc_records)):
+            sfdc_records[i].pop("attributes")
+            records.append(tuple(sfdc_records[i].values()))
         return records
 
-    def to_dict(self):
-        _dict = {}
-        records = self.to_records()
-        columns = self.columns
-        types = self.dtypes
-        for i, column in enumerate(columns):
-            dtype_mapped = self._to_pyarrow_dtype(dtype=types[i])
-            column_values = self._cast_column_values(
-                column_number=i, column_dtype=column_dtype, records=records
-            )
-            _dict[self.data["select"]["fields"][column]["as"]] = column_values
-        return _dict
+    def groupby(self, fields: list = None):
+        """Adds GROUP BY statement.
+
+        Parameters
+        ----------
+        fields : list or string
+            List of fields or a field, if None then all fields are grouped
+
+        Examples
+        --------
+        >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
+        >>> qf = qf.groupby(['customer_id'])['sales'].agg('sum')
+        >>> print(qf)
+        SELECT "customer_id",
+               sum("sales") AS "sales"
+        FROM grizly.sales
+        GROUP BY 1
+
+        Returns
+        -------
+        QFrame
+        """
+        # assert (
+        #     "union" not in self.store["select"]
+        # ), "You can't group by inside union. Use select() method first."
+
+        _validate_groupable(fields)
+        output = super().get_tables(schema=schema, base_table=base_table, view=view)
+        return self

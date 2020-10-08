@@ -857,6 +857,8 @@ class BaseDriver(ABC):
                 raise NotImplementedError(
                     f"Multiple types detected in {col}. This is not yet handled."
                 )
+            if not unique_types:
+                unique_types = {type(None)}
             retrieved_types[col] = list(unique_types)[0]
 
         mismatched_with_none = dict_diff(expected_types_mapped, retrieved_types, by="values")
@@ -1024,11 +1026,11 @@ class BaseDriver(ABC):
         )
 
         self._validate_key(
-            key="offset", data=select_data, func=lambda x: isinstance(x, int),
+            key="offset", data=select_data, func=lambda x: str(x).isdigit(),
         )
 
         self._validate_key(
-            key="limit", data=select_data, func=lambda x: isinstance(x, int),
+            key="limit", data=select_data, func=lambda x: str(x).isdigit(),
         )
 
         return Store(data)

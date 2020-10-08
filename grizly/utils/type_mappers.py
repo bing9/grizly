@@ -1,5 +1,6 @@
 import re
-
+import pyarrow as pa
+import datetime
 
 def mysql_to_postgres_type(dtype):
     dtype = dtype.upper()
@@ -164,6 +165,38 @@ def rds_to_pyarrow_type(dtype):
         if re.search(redshift_dtype, dtype):
             return dtypes[redshift_dtype]
     else:
+        return pa.string()
+
+def sfdc_to_pyarrow_dtype(dtype: str):
+        dtypes = {
+            'address': pa.string(),
+            'anytype': pa.string(),
+            'base64': pa.string(),
+            'boolean': pa.bool_(),
+            'combobox': pa.string(),
+            'currency': pa.string(),
+            'datacategorygroupreference': pa.string(),
+            'date': pa.date64(),
+            'datetime': pa.date64(),
+            'double': pa.float64(),
+            'email': pa.string(),
+            'encryptedstring': pa.string(),
+            'id': pa.string(),
+            'int8': pa.int8(),
+            'int': pa.int32(),
+            'multipicklist': pa.string(),
+            'percent': pa.float16(),
+            'phone': pa.string(),
+            'picklist': pa.string(),
+            'reference': pa.string(),
+            'string': pa.string(),
+            'textarea': pa.string(),
+            'time': pa.time64('us'),
+            'url': pa.string(),
+        }
+        for pa_dtype in dtypes:
+            if re.search(pa_dtype, dtype):
+                return dtypes[pa_dtype]
         return pa.string()
 
 def sfdc_to_sqlalchemy_dtype(sfdc_dtype):

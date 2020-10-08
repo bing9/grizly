@@ -2,6 +2,7 @@ from ...config import config
 from .aurora import AuroraPostgreSQL
 from .redshift import Redshift
 from .denodo import Denodo
+from .sqlite import SQLite
 
 supported_dbs = ("redshift", "denodo", "sqlite", "mariadb", "aurora", "tableau")
 
@@ -18,8 +19,10 @@ def RDBMS(dsn: str, dialect: str = None, db: str = None, *args, **kwargs):
 
     dialect = dialect or config_data[dsn]["dialect"]
     if db == "aurora" and dialect == "postgresql":
-        return AuroraPostgreSQL(*args, **kwargs)
+        return AuroraPostgreSQL(dsn=dsn, *args, **kwargs)
     elif db == "redshift":
-        return Redshift(*args, **kwargs)
+        return Redshift(dsn=dsn, *args, **kwargs)
     elif db == "denodo":
-        return Denodo(*args, **kwargs)
+        return Denodo(dsn=dsn, *args, **kwargs)
+    elif db == "sqlite":
+        return SQLite(dsn=dsn, *args, **kwargs)

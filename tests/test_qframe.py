@@ -5,8 +5,8 @@ from pandas import read_sql, read_csv, merge, concat
 
 from ..grizly.utils.functions import get_path
 
-from ..grizly.drivers.frames import QFrame
-from ..grizly.drivers.sql.base import SQLDriver, union, join
+from ..grizly.drivers.frames_factory import QFrame
+from ..grizly.drivers.sql import SQLDriver, union, join
 
 excel_path = get_path("tables.xlsx", from_where="here")
 engine_string = "sqlite:///" + get_path("Chinook.sqlite", from_where="here")

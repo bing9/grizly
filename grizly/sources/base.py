@@ -9,9 +9,7 @@ class BaseObject(ABC):
 
 
 class BaseSource(ABC):
-    def __init__(
-        self, config: Config = None, logger: Logger = None,
-    ):
+    def __init__(self, config: Config = None, logger: Logger = None, *args, **kwargs):
         self.config = config or default_config
         self.logger = logger or logging.getLogger(__name__)
 
