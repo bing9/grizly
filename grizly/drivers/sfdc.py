@@ -67,6 +67,8 @@ class SFDCDriver(SQLDriver):
             records.append(tuple(sfdc_records[i].values()))
         return records
 
+    def _validate_groupable(field)
+
     def groupby(self, fields: list = None):
         """Adds GROUP BY statement.
 
@@ -93,6 +95,6 @@ class SFDCDriver(SQLDriver):
         #     "union" not in self.store["select"]
         # ), "You can't group by inside union. Use select() method first."
 
-        _validate_groupable(fields)
+        self._validate_groupable(fields)
         output = super().get_tables(schema=schema, base_table=base_table, view=view)
         return self
