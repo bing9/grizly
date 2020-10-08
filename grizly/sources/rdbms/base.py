@@ -12,6 +12,7 @@ deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", re
 class RDBMSBase(BaseSource):
     _context = ""
     _quote = '"'
+    _use_ordinal_position_notation = True
     dialect = "postgresql"
 
     def __init__(

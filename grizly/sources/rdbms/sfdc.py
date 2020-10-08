@@ -49,7 +49,8 @@ class SFDCTable(BaseTable):
 
 class SFDB(BaseSource):
     _context = ""
-    _quote = ''
+    _quote = ""
+    _use_ordinal_position_notation = False
     dialect = "sfc"
 
     def __init__(

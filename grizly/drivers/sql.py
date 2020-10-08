@@ -566,15 +566,14 @@ class SQLDriver(BaseDriver):
             )
             alias = alias.replace('"', "")
 
-            # we take either position or expression - depends if field in select
-            if field in selected_fields:
-                pos_nm = str(selected_fields.index(field) + 1)
-            else:
-                pos_nm = expr
+            pos = None
+            # we take either position or expression - depends if field is in select
+            if field in selected_fields and self.source._use_ordinal_position_notation:
+                pos = str(selected_fields.index(field) + 1)
 
             if "group_by" in fields[field]:
                 if fields[field]["group_by"].upper() == "GROUP":
-                    group_dimensions.append(pos_nm)
+                    group_dimensions.append(pos or expr)
 
                 elif fields[field]["group_by"].upper() in [
                     "SUM",
@@ -592,7 +591,7 @@ class SQLDriver(BaseDriver):
                     order = " DESC"
                 else:
                     order = ""
-                order_by.append(f"{pos_nm}{order}")
+                order_by.append(f"{pos or expr}{order}")
 
             if field in selected_fields:
                 select_name = expr if expr == f"{quote}{alias}{quote}" else f'{expr} as "{alias}"'
