@@ -2,6 +2,8 @@ from .base import RDBMSBase
 
 
 class SQLite(RDBMSBase):
+    dialect = "mysql"
+
     @property
     def con(self):
         import sqlite3
@@ -9,7 +11,9 @@ class SQLite(RDBMSBase):
         con = sqlite3.connect(database=self.dsn)
         return con
 
-    def get_columns(self, table: str, schema: str = None, column_types: bool = False):
+    def get_columns(
+        self, table: str, schema: str = None, column_types: bool = False, columns: list = None
+    ):
         """Get column names (and optionally types) from a SQLite table."""
         con = self.get_connection()
         cursor = con.cursor()
