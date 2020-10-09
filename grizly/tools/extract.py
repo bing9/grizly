@@ -126,11 +126,11 @@ class Extract:
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
-        where = self.driver.data["select"]["where"]
         try:
             # faster method, but this will fail if user is working on multiple schemas/tables
             schema = self.driver.data["select"]["schema"]
             table = self.driver.data["select"]["table"]
+            where = self.driver.data["select"]["where"]
 
             partitions_qf = (
                 QFrame(sqldb=self.driver.sqldb, logger=self.logger)
