@@ -13,19 +13,11 @@ import pyarrow as pa
 import sqlparse
 
 from ..store import Store
-from ..utils.functions import (
-    dict_diff,
-    get_path
-)
-from ..utils.type_mappers import (
-    python_to_sql,
-    rds_to_pyarrow,
-    sql_to_python,
-    mysql_to_postgres
-)
+from ..utils.functions import dict_diff, get_path
+from ..utils.type_mappers import python_to_sql, rds_to_pyarrow, sql_to_python, mysql_to_postgresql
 from .base import BaseDriver
 from ..sources.filesystem.old_s3 import S3
-from ..sources.rdbms.old_sqldb import SQLDB
+from ..sources.rdbms.rdbms_factory import SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
@@ -214,9 +206,7 @@ class QFrame(BaseDriver):
         qf = self.copy().limit(100)
 
         expected_types = dict(zip(qf.columns, qf.dtypes))
-        expected_types_mapped = {
-            col: sql_to_python(val) for col, val in expected_types.items()
-        }
+        expected_types_mapped = {col: sql_to_python(val) for col, val in expected_types.items()}
         # this only checks the first 100 rows
         retrieved_types = {}
         d = qf.to_dict()
@@ -1161,7 +1151,7 @@ class QFrame(BaseDriver):
 
         types = self.get_dtypes()
         if self.sqldb.dialect == "mysql" and sqldb.dialect == "postgresql":
-            types = [mysql_to_postgres(dtype) for dtype in types]
+            types = [mysql_to_postgresql(dtype) for dtype in types]
 
         sqldb.create_table(
             type="base_table",

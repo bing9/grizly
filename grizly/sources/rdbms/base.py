@@ -6,7 +6,7 @@ import deprecation
 
 from ..base import BaseSource
 
-deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
+deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
 
 
 class RDBMSBase(BaseSource):
@@ -27,24 +27,31 @@ class RDBMSBase(BaseSource):
     def __eq__(self, other):
         return self.dsn == other.dsn
 
-    def copy_object(self):
-        pass
+    def copy_object(self, **kwargs):
+        return self.copy_table(**kwargs)
 
-    def delete_object(self):
-        pass
+    def delete_object(self, **kwargs):
+        return self.drop_table(**kwargs)
 
-    def create_object(self):
-        pass
+    def create_object(self, **kwargs):
+        return self.create_table(**kwargs)
 
     def object(self, name):
         pass
 
-    def get_connection(self, autocommit=False):
-        # TODO: DEPRECATE
-        return self.con
-
     @property
     def con(self):
+        import pyodbc
+
+        try:
+            con = pyodbc.connect(DSN=self.dsn)
+        except pyodbc.InterfaceError:
+            e = f"Data source name '{self.dsn}' not found"
+            self.logger.exception(e)
+            raise
+        return con
+
+    def get_connection(self, autocommit=False):
         """Return pyodbc connection
 
         Examples
@@ -55,15 +62,7 @@ class RDBMSBase(BaseSource):
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
         >>> con.close()
         """
-        import pyodbc
-
-        try:
-            con = pyodbc.connect(DSN=self.dsn)
-        except pyodbc.InterfaceError:
-            e = f"Data source name '{self.dsn}' not found"
-            self.logger.exception(e)
-            raise
-        return con
+        return self.con
 
     def check_if_exists(self, table: str, schema: str = None, column: str = None):
         """Check if a table exists
@@ -466,7 +465,7 @@ class RDBMSBase(BaseSource):
         else:
             return sql
 
-    def map_types(self, to):
+    def map_types(self, **kwargs):
         pass
 
 

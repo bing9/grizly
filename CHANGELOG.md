@@ -5,11 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
-## [Unreleased](https://github.com/kfk/grizly/compare/v0.3.8...0.3.9)
+## [Unreleased](https://github.com/kfk/grizly/compare/v0.3.8...0.4)
 
 ### QFrame
 - Added QFrame.fix_types(), which changes the datatypes inside QFrame (self.data) 
 based on what types are actually retrieved from the top 100 rows.
+
+### Removed functions
+
+- QFrame.to_rds
+- QFrame.csv_to_s3
+- QFrame.s3_to_rds
+- s3_to_csv
+- csv_to_s3
+- df_to_s3
+- s3_to_rds
+- check_if_exists
+- create_table
+- write_to
+- get_columns
+- delete_where
+- copy_table
+- read_config
+- initiate
 
 ## [0.3.8](https://github.com/kfk/grizly/compare/v0.3.7...v0.3.8) - 17-09-2020
 

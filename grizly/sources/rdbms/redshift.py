@@ -3,7 +3,7 @@ from typing import Literal
 
 
 class Redshift(RDBMSBase):
-    dialect = "redshift"
+    dialect = "postgresql"
 
     def create_table(
         self,

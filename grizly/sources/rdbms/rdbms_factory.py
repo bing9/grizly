@@ -1,8 +1,15 @@
+from functools import partial
+
+import deprecation
+
 from ...config import config
 from .aurora import AuroraPostgreSQL
-from .redshift import Redshift
 from .denodo import Denodo
+from .redshift import Redshift
 from .sqlite import SQLite
+
+
+deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
 
 supported_dbs = ("redshift", "denodo", "sqlite", "mariadb", "aurora", "tableau")
 
@@ -26,3 +33,8 @@ def RDBMS(dsn: str, dialect: str = None, db: str = None, *args, **kwargs):
         return Denodo(dsn=dsn, *args, **kwargs)
     elif db == "sqlite":
         return SQLite(dsn=dsn, *args, **kwargs)
+
+
+@deprecation.deprecated(details="Use RDBMS class instead",)
+def SQLDB(*args, **kwargs):
+    return RDBMS(*args, **kwargs)

@@ -8,7 +8,7 @@ from .tools.crosstab import Crosstab
 from .tools.email import Email
 from .drivers.sfdc import SFDCDriver
 from .sources.filesystem.old_s3 import S3
-from .sources.rdbms.old_sqldb import SQLDB
+from .sources.rdbms.rdbms_factory import SQLDB, RDBMS
 from .drivers.github import GitHubDriver
 
 # from .scheduling.orchestrate import Workflow, Listener, EmailListener, Schedule, Runner
