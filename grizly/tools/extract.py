@@ -40,6 +40,7 @@ class Extract:
         self.store_backend = store_backend.lower()
         self.bucket = s3_bucket or config.get_service("s3")["bucket"]
         self.s3_key = s3_key or f"extracts/{self.name_snake_case}/"
+        self.root_url = f"s3://{self.bucket}/{self.s3_key}"
         self.store_path = store_path or self._get_default_store_path()
         self.data_backend = data_backend
         self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
@@ -64,7 +65,7 @@ class Extract:
         if self.store_backend == "local":
             path = os.path.join(WORKING_DIR, "store.json")
         elif self.store_backend == "s3":
-            path = "s3://" + os.path.join(self.bucket, self.s3_key, "store.json")
+            path = os.path.join(self.root_url, "store.json")
         else:
             raise NotImplementedError
         return path
@@ -190,8 +191,9 @@ class Extract:
     @dask.delayed
     def to_store_backend(self, serializable: Any, file_name: str):
         if self.store_backend == "s3":
-            s3 = S3(s3_key=self.s3_key, file_name=file_name)
-            self.logger.info(f"Copying {file_name} from memory to {self.s3_key}...")
+            url = os.path.join(self.root_url, file_name)
+            s3 = S3(url=url)
+            self.logger.info(f"Copying {file_name} from memory to {url}...")
             s3.from_serializable(serializable)
         elif self.store_backend == "local":
             self.logger.info(f"Copying {file_name} from memory to {self.store_path}...")
@@ -203,7 +205,7 @@ class Extract:
     @dask.delayed
     def get_cached_distinct_values(self, file_name: str):
         if self.store_backend == "s3":
-            s3 = S3(url=self.store_path)
+            s3 = S3(url=os.path.join(self.root_url, file_name)
             values = s3.to_serializable()
         elif self.store_backend == "local":
             with open(self.store_path) as f:
