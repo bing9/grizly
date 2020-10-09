@@ -36,10 +36,6 @@ class RDBMSBase(BaseSource):
     def create_object(self):
         pass
 
-    @property
-    def objects(self):
-        pass
-
     def object(self, name):
         pass
 
@@ -325,6 +321,14 @@ class RDBMSBase(BaseSource):
 
         return output
 
+    @property
+    def objects(self):
+        return self.get_tables()
+
+    @property
+    def tables(self):
+        return self.objects
+
     def _get_views(self, schema: str = None):
         where = f" AND table_schema = '{schema}'\n" if schema else ""
 
@@ -461,6 +465,9 @@ class RDBMSBase(BaseSource):
             return sql + self._context
         else:
             return sql
+
+    def map_types(self, to):
+        pass
 
 
 class BaseTable(ABC):

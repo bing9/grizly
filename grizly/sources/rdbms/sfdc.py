@@ -1,12 +1,12 @@
 import logging
 import os
 from logging import Logger
+from sqlite3.dbapi2 import NotSupportedError
 
 from ...config import Config
 from ...config import config as default_config
-from ..base import BaseSource
-from .base import BaseTable
-from ...utils.type_mappers import sfdc_to_sqlalchemy_dtype
+from .base import BaseTable, RDBMSBase
+from ...utils.type_mappers import sfdc_to_sqlalchemy
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
 
@@ -17,21 +17,22 @@ class SFDCTable(BaseTable):
         self.db = "sfdc"
 
     @property
+    def sf_table(self):
+        return getattr(self.source.con, self.name)
+
+    @property
     def fields(self):
-        sf_table = getattr(self.source.con, self.name)
-        field_descriptions = sf_table.describe()["fields"]
+        field_descriptions = self.sf_table.describe()["fields"]
         fields = [field["name"] for field in field_descriptions]
         return fields
 
     @property
     def types(self):
-        sf_table = getattr(self.source.con, self.name)
-        field_descriptions = sf_table.describe()["fields"]
-
+        field_descriptions = self.sf_table.describe()["fields"]
         types_and_lengths = [(field["type"], field["length"]) for field in field_descriptions]
         dtypes = []
         for field_sfdc_type, field_len in types_and_lengths:
-            field_sqlalchemy_type = sfdc_to_sqlalchemy_dtype(field_sfdc_type)
+            field_sqlalchemy_type = sfdc_to_sqlalchemy(field_sfdc_type)
             if field_sqlalchemy_type == "NVARCHAR":
                 field_sqlalchemy_type = f"{field_sqlalchemy_type}({field_len})"
             dtypes.append(field_sqlalchemy_type)
@@ -47,11 +48,11 @@ class SFDCTable(BaseTable):
         pass
 
 
-class SFDB(BaseSource):
+class SFDB(RDBMSBase):
     _context = ""
     _quote = ""
     _use_ordinal_position_notation = False
-    dialect = "sfc"
+    dialect = "sfdc"
 
     def __init__(
         self,
@@ -63,6 +64,7 @@ class SFDB(BaseSource):
         logger: Logger = None,
     ):
         self.logger = logger or logging.getLogger(__name__)
+        self._con = None
         if username and password and organization_id and proxies:
             self.username = username
             self.password = password
@@ -85,6 +87,8 @@ class SFDB(BaseSource):
 
     @property
     def con(self):
+        if self._con:
+            return self._con
         try:
             con = Salesforce(
                 password=self.password,
@@ -92,12 +96,13 @@ class SFDB(BaseSource):
                 organizationId=self.organization_id,
                 proxies=self.proxies,
             )
+            self._con = con
+            return self._con
         except SalesforceAuthenticationFailed:
             self.logger.info(
                 "Could not log in to SFDC. Are you sure your password hasn't expired and your proxy is set up correctly?"
             )
             raise SalesforceAuthenticationFailed
-        return con
 
     @property
     def tables(self):
@@ -130,6 +135,24 @@ class SFDB(BaseSource):
 
     def create_object(self):
         raise NotImplementedError
+
+    def copy_table(self, **kwargs):
+        raise NotSupportedError
+
+    def create_table(self, **kwargs):
+        raise NotSupportedError
+
+    def insert_into(self, **kwargs):
+        raise NotSupportedError
+
+    def delete_from(self, **kwargs):
+        raise NotSupportedError
+
+    def drop_table(self, **kwargs):
+        raise NotSupportedError
+
+    def write_to(self, **kwargs):
+        raise NotSupportedError
 
 
 sfdb = SFDB()

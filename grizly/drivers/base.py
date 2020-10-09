@@ -12,9 +12,9 @@ import pyarrow as pa
 
 from ..store import Store
 from ..utils.type_mappers import (
-    python_to_sql_dtype,
-    rds_to_pyarrow_type,
-    sql_to_python_dtype,
+    python_to_sql,
+    rds_to_pyarrow,
+    sql_to_python,
 )
 from ..utils.functions import dict_diff
 
@@ -400,7 +400,7 @@ class BaseDriver(ABC):
                 }
         return self
 
-    def groupby(self, fields: list = None):
+    def groupby(self, fields: Union[List[str], str] = None):
         """Adds GROUP BY statement.
 
         Parameters
@@ -835,7 +835,7 @@ class BaseDriver(ABC):
         """Write QFrame to pyarrow.Table"""
         colnames = self.get_fields(aliased=True)
         # TODO: implement below more generic mapper
-        coltypes = [rds_to_pyarrow_type(dtype) for dtype in self.get_dtypes()]
+        coltypes = [rds_to_pyarrow(dtype) for dtype in self.get_dtypes()]
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(colnames, coltypes)])
         self.logger.info(f"Generating PyArrow table with schema: \n{schema}")
         _dict = self.to_dict()
@@ -855,7 +855,7 @@ class BaseDriver(ABC):
         mismatched = self._check_types()
         for col in mismatched:
             python_dtype = mismatched[col]
-            sql_dtype = python_to_sql_dtype(python_dtype)
+            sql_dtype = python_to_sql(python_dtype)
             self.store["select"]["fields"][col]["dtype"] = sql_dtype
 
     def _check_types(self):
@@ -864,7 +864,7 @@ class BaseDriver(ABC):
 
         expected_types = dict(zip(qf.columns, qf.dtypes))
         expected_types_mapped = {
-            col: sql_to_python_dtype(val) for col, val in expected_types.items()
+            col: sql_to_python(val) for col, val in expected_types.items()
         }
         # this only checks the first 100 rows
         retrieved_types = {}
@@ -1136,4 +1136,3 @@ class BaseDriver(ABC):
         }
 
         return Store(data)
-

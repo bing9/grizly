@@ -2,10 +2,19 @@ import re
 import pyarrow as pa
 import datetime
 
-def mysql_to_postgres_type(dtype):
-    dtype = dtype.upper()
 
-    dtypes = {
+def _map_type(mapping, dtype, default=None):
+    if not default:
+        default = dtype
+    for source_dtype in mapping:
+        if re.search(source_dtype, dtype):
+            return mapping[source_dtype]
+    return default
+
+
+def mysql_to_postgres(dtype):
+    dtype = dtype.upper()
+    mapping = {
         "BIGINT$": "BIGINT",
         "BINARY(\d)$": "BYTEA",
         "BIT$": "BOOLEAN",
@@ -41,69 +50,11 @@ def mysql_to_postgres_type(dtype):
         "SMALLINT UNSIGNED$": "INTEGER",
         "TINYINT UNSIGNED$": "INTEGER",
     }
-
-    import re
-
-    for pyarrow_dtype in dtypes:
-        if re.search(pyarrow_dtype, dtype):
-            return dtypes[pyarrow_dtype]
-    else:
-        return dtype
+    return _map_type(mapping, dtype)
 
 
-def check_if_valid_type(type: str):
-    """Checks if given type is valid in Redshift.
-
-    Parameters
-    ----------
-    type : str
-        Input type
-
-    Returns
-    -------
-    bool
-        True if type is valid, False if not
-    """
-    valid_types = [
-        "SMALLINT",
-        "INT2",
-        "INTEGER",
-        "INT",
-        "INT4",
-        "BIGINT",
-        "INT8",
-        "DECIMAL",
-        "NUMERIC",
-        "REAL",
-        "FLOAT4",
-        "DOUBLE PRECISION",
-        "FLOAT8",
-        "FLOAT",
-        "BOOLEAN",
-        "BOOL",
-        "CHAR",
-        "CHARACTER",
-        "NCHAR",
-        "BPCHAR",
-        "VARCHAR",
-        "CHARACTER VARYING",
-        "NVARCHAR",
-        "TEXT",
-        "DATE",
-        "TIMESTAMP",
-        "TIMESTAMP WITHOUT TIME ZONE",
-        "TIMESTAMPTZ",
-        "TIMESTAMP WITH TIME ZONE",
-    ]
-
-    for valid_type in valid_types:
-        if type.upper().startswith(valid_type):
-            return True
-    return False
-
-
-def pyarrow_to_rds_type(dtype):
-    dtypes = {
+def pyarrow_to_rds(dtype):
+    mapping = {
         "bool": "BOOL",
         "int8": "SMALLINT",
         "int16": "INT2",
@@ -122,15 +73,11 @@ def pyarrow_to_rds_type(dtype):
         "timestamp.*\s*": "TIMESTAMP",
         "datetime.*\s*": "TIMESTAMP",
     }
+    return _map_type(mapping, dtype, default="VARCHAR(500)")
 
-    for pyarrow_dtype in dtypes:
-        if re.search(pyarrow_dtype, dtype):
-            return dtypes[pyarrow_dtype]
-    else:
-        return "VARCHAR(500)"
 
-def rds_to_pyarrow_type(dtype):
-    dtypes = {
+def rds_to_pyarrow(dtype):
+    mapping = {
         "BOOL": pa.bool_(),
         "BOOLEAN": pa.bool_(),
         "INT": pa.int32(),
@@ -160,60 +107,41 @@ def rds_to_pyarrow_type(dtype):
         "TIMESTAMP WITH TIME ZONE": pa.date64(),
         "GEOMETRY": None,
     }
+    return _map_type(mapping, dtype, default=pa.string())
 
-    for redshift_dtype in dtypes:
-        if re.search(redshift_dtype, dtype):
-            return dtypes[redshift_dtype]
-    else:
-        return pa.string()
 
-def sfdc_to_pyarrow_dtype(dtype: str):
-        dtypes = {
-            'address': pa.string(),
-            'anytype': pa.string(),
-            'base64': pa.string(),
-            'boolean': pa.bool_(),
-            'combobox': pa.string(),
-            'currency': pa.string(),
-            'datacategorygroupreference': pa.string(),
-            'date': pa.date64(),
-            'datetime': pa.date64(),
-            'double': pa.float64(),
-            'email': pa.string(),
-            'encryptedstring': pa.string(),
-            'id': pa.string(),
-            'int8': pa.int8(),
-            'int': pa.int32(),
-            'multipicklist': pa.string(),
-            'percent': pa.float16(),
-            'phone': pa.string(),
-            'picklist': pa.string(),
-            'reference': pa.string(),
-            'string': pa.string(),
-            'textarea': pa.string(),
-            'time': pa.time64('us'),
-            'url': pa.string(),
-        }
-        for pa_dtype in dtypes:
-            if re.search(pa_dtype, dtype):
-                return dtypes[pa_dtype]
-        return pa.string()
+def sfdc_to_pyarrow(dtype: str):
+    mapping = {
+        "address": pa.string(),
+        "anytype": pa.string(),
+        "base64": pa.string(),
+        "boolean": pa.bool_(),
+        "combobox": pa.string(),
+        "currency": pa.string(),
+        "datacategorygroupreference": pa.string(),
+        "date": pa.date64(),
+        "datetime": pa.date64(),
+        "double": pa.float64(),
+        "email": pa.string(),
+        "encryptedstring": pa.string(),
+        "id": pa.string(),
+        "int8": pa.int8(),
+        "int": pa.int32(),
+        "multipicklist": pa.string(),
+        "percent": pa.float16(),
+        "phone": pa.string(),
+        "picklist": pa.string(),
+        "reference": pa.string(),
+        "string": pa.string(),
+        "textarea": pa.string(),
+        "time": pa.time64("us"),
+        "url": pa.string(),
+    }
+    return _map_type(mapping, dtype, default=pa.string())
 
-def sfdc_to_sqlalchemy_dtype(sfdc_dtype):
-    """Get SQLAlchemy equivalent of the given SFDC data type.
 
-    Parameters
-    ----------
-    sfdc_dtype : str
-        SFDC data type.
-
-    Returns
-    ----------
-    sqlalchemy_dtype : str
-        The string representing a SQLAlchemy data type.
-    """
-
-    sqlalchemy_dtypes = {
+def sfdc_to_sqlalchemy(dtype):
+    mapping = {
         "address": "NVARCHAR",
         "anytype": "NVARCHAR",
         "base64": "NVARCHAR",
@@ -238,12 +166,11 @@ def sfdc_to_sqlalchemy_dtype(sfdc_dtype):
         "time": "DATETIME",
         "url": "NVARCHAR",
     }
-    sqlalchemy_dtype = sqlalchemy_dtypes[sfdc_dtype]
-    return sqlalchemy_dtype
+    return _map_type(mapping, dtype, default="VARCHAR(255)")
 
 
-def sql_to_python_dtype(dtype):
-    dtypes = {
+def sql_to_python(dtype):
+    mapping = {
         "BOOL": bool,
         "BOOLEAN": bool,
         "INT": int,
@@ -273,14 +200,42 @@ def sql_to_python_dtype(dtype):
         "TIMESTAMP WITH TIME ZONE": datetime.datetime,
         "GEOMETRY": None,
     }
+    return _map_type(mapping, dtype, default=str)
 
-    for sql_dtype in dtypes:
-        if re.search(sql_dtype, dtype):
-            return dtypes[sql_dtype]
-    else:
-        return str
 
-def python_to_sql_dtype(dtype):
+def python_to_sql(dtype):
     mapping = {str: "VARCHAR(50)", int: "INTEGER", float: "FLOAT8"}
-    sql_dtype = mapping[dtype]
-    return sql_dtype
+    return _map_type(mapping, dtype, default="VARCHAR(255)")
+
+
+valid_redshift_types = [
+    "SMALLINT",
+    "INT2",
+    "INTEGER",
+    "INT",
+    "INT4",
+    "BIGINT",
+    "INT8",
+    "DECIMAL",
+    "NUMERIC",
+    "REAL",
+    "FLOAT4",
+    "DOUBLE PRECISION",
+    "FLOAT8",
+    "FLOAT",
+    "BOOLEAN",
+    "BOOL",
+    "CHAR",
+    "CHARACTER",
+    "NCHAR",
+    "BPCHAR",
+    "VARCHAR",
+    "CHARACTER VARYING",
+    "NVARCHAR",
+    "TEXT",
+    "DATE",
+    "TIMESTAMP",
+    "TIMESTAMP WITHOUT TIME ZONE",
+    "TIMESTAMPTZ",
+    "TIMESTAMP WITH TIME ZONE",
+]

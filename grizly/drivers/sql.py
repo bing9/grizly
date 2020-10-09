@@ -1,3 +1,4 @@
+from sqlite3.dbapi2 import NotSupportedError
 from .base import BaseDriver
 from copy import deepcopy
 from functools import partial
@@ -8,11 +9,10 @@ import re
 import deprecation
 import sqlparse
 
-from ..types import Source
+from ..types import Source, Redshift
 from ..store import Store
 from ..sources.rdbms.rdbms_factory import RDBMS
 
-from ..utils.type_mappers import mysql_to_postgres_type
 from ..sources.filesystem.old_s3 import S3
 from ..sources.rdbms.old_sqldb import SQLDB
 
@@ -314,15 +314,12 @@ class SQLDriver(BaseDriver):
         sqldb = sqldb or (
             self.sqldb if dsn is None else SQLDB(dsn=dsn, logger=self.logger, **kwargs)
         )
-
-        types = self.get_dtypes()
-        if self.sqldb.dialect == "mysql" and sqldb.dialect == "postgresql":
-            types = [mysql_to_postgres_type(dtype) for dtype in types]
+        mapped_types = sqldb.map_types(self.get_dtypes(), to_dialect=sqldb.dialect)
 
         sqldb.create_table(
             type="base_table",
             columns=self.get_fields(aliased=True),
-            types=types,
+            types=mapped_types,
             table=table,
             schema=schema,
             char_size=char_size,
@@ -346,22 +343,25 @@ class SQLDriver(BaseDriver):
         QFrame
         """
         if dsn is None:
-            sqldb = self.sqldb
+            destination = self.source
         else:
-            sqldb = SQLDB(dsn=dsn, logger=self.logger, **kwargs)
+            destination = RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+
+        if not isinstance(destination, Redshift):
+            raise NotImplementedError("Writing to external tables is only supported in RedshiftDB")
 
         columns = self.get_fields(aliased=True)
-        types = self.get_dtypes()
         bucket = kwargs.get("bucket")
         s3_key = kwargs.get("s3_key")
         if not (("bucket" in kwargs) and ("s3_key" in kwargs)):
             msg = "'bucket' and 's3_key' parameters are required when creating an external table"
             raise ValueError(msg)
 
-        sqldb.create_table(
+        mapped_types = self.source.map_types(self.get_dtypes(), to_dialect=destination.dialect)
+        destination.create_table(
             type="external_table",
             columns=columns,
-            types=types,
+            types=mapped_types,
             table=table,
             schema=schema,
             if_exists=if_exists,

@@ -1,6 +1,7 @@
 from .sql import SQLDriver
 import datetime
-from ..utils.type_mappers import sfdc_to_pyarrow_dtype
+from ..utils.type_mappers import sfdc_to_pyarrow
+from typing import Union, List
 
 
 class SFDCDriver(SQLDriver):
@@ -17,13 +18,17 @@ class SFDCDriver(SQLDriver):
         _dict = {}
         for i, column in enumerate(columns):
             col_dtype = types[i]
-            col_dtype_mapped = sfdc_to_pyarrow_dtype(col_dtype)
+            col_dtype_mapped = sfdc_to_pyarrow(col_dtype)
             for record in records:
                 record = [self._cast(val, dtype=col_dtype_mapped) for val in record]
-            col_dtype_mapped = sfdc_to_pyarrow_dtype(col_dtype)
+            col_dtype_mapped = sfdc_to_pyarrow(col_dtype)
             col_values_casted = self._cast(column, col_dtype_mapped)
             _dict[column] = col_values_casted
         return records
+
+    def to_arrow(self):
+        self._fix_types(mismatched=self._check_types())
+        return super().to_arrow()
 
     def _validate_fields(self):
         """Check if requested fields are in SF table
@@ -67,15 +72,25 @@ class SFDCDriver(SQLDriver):
             records.append(tuple(sfdc_records[i].values()))
         return records
 
-    def _validate_groupable(field)
+    def _validate_groupable(self, table: str, fields: List[str]):
+        fields_info = self.source.table(table).sf_table.describe()["fields"]
+        non_groupable = [field["name"] for field in fields_info if not field["groupable"]]
+        invalid_fields = [field for field in fields if field in non_groupable]
+        if invalid_fields:
+            raise ValueError(
+                f"Ungroupable fields found: {invalid_fields}. Please remove them from your query."
+            )
 
-    def groupby(self, fields: list = None):
+    def select(self):
+        raise NotImplementedError("Subquerying is not possible in SOSQL")
+
+    def groupby(self, fields: Union[List[str], str] = None):
         """Adds GROUP BY statement.
 
         Parameters
         ----------
         fields : list or string
-            List of fields or a field, if None then all fields are grouped
+            List of fields or a field, if None then all fields are grouped. Fields must be groupable.
 
         Examples
         --------
@@ -94,7 +109,10 @@ class SFDCDriver(SQLDriver):
         # assert (
         #     "union" not in self.store["select"]
         # ), "You can't group by inside union. Use select() method first."
-
-        self._validate_groupable(fields)
-        output = super().get_tables(schema=schema, base_table=base_table, view=view)
+        if isinstance(fields, str):
+            fields = [fields]
+        table = self.data["select"]["table"]
+        fields_to_validate = fields or self.get_fields()
+        self._validate_groupable(table=table, fields=fields_to_validate)
+        super().groupby(fields=fields)
         return self

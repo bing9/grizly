@@ -18,10 +18,10 @@ from ..utils.functions import (
     get_path
 )
 from ..utils.type_mappers import (
-    python_to_sql_dtype,
-    rds_to_pyarrow_type,
-    sql_to_python_dtype,
-    mysql_to_postgres_type
+    python_to_sql,
+    rds_to_pyarrow,
+    sql_to_python,
+    mysql_to_postgres
 )
 from .base import BaseDriver
 from ..sources.filesystem.old_s3 import S3
@@ -215,7 +215,7 @@ class QFrame(BaseDriver):
 
         expected_types = dict(zip(qf.columns, qf.dtypes))
         expected_types_mapped = {
-            col: sql_to_python_dtype(val) for col, val in expected_types.items()
+            col: sql_to_python(val) for col, val in expected_types.items()
         }
         # this only checks the first 100 rows
         retrieved_types = {}
@@ -238,7 +238,7 @@ class QFrame(BaseDriver):
         mismatched = self.check_types()
         for col in mismatched:
             python_dtype = mismatched[col]
-            sql_dtype = python_to_sql_dtype(python_dtype)
+            sql_dtype = python_to_sql(python_dtype)
             self.store["select"]["fields"][col]["custom_type"] = sql_dtype
 
     def validate_data(self, data: dict):
@@ -1161,7 +1161,7 @@ class QFrame(BaseDriver):
 
         types = self.get_dtypes()
         if self.sqldb.dialect == "mysql" and sqldb.dialect == "postgresql":
-            types = [mysql_to_postgres_type(dtype) for dtype in types]
+            types = [mysql_to_postgres(dtype) for dtype in types]
 
         sqldb.create_table(
             type="base_table",
@@ -1340,7 +1340,7 @@ class QFrame(BaseDriver):
     def to_arrow(self):
         """Writes QFrame to pyarrow.Table"""
         colnames = self.get_fields(aliased=True)
-        coltypes = [rds_to_pyarrow_type(dtype) for dtype in self.get_dtypes()]
+        coltypes = [rds_to_pyarrow(dtype) for dtype in self.get_dtypes()]
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(colnames, coltypes)])
         self.logger.info(f"Generating PyArrow table with schema: \n{schema}")
         _dict = self.to_dict()

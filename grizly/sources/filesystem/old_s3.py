@@ -15,7 +15,7 @@ from pandas import DataFrame, read_csv, read_excel, read_parquet
 import pyarrow.parquet as pq
 
 from ...utils.functions import clean, clean_colnames, file_extension, get_path
-from ...utils.type_mappers import pyarrow_to_rds_type
+from ...utils.type_mappers import pyarrow_to_rds
 from ..rdbms.old_sqldb import SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
@@ -851,7 +851,7 @@ class S3:
                 if types and col_name in types:
                     col_type = types[col_name]
                 else:
-                    col_type = pyarrow_to_rds_type(dtype)
+                    col_type = pyarrow_to_rds(dtype)
                 col_names.append(col_name)
                 col_types.append(col_type)
         else:

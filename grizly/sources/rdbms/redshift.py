@@ -3,6 +3,8 @@ from typing import Literal
 
 
 class Redshift(RDBMSBase):
+    dialect = "redshift"
+
     def create_table(
         self,
         table: str,
