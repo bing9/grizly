@@ -205,7 +205,7 @@ class Extract:
     @dask.delayed
     def get_cached_distinct_values(self, file_name: str):
         if self.store_backend == "s3":
-            s3 = S3(url=os.path.join(self.root_url, file_name)
+            s3 = S3(url=os.path.join(self.root_url, file_name))
             values = s3.to_serializable()
         elif self.store_backend == "local":
             with open(self.store_path) as f:
