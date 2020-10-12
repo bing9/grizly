@@ -3,7 +3,10 @@ from typing import List, Tuple, Any
 
 
 class Denodo(RDBMSBase):
-    context = " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', 'queryTimeout' = '9000000000', 'simplify' = 'on')"
+    _context = (
+        " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', "
+        "'queryTimeout' = '9000000000', 'simplify' = 'on')"
+    )
 
     def insert_into(self, *args, **kwargs):
         raise NotImplementedError("Unsupported database")

@@ -12,7 +12,7 @@ def _map_type(mapping, dtype, default=None):
     return default
 
 
-def mysql_to_postgres(dtype):
+def mysql_to_postgresql(dtype):
     dtype = dtype.upper()
     mapping = {
         "BIGINT$": "BIGINT",
