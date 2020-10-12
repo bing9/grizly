@@ -70,10 +70,11 @@ class SimpleExtract:
                 return file_name
 
             s3 = s3fs.S3FileSystem()
-            self.logger.info(f"Uploading {file_name} to {self.s3_root_url}...")
+            s3_staging_key = os.path.join(self.s3_root_url, "data", "staging")
+            self.logger.info(f"Uploading {file_name} to {self.s3_staging_key}...")
             pq.write_to_dataset(
                 arrow_table,
-                root_path=self.s3_root_url[:-1],
+                root_path=s3_staging_key[:-1],
                 filesystem=s3,
                 use_dictionary=True,
                 compression="snappy",
@@ -85,14 +86,14 @@ class SimpleExtract:
 
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
-        s3_key = self.s3_root_url + "data/staging/"
+        s3_staging_key = os.path.join(self.s3_root_url, "data", "staging")
         # recreate the table even if if_exists is "append", because we append parquet files
         self.driver.create_external_table(
             schema=self.output_external_schema,
             table=self.output_external_table,
             dsn=self.output_dsn,
             bucket=self.bucket,
-            s3_key=s3_key,
+            s3_key=s3_staging_key,
             if_exists=self.table_if_exists,
         )
 
