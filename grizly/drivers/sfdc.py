@@ -32,7 +32,12 @@ class SFDCDriver(SQLDriver):
 
     def to_arrow(self):
         self._fix_types(mismatched=self._check_types())
-        return super().to_arrow()
+        try:
+            pa = super().to_arrow()
+        except:
+            self.logger.exception("to_arrow failed")
+            raise
+        return pa
 
     def _validate_fields(self):
         """Check if requested fields are in SF table
