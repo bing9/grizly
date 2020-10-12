@@ -85,7 +85,7 @@ class SimpleExtract:
 
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
-        s3_key = self.s3_key + "data/staging/"
+        s3_key = self.s3_root_url + "data/staging/"
         # recreate the table even if if_exists is "append", because we append parquet files
         self.driver.create_external_table(
             schema=self.output_external_schema,

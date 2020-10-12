@@ -10,3 +10,4 @@ build
 docker_home
 *.png
 dask-worker-space
+*.ini
