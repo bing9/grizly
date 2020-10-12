@@ -1,11 +1,14 @@
-from .sql import SQLDriver
 import datetime
+from typing import List, Union
+
+from ..sources.rdbms.sfdc import sfdb
 from ..utils.type_mappers import sfdc_to_pyarrow
-from typing import Union, List
+from ..types import Source
+from .sql import SQLDriver
 
 
 class SFDCDriver(SQLDriver):
-    def __init__(self, source, table=None):
+    def __init__(self, source: Source = sfdb, table: str = None):
         super().__init__(source=source, table=table)
 
     def to_records(self):
