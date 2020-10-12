@@ -11,7 +11,7 @@ from exchangelib import (
     FileAttachment,
 )
 from ..config import Config
-from ..utils import get_path
+from ..utils.functions import get_path
 from os.path import basename
 import os
 import logging
@@ -21,9 +21,9 @@ from time import sleep
 
 class EmailAccount:
     def __init__(
-        self, email_address=None, email_password=None, alias=None, config_key=None, proxy=None,
+        self, email_address=None, email_password=None, alias=None, config_key="standard", proxy=None,
     ):
-        config = Config().get_service(config_key=config_key, service="email") if config_key else {}
+        config = Config().get_service(config_key=config_key, service="email")
         self.logger = logging.getLogger(__name__)
         self.email_address = email_address or os.getenv("EMAIL_ADDRESS") or config.get("email_address")
         self.email_password = email_password or os.getenv("EMAIL_PASSWORD") or config.get("email_password")

@@ -9,3 +9,4 @@ build
 .env
 docker_home
 *.png
+dask-worker-space

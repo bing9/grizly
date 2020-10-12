@@ -2,8 +2,5 @@
 Class S3
 =============
 
-.. autoautosummary :: grizly.S3
-    :methods:
-
-.. autoclass:: grizly.S3
+.. autoclass:: grizly.tools.s3.S3
    :members:

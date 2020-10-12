@@ -1,22 +1,19 @@
 ============
 Class QFrame
 ============
-.. currentmodule:: grizly
 
-
-Constructor
+QFrame
 ~~~~~~~~~~~
-.. autosummary::
-   :toctree: api/
+.. currentmodule:: grizly.tools.qframe
 
-   QFrame
+.. autoclass:: QFrame
+   :members:
 
+join
+~~~~~
+.. autofunction:: join
 
-Join, union data
-~~~~~~~~~~~~~~~~
-.. autosummary::
-   :toctree: api/
-
-   join
-   union
+union
+~~~~~
+.. autofunction:: join
 

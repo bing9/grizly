@@ -1,6 +1,8 @@
 FROM grizly_notebook:latest
 
 ENV REDIS_HOST=redis
+ARG HTTPS_PROXY
+ENV HTTPS_PROXY=${HTTPS_PROXY}
 
 EXPOSE 9181
 

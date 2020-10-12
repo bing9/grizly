@@ -1,4 +1,4 @@
-from ..grizly.tools.dialects import check_if_valid_type
+from ..grizly.utils.type_mappers import check_if_valid_type
 
 
 def test_check_if_valid_type():

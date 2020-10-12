@@ -1,9 +1,12 @@
+from datetime import datetime
+
+from redis import Redis
+
 import dask
 from dask.delayed import Delayed
 from hypothesis import given
-from hypothesis.strategies import integers, text
+from hypothesis.strategies import integers, lists, text
 import pytest
-from redis import Redis
 
 from ..grizly.exceptions import JobNotFoundError
 from ..grizly.scheduling.registry import Job, JobRun, SchedulerDB, Trigger
@@ -147,18 +150,26 @@ def test_scheduler_db__check_if_exists():
 
 # SchedulerObject PROPERTIES
 # ---------------------
-def test_scheduler_object_created_at(scheduler_object):
-    return_value = scheduler_object.created_at
-    assert return_value is not None
-
-
 def test_scheduler_object_con(scheduler_object):
     return_value = scheduler_object.con
     assert return_value is not None
 
 
+def test_scheduler_object_created_at(scheduler_object):
+    return_value = scheduler_object.created_at
+    assert return_value is not None
+    assert isinstance(return_value, datetime)
+
+
 def test_scheduler_object_exists(scheduler_object):
     assert scheduler_object.exists
+
+
+def test_scheduler_object_time_now(scheduler_object):
+    return_value = scheduler_object.time_now
+    assert return_value is not None
+    assert isinstance(return_value, datetime)
+    assert return_value > scheduler_object.created_at
 
 
 # SchedulerObject METHODS
@@ -199,6 +210,16 @@ def test_job_cron(job_with_cron):
     job_with_cron.crons = "* * * * *"
     assert job_with_cron.crons == ["* * * * *"]
     assert len(job_with_cron._rq_job_ids) == 1
+
+@given(text())
+def test_job_description(job, description):
+    assert job.description is None
+
+    job.description = description
+    assert job.description == description
+
+    job.description = None
+    assert job.description is None
 
 
 def test_job_graph(job_with_cron):
@@ -427,6 +448,15 @@ def test_job_run_name(job_run):
     assert job_run.name == "new_job_run_name"
     job_run.name = value
     assert job_run.name == value
+
+
+@given(lists(text(), max_size=5))
+def test_job_run_result(job_run, result):
+    assert job_run.result == [3]
+    job_run.result = result
+    assert job_run.result == result
+    job_run.result = [3]
+    assert job_run.result == [3]
 
 
 def test_job_run_status(job_run):

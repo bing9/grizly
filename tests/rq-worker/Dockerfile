@@ -1,5 +1,8 @@
 FROM grizly_notebook:latest
 
+ARG HTTPS_PROXY
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+
 RUN pip install rq
 RUN pip install rq-scheduler
 RUN pip install setproctitle

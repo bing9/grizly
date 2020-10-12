@@ -2,8 +2,5 @@
 Class Email
 =============
 
-.. autoautosummary :: grizly.Email
-    :methods:
-
-.. autoclass:: grizly.Email
+.. autoclass:: grizly.tools.email.Email
    :members:

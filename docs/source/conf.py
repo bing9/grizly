@@ -12,7 +12,8 @@
 #
 import os
 import sys
-# from grizly import __version__
+
+from grizly import __version__
 
 sys.path.insert(0, os.path.abspath("../.."))
 
@@ -24,8 +25,8 @@ copyright = "2019, Alessio"
 author = "Alessio"
 
 # The full version, including alpha/beta/rc tags
-# release = __version__
-release = "0.3.7rc2"
+release = __version__
+# release = "0.3.7rc2"
 
 
 # -- General configuration ---------------------------------------------------
@@ -38,7 +39,8 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.autosummary",
     "nbsphinx",
-    "jupyter_sphinx.execute",
+    "jupyter_sphinx",
+    "numpydoc",  # properties in summary tab
 ]
 
 # nbsphinx_execute = 'never'
@@ -84,7 +86,7 @@ master_doc = "index"
 # -----------------------------------------------------------------------------
 
 autosummary_generate = True
-autodoc_default_flags = ["members", "inherited-members"]
+autodoc_default_options = {"members": True, "inherited-members": True}
 
 # spell checking
 spelling_lang = "en_US"
@@ -139,7 +141,11 @@ def setup(app):
                     if "methods" in self.options:
                         _, methods = self.get_members(c, "method", ["__init__"])
 
-                        self.content = ["~%s.%s" % (clazz, method) for method in methods if not method.startswith("_")]
+                        self.content = [
+                            "~%s.%s" % (clazz, method)
+                            for method in methods
+                            if not method.startswith("_")
+                        ]
                 finally:
                     return super(AutoAutoSummary, self).run()
 
