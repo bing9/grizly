@@ -6,10 +6,12 @@ import datetime
 def _map_type(mapping, dtype, default=None):
     if not default:
         default = dtype
-    for source_dtype in mapping:
-        if re.search(source_dtype, dtype):
-            return mapping[source_dtype]
-    return default
+    if isinstance(dtype, str):
+        # fuzzy search    
+        for source_dtype in mapping:
+            if re.search(source_dtype, dtype):
+                return mapping[source_dtype]
+    return mapping.get(dtype, default)  # exact search
 
 
 def mysql_to_postgresql(dtype):
