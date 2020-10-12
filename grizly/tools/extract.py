@@ -43,7 +43,7 @@ class SimpleExtract:
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA")
         self.output_dsn = output_dsn
         self.if_exists = if_exists
-        self.table_if_exists = _map_if_exists(if_exists)
+        self.table_if_exists = self._map_if_exists(if_exists)
         self.priority = 0
         self.logger = self.driver.logger
 
