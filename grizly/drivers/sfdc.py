@@ -1,15 +1,16 @@
 import datetime
+from logging import Logger
 from typing import List, Union
 
 from ..sources.rdbms.sfdc import sfdb
+from ..types import SFDB
 from ..utils.type_mappers import sfdc_to_pyarrow
-from ..types import Source
 from .sql import SQLDriver
 
 
 class SFDCDriver(SQLDriver):
-    def __init__(self, source: Source = sfdb, table: str = None):
-        super().__init__(source=source, table=table)
+    def __init__(self, source: SFDB = sfdb, table: str = None, logger: Logger = None):
+        super().__init__(source=source, table=table, logger=logger)
 
     def to_records(self):
         self._validate_fields()
