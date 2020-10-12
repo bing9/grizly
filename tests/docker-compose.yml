@@ -19,6 +19,7 @@ services:
     environment:
       - HTTPS_PROXY=${PROXY}
       - GRIZLY_REDIS_HOST=pytest_redis
+      - GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA=${GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA}
     ports:
       - "1001:8888"
     volumes:
