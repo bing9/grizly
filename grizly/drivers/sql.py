@@ -14,7 +14,7 @@ from ..store import Store
 from ..sources.rdbms.rdbms_factory import RDBMS
 
 from ..sources.filesystem.old_s3 import S3
-from ..sources.rdbms.old_sqldb import SQLDB
+from ..sources.rdbms.rdbms_factory import RDBMS as SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
