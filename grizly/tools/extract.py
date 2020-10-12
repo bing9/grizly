@@ -71,7 +71,7 @@ class SimpleExtract:
 
             s3 = s3fs.S3FileSystem()
             s3_staging_key = os.path.join(self.s3_root_url, "data", "staging")
-            self.logger.info(f"Uploading {file_name} to {self.s3_staging_key}...")
+            self.logger.info(f"Uploading {file_name} to {s3_staging_key}...")
             pq.write_to_dataset(
                 arrow_table,
                 root_path=s3_staging_key[:-1],
