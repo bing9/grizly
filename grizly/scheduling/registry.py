@@ -234,7 +234,11 @@ class SchedulerObject(ABC):
         for key, value in self.con.hgetall(self.hash_name).items():
             key = key.decode()
             if key == "tasks":
-                deserialized_data[key] = self._deserialize(value, type="dask")
+                try:
+                    deserialized_data[key] = self._deserialize(value, type="dask")
+                except:
+                    self.logger.warning("Tasks could not be deserialized")
+                    deserialized_data[key] = []
             else:
                 try:
                     deserialized_data[key] = self._deserialize(value, type="datetime")
