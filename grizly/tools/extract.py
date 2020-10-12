@@ -32,17 +32,18 @@ class SimpleExtract:
         if_exists: str = "append",
         output_table_type: str = "external",
     ):
-        bucket = config.get_service("sources")["s3"]["bucket"]
+        self.bucket = config.get_service("sources")["s3"]["bucket"]
         self.name = name
         self.name_snake_case = self._to_snake_case(name)
         self.driver = driver
         self.output_table_type = output_table_type
-        self.s3_root_url = s3_root_url or f"s3://{bucket}/extracts/{self.name_snake_case}/"
+        self.s3_root_url = s3_root_url or f"s3://{self.bucket}/extracts/{self.name_snake_case}/"
         self.output_external_table = output_external_table or self.name_snake_case
         self.output_external_schema = output_external_schema or os.getenv(
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA")
         self.output_dsn = output_dsn
         self.if_exists = if_exists
+        self.table_if_exists = _map_if_exists(if_exists)
         self.priority = 0
         self.logger = self.driver.logger
 
