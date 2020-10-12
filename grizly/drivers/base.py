@@ -863,9 +863,7 @@ class BaseDriver(ABC):
         qf = self.copy().limit(100)
 
         expected_types = dict(zip(qf.columns, qf.dtypes))
-        expected_types_mapped = {
-            col: sql_to_python(val) for col, val in expected_types.items()
-        }
+        expected_types_mapped = {col: sql_to_python(val) for col, val in expected_types.items()}
         # this only checks the first 100 rows
         retrieved_types = {}
         d = qf.to_dict()
