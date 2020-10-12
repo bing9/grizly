@@ -16,7 +16,7 @@ import pyarrow.parquet as pq
 
 from ...utils.functions import clean, clean_colnames, file_extension, get_path
 from ...utils.type_mappers import pyarrow_to_rds
-from ..rdbms.old_sqldb import SQLDB
+from ..rdbms.rdbms_factory import RDBMS as SQLDB
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
