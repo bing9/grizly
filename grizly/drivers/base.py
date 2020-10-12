@@ -837,7 +837,7 @@ class BaseDriver(ABC):
         # TODO: implement below more generic mapper
         coltypes = [rds_to_pyarrow(dtype) for dtype in self.get_dtypes()]
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(colnames, coltypes)])
-        self.logger.info(f"Generating PyArrow table with schema: \n{schema}")
+        self.logger.debug(f"Generating PyArrow table with schema: \n{schema}")
         _dict = self.to_dict()
         table = pa.Table.from_pydict(_dict, schema=schema)
         return table
