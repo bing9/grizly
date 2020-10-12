@@ -26,6 +26,7 @@ class SimpleExtract:
         name: str,
         driver: BaseDriver,
         s3_root_url: str = None,
+        output_external_table: str = None,
         output_external_schema: str = None,
         if_exists: str = "append",
         output_table_type: str = "external",
@@ -36,6 +37,7 @@ class SimpleExtract:
         self.driver = driver
         self.output_table_type = output_table_type
         self.s3_root_url = s3_root_url or f"s3://{bucket}/extracts/{self.name_snake_case}/"
+        self.output_external_table = output_external_table or self.name_snake_case
         self.output_external_schema = output_external_schema or os.getenv(
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA")
         self.if_exists = if_exists
