@@ -29,7 +29,7 @@ class SimpleExtract:
         if_exists: str = "append",
         output_table_type: str = "external",
     ):
-        bucket = config.get_service("s3")["bucket"]
+        bucket = config.get_service("sources")["s3"]["bucket"]
         self.name = name
         self.name_snake_case = self._to_snake_case(name)
         self.driver = driver
@@ -58,8 +58,8 @@ class SimpleExtract:
         return client
 
     @dask.delayed
-    def to_arrow(self, driver: BaseDriver):
-        pa = driver.to_arrow()
+    def to_arrow(self):
+        pa = self.driver.to_arrow()
         gc.collect()
         return pa
 
@@ -110,7 +110,7 @@ class SimpleExtract:
     def generate_tasks(self):
         file_name = self.name_snake_case + ".parquet"
 
-        arrow_table = self.to_arrow(driver=self.driver)
+        arrow_table = self.to_arrow()
         arrow_to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
         external_table = self.create_external_table(upstream=arrow_to_s3)
         base_table = self.create_table(upstream=external_table)
