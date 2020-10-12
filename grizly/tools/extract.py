@@ -77,13 +77,13 @@ class SimpleExtract:
             self.logger.info(f"Uploading {file_name} to {s3_staging_key}...")
             pq.write_to_dataset(
                 arrow_table,
-                root_path=s3_staging_key[:-1],
+                root_path=s3_staging_key,
                 filesystem=s3,
                 use_dictionary=True,
                 compression="snappy",
                 partition_filename_cb=give_name,
             )
-            self.logger.info(f"Successfully uploaded {file_name} to {self.s3_root_url}")
+            self.logger.info(f"Successfully uploaded {file_name} to {s3_staging_key}")
 
         _arrow_to_s3(arrow_table)
 
