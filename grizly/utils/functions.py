@@ -1,63 +1,21 @@
+import json
+import logging
 import os
+from functools import partial, wraps
+from sys import platform
+from time import sleep
+from typing import TypeVar
+
+import deprecation
 import pandas as pd
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
-from sys import platform
-import json
-import pyarrow as pa
-import re
-from time import sleep
-from functools import partial, wraps
-import deprecation
-import logging
-import datetime
+
+from .type_mappers import sfdc_to_sqlalchemy
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
 logger = logging.getLogger(__name__)
-
-
-def sfdc_to_sqlalchemy_dtype(sfdc_dtype):
-    """Get SQLAlchemy equivalent of the given SFDC data type.
-
-    Parameters
-    ----------
-    sfdc_dtype : str
-        SFDC data type.
-
-    Returns
-    ----------
-    sqlalchemy_dtype : str
-        The string representing a SQLAlchemy data type.
-    """
-
-    sqlalchemy_dtypes = {
-        "address": "NVARCHAR",
-        "anytype": "NVARCHAR",
-        "base64": "NVARCHAR",
-        "boolean": "BOOLEAN",
-        "combobox": "NVARCHAR",
-        "currency": "NUMERIC(precision=14)",
-        "datacategorygroupreference": "NVARCHAR",
-        "date": "DATE",
-        "datetime": "DATETIME",
-        "double": "NUMERIC",
-        "email": "NVARCHAR",
-        "encryptedstring": "NVARCHAR",
-        "id": "NVARCHAR",
-        "int": "INT",
-        "multipicklist": "NVARCHAR",
-        "percent": "NUMERIC(precision=6)",
-        "phone": "NVARCHAR",
-        "picklist": "NVARCHAR",
-        "reference": "NVARCHAR",
-        "string": "NVARCHAR",
-        "textarea": "NVARCHAR",
-        "time": "DATETIME",
-        "url": "NVARCHAR",
-    }
-    sqlalchemy_dtype = sqlalchemy_dtypes[sfdc_dtype]
-    return sqlalchemy_dtype
 
 
 def get_sfdc_columns(table, columns=None, column_types=True):
@@ -87,10 +45,12 @@ def get_sfdc_columns(table, columns=None, column_types=True):
         sf = Salesforce(password=sfdc_pw, username=sfdc_username, organizationId="00DE0000000Hkve")
     except SalesforceAuthenticationFailed:
         logger.info(
-            "Could not log in to SFDC. Are you sure your password hasn't expired and your proxy is set up correctly?"
+            "Could not log in to SFDC."
+            "Are you sure your password hasn't expired and your proxy is set up correctly?"
         )
         raise SalesforceAuthenticationFailed
-    field_descriptions = eval(f'sf.{table}.describe()["fields"]')  # change to variable table
+    table = getattr(sf, table)
+    field_descriptions = table.describe()["fields"]
     types = {field["name"]: (field["type"], field["length"]) for field in field_descriptions}
 
     if columns:
@@ -101,13 +61,11 @@ def get_sfdc_columns(table, columns=None, column_types=True):
     if column_types:
         dtypes = {}
         for field in fields:
-
             field_sfdc_type = types[field][0]
             field_len = types[field][1]
-            field_sqlalchemy_type = sfdc_to_sqlalchemy_dtype(field_sfdc_type)
+            field_sqlalchemy_type = sfdc_to_sqlalchemy(field_sfdc_type)
             if field_sqlalchemy_type == "NVARCHAR":
                 field_sqlalchemy_type = f"{field_sqlalchemy_type}({field_len})"
-
             dtypes[field] = field_sqlalchemy_type
         return dtypes
     else:
@@ -312,3 +270,17 @@ def dict_diff(first: dict, second: dict, by: str = "keys") -> dict:
     else:
         raise NotImplementedError("Can only compare by keys or values.")
     return diff
+
+
+def isinstance2(obj, _cls):
+    """Work around isinstance() not working with python's standard typing module"""
+    if isinstance(_cls, TypeVar):
+        obj_class = obj.__class__.__name__
+        cls_class = _cls.__name__
+        parents = [parent_cls.__name__ for parent_cls in type(obj).__bases__]
+        for parent_class in parents:
+            if parent_class == cls_class:
+                return True
+        return obj_class == cls_class
+    else:
+        return isinstance(obj, _cls)
