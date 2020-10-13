@@ -109,4 +109,3 @@ class Denodo(RDBMSBase):
                 col_names = [col for col in columns if col in col_names_and_types]
                 col_types = [col_names_and_types[col_name] for col_name in col_names]
             return col_names, col_types
-
