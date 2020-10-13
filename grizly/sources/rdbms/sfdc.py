@@ -45,7 +45,7 @@ class SFDCTable(BaseTable):
         dtypes = []
         for _type, field_len in types_and_lengths:
             sql_type = sfdc_to_sqlalchemy(_type)
-            if "VARCHAR" in sql_type:
+            if sql_type == "VARCHAR":
                 _type += f"({field_len})"
             dtypes.append(_type)
         return dtypes
