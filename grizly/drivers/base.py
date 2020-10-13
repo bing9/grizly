@@ -803,11 +803,9 @@ class BaseDriver(ABC):
         list
             List of field data dtypes
         """
-        dtypes = []
-        for field in self._get_fields():
-            dtype = self.store["select"]["fields"][field]["dtype"]
-            dtypes.append(dtype)
-        return dtypes
+        fields = self._get_fields()
+        store_fields = self.store["select"]["fields"]
+        return [store_fields[field]["dtype"] for field in fields]
 
     def to_dict(self):
         _dict = {}
