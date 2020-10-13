@@ -1,20 +1,19 @@
-from sqlite3.dbapi2 import NotSupportedError
-from .base import BaseDriver
-from copy import deepcopy
-from functools import partial
 import json
 import os
 import re
+from copy import deepcopy
+from functools import partial
 
 import deprecation
 import sqlparse
 
-from ..types import Source, Redshift
-from ..store import Store
-from ..sources.rdbms.rdbms_factory import RDBMS
-
 from ..sources.filesystem.old_s3 import S3
+from ..sources.rdbms.rdbms_factory import RDBMS
 from ..sources.rdbms.rdbms_factory import RDBMS as SQLDB
+from ..store import Store
+from ..types import Redshift, Source
+from ..utils.functions import isinstance2
+from .base import BaseDriver
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
@@ -347,8 +346,8 @@ class SQLDriver(BaseDriver):
         else:
             destination = RDBMS(dsn=dsn, logger=self.logger, **kwargs)
 
-        if not isinstance(destination, Redshift):
-            raise NotImplementedError("Writing to external tables is only supported in RedshiftDB")
+        if not isinstance2(destination, Redshift):
+            raise NotImplementedError("Writing to external tables is only supported in Redshift")
 
         columns = self.get_fields(aliased=True)
         bucket = kwargs.get("bucket")
@@ -785,7 +784,8 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     out_qf.logger.info("Data joined successfully.")
     if not unique_col:
         out_qf.logger.warning(
-            "Please remove or rename duplicated columns. Use your_qframe.show_duplicated_columns() to check duplicates."
+            "Please remove or rename duplicated columns."
+            "Use your_qframe.show_duplicated_columns() to check duplicates."
         )
     return out_qf
 
@@ -863,9 +863,10 @@ def union(qframes=[], union_type=None, union_by="position"):
         if union_by == "name":
             field_diff_1 = set(new_fields) - set(qf_aliases)
             field_diff_2 = set(qf_aliases) - set(new_fields)
-            assert (
-                field_diff_1 == set() and field_diff_2 == set()
-            ), f"""Aliases {field_diff_2} not found in 1. QFrame, aliases {field_diff_1} not found in {iterator}. QFrame. Use qf.rename() to rename fields or set option union_by='position'"""
+            assert field_diff_1 == set() and field_diff_2 == set(), (
+                f"Aliases {field_diff_2} not found in 1. QFrame, aliases {field_diff_1} not found in {iterator}. QFrame.",
+                "Use qf.rename() to rename fields or set option union_by='position'",
+            )
             ordered_fields = []
             for new_field in new_fields:
                 fields = deepcopy(qf.data["select"]["fields"])
@@ -885,9 +886,10 @@ def union(qframes=[], union_type=None, union_by="position"):
             new_type = new_types[field_position]
             qf_alias = qf.data["select"]["sql_blocks"]["select_aliases"][field_position]
             qf_type = qf.data["select"]["sql_blocks"]["types"][field_position]
-            assert (
-                qf_type == new_type
-            ), f"Types don't match. 1. QFrame alias: {new_field} type: {new_type}, {iterator}. QFrame alias: {qf_alias} type: {qf_type}."
+            assert qf_type == new_type, (
+                f"Types don't match. 1. QFrame alias: {new_field} type: {new_type}, {iterator}.",
+                f"QFrame alias: {qf_alias} type: {qf_type}.",
+            )
 
         data[f"sq{iterator}"] = deepcopy(qf.data)
         iterator += 1
@@ -909,4 +911,3 @@ def union(qframes=[], union_type=None, union_by="position"):
     out_qf.logger.info("Data unioned successfully.")
 
     return out_qf
-
