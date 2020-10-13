@@ -26,16 +26,28 @@ class SFDCTable(BaseTable):
         fields = [field["name"] for field in field_descriptions]
         return fields
 
+    # @property
+    # def mapped_types(self):
+    #     field_descriptions = self.sf_table.describe()["fields"]
+    #     types_and_lengths = [(field["type"], field["length"]) for field in field_descriptions]
+    #     dtypes = []
+    #     for field_sfdc_type, field_len in types_and_lengths:
+    #         field_sqlalchemy_type = sfdc_to_sqlalchemy(field_sfdc_type)
+    #         if field_sqlalchemy_type == "NVARCHAR":
+    #             field_sqlalchemy_type = f"{field_sqlalchemy_type}({field_len})"
+    #         dtypes.append(field_sqlalchemy_type)
+    #     return dtypes
+
     @property
     def types(self):
         field_descriptions = self.sf_table.describe()["fields"]
         types_and_lengths = [(field["type"], field["length"]) for field in field_descriptions]
         dtypes = []
-        for field_sfdc_type, field_len in types_and_lengths:
-            field_sqlalchemy_type = sfdc_to_sqlalchemy(field_sfdc_type)
-            if field_sqlalchemy_type == "NVARCHAR":
-                field_sqlalchemy_type = f"{field_sqlalchemy_type}({field_len})"
-            dtypes.append(field_sqlalchemy_type)
+        for _type, field_len in types_and_lengths:
+            sql_type = sfdc_to_sqlalchemy(_type)
+            if "VARCHAR" in sql_type:
+                _type += f"({field_len})"
+            dtypes.append(_type)
         return dtypes
 
     @property
