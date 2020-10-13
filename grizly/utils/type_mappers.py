@@ -7,7 +7,7 @@ def _map_type(mapping, dtype, default=None):
     if not default:
         default = dtype
     if isinstance(dtype, str):
-        # fuzzy search    
+        # fuzzy search
         for source_dtype in mapping:
             if re.search(source_dtype, dtype):
                 return mapping[source_dtype]
@@ -119,7 +119,7 @@ def sfdc_to_pyarrow(dtype: str):
         "base64": pa.string(),
         "boolean": pa.bool_(),
         "combobox": pa.string(),
-        "currency": pa.string(),
+        "currency": pa.float64(),
         "datacategorygroupreference": pa.string(),
         "date": pa.date64(),
         "datetime": pa.date64(),
@@ -144,29 +144,29 @@ def sfdc_to_pyarrow(dtype: str):
 
 def sfdc_to_sqlalchemy(dtype):
     mapping = {
-        "address": "NVARCHAR",
-        "anytype": "NVARCHAR",
-        "base64": "NVARCHAR",
+        "address": "VARCHAR",
+        "anytype": "VARCHAR",
+        "base64": "VARCHAR",
         "boolean": "BOOLEAN",
-        "combobox": "NVARCHAR",
-        "currency": "NUMERIC(precision=14)",
-        "datacategorygroupreference": "NVARCHAR",
+        "combobox": "VARCHAR",
+        "currency": "FLOAT8",
+        "datacategorygroupreference": "VARCHAR",
         "date": "DATE",
         "datetime": "DATETIME",
-        "double": "NUMERIC",
-        "email": "NVARCHAR",
-        "encryptedstring": "NVARCHAR",
-        "id": "NVARCHAR",
+        "double": "DOUBLE_PRECISION",
+        "email": "VARCHAR(128)",
+        "encryptedstring": "VARCHAR",
+        "id": "VARCHAR(18)",
         "int": "INT",
-        "multipicklist": "NVARCHAR",
-        "percent": "NUMERIC(precision=6)",
-        "phone": "NVARCHAR",
-        "picklist": "NVARCHAR",
-        "reference": "NVARCHAR",
-        "string": "NVARCHAR",
-        "textarea": "NVARCHAR",
+        "multipicklist": "VARCHAR",
+        "percent": "FLOAT4",
+        "phone": "VARCHAR(40)",
+        "picklist": "VARCHAR",
+        "reference": "VARCHAR(18)",
+        "string": "VARCHAR",
+        "textarea": "VARCHAR",
         "time": "DATETIME",
-        "url": "NVARCHAR",
+        "url": "VARCHAR(1024)",
     }
     return _map_type(mapping, dtype, default="VARCHAR(255)")
 
