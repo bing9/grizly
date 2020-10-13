@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Literal
+from typing import Literal, Union, List, Any
 
 import deprecation
 
@@ -465,7 +465,8 @@ class RDBMSBase(BaseSource):
         else:
             return sql
 
-    def map_types(self, **kwargs):
+    @staticmethod
+    def map_types(types: Union[str, List[Any]], to: str = None):
         pass
 
 

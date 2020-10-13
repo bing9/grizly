@@ -127,6 +127,14 @@ class SFDB(RDBMSBase):
         """Alias for object"""
         return self.object(name=name)
 
+    @staticmethod
+    def map_types(types, to):
+        if to == "postgresql":
+            mapped = [sfdc_to_sqlalchemy(t) for t in types]
+        else:
+            raise NotImplementedError
+        return mapped
+
     def copy_object(self):
         raise NotImplementedError
 

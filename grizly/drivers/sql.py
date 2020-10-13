@@ -313,7 +313,7 @@ class SQLDriver(BaseDriver):
         sqldb = sqldb or (
             self.sqldb if dsn is None else SQLDB(dsn=dsn, logger=self.logger, **kwargs)
         )
-        mapped_types = sqldb.map_types(self.get_dtypes(), to_dialect=sqldb.dialect)
+        mapped_types = sqldb.map_types(self.get_dtypes(), to=sqldb.dialect)
 
         sqldb.create_table(
             type="base_table",
@@ -356,7 +356,7 @@ class SQLDriver(BaseDriver):
             msg = "'bucket' and 's3_key' parameters are required when creating an external table"
             raise ValueError(msg)
 
-        mapped_types = self.source.map_types(self.get_dtypes(), to_dialect=destination.dialect)
+        mapped_types = self.source.map_types(self.get_dtypes(), to=destination.dialect)
         destination.create_table(
             type="external_table",
             columns=columns,
