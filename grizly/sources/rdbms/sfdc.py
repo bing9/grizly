@@ -6,7 +6,7 @@ from sqlite3.dbapi2 import NotSupportedError
 from ...config import Config
 from ...config import config as default_config
 from .base import BaseTable, RDBMSBase
-from ...utils.type_mappers import sfdc_to_sqlalchemy
+from ...utils.type_mappers import sfdc_to_pyarrow, sfdc_to_sqlalchemy, sfdc_to_python
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
 
@@ -142,9 +142,14 @@ class SFDB(RDBMSBase):
     @staticmethod
     def map_types(types, to):
         if to == "postgresql":
-            mapped = [sfdc_to_sqlalchemy(t) for t in types]
+            mapping_func = sfdc_to_sqlalchemy
+        elif to == "pyarrow":
+            mapping_func = sfdc_to_pyarrow
+        elif to == "python":
+            mapping_func = sfdc_to_python
         else:
             raise NotImplementedError
+        mapped = [mapping_func(t) for t in types]
         return mapped
 
     def copy_object(self):
