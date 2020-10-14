@@ -111,7 +111,7 @@ class S3:
         config = ConfigParser()
         config.read(get_path(".aws", "credentials"))
 
-        return config["default"] or dict()
+        return dict(config["default"]) or dict()
 
     @property
     def aws_config(self):
@@ -120,7 +120,7 @@ class S3:
         config = ConfigParser()
         config.read(get_path(".aws", "config"))
 
-        return config["default"] or dict()
+        return dict(config["default"]) or dict()
 
     def info(self):
         """Print a concise summary of a S3
