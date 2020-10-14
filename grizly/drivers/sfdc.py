@@ -12,18 +12,29 @@ class SFDCDriver(SQLDriver):
     def __init__(self, source: SFDB = sfdb, table: str = None, logger: Logger = None):
         super().__init__(source=source, table=table, logger=logger)
 
+    def _cast_records(self, records):
+        casted = []
+        for record in records:
+            record_casted = []
+            for i, val in enumerate(record):
+                col_dtype = self.dtypes[i]
+                val_casted = self._cast(val, dtype=col_dtype)
+                record_casted.append(val_casted)
+            casted.append(tuple(record_casted))
+        return casted
+
     def to_records(self):
         self._validate_fields()
         query = self.get_sql()
         response = self.source.con.query(query)
         records_raw = response["records"]
         records = self._sfdc_records_to_records(records_raw)
-        records_casted = [tuple(self._cast(val) for val in record) for record in records]
+        # records_casted = [
+        #     tuple(self._cast(val, dtype=self.dtypes[i]) for i, val in enumerate(record))
+        #     for record in records
+        # ]
+        records_casted = self._cast_records(records)
         return records_casted
-
-    def to_arrow(self):
-        self._fix_types(mismatched=self._check_types())
-        return super().to_arrow()
 
     def _validate_fields(self):
         """Check if requested fields are in SF table
@@ -40,26 +51,26 @@ class SFDCDriver(SQLDriver):
                 f"{compound_fields}"
             )
 
-    @staticmethod
-    def _cast(val, dtype="auto"):
+    def _cast(self, val, dtype="auto"):
         """Fix columns with mixed dtypes"""
 
         if not val:
             return None
 
-        if dtype == "auto":
-            dtype = sfdc_to_pyarrow(type(val))
+        dtype_mapped = sfdc_to_pyarrow(dtype)
 
-        dtype_str = str(dtype)
+        dtype_str = str(dtype_mapped)
         if "string" in dtype_str:
-            val = str(val)
+            casted = str(val)
         elif "float" in dtype_str:
-            val = float(val)
-        elif "date" in dtype_str and type(val) == str:
-            val = datetime.datetime.strptime(val, "%Y-%m-%d")
+            casted = float(val)
+        elif "date32" in dtype_str and type(val) == str:
+            casted = datetime.datetime.strptime(val, "%Y-%m-%d")
+        elif "timestamp" in dtype_str and type(val) == str:
+            casted = datetime.datetime.strptime(val, "%Y-%m-%dT%H:%M:%S.%f%z")
         else:
             return val
-        return val
+        return casted
 
     @staticmethod
     def _sfdc_records_to_records(sfdc_records):
