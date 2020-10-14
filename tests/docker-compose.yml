@@ -20,6 +20,7 @@ services:
       - HTTPS_PROXY=${PROXY}
       - GRIZLY_REDIS_HOST=pytest_redis
       - GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA=${GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA}
+      - GRIZLY_DASK_SCHEDULER_ADDRESS=dask_scheduler:8786
     ports:
       - "1001:8888"
     volumes:
