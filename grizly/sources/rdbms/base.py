@@ -439,10 +439,10 @@ class RDBMSBase(BaseSource):
             con.execute(sql)
             self.logger.debug(f"Successfully ran query\n {sql}")
         except:
-            self.logger.exception(f"Error occured during running query\n {sql}")
+            self.logger.exception(f"Error occurred during running query\n {sql}")
+            raise
         finally:
             con.close()
-            self.logger.debug("Connection closed")
 
     def _fetch_records(self, sql: str):
         sql = self._add_context(sql)
