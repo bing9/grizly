@@ -841,10 +841,10 @@ class BaseDriver(ABC):
 
     def to_arrow(self):
         """Write QFrame to pyarrow.Table"""
-        colnames = self.get_fields(aliased=True)
-        # TODO: implement below more generic mapper
-        coltypes = [rds_to_pyarrow(dtype) for dtype in self.get_dtypes()]
-        schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(colnames, coltypes)])
+        self._fix_types()
+        columns = self.get_fields(aliased=True)
+        types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
+        schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
         self.logger.debug(f"Generating PyArrow table with schema: \n{schema}")
         _dict = self.to_dict()
         table = pa.Table.from_pydict(_dict, schema=schema)
@@ -859,7 +859,7 @@ class BaseDriver(ABC):
         """
         return deepcopy(self)
 
-    def _fix_types(self, mismatched: dict):
+    def _fix_types(self):
         mismatched = self._check_types()
         for col in mismatched:
             python_dtype = mismatched[col]
@@ -867,14 +867,13 @@ class BaseDriver(ABC):
             self.store["select"]["fields"][col]["dtype"] = sql_dtype
 
     def _check_types(self):
-
-        qf = self.copy().limit(100)
-
-        expected_types = dict(zip(qf.columns, qf.dtypes))
-        expected_types_mapped = {col: sql_to_python(val) for col, val in expected_types.items()}
+        expected_types_mapped = self.source.map_types(self.dtypes, to="python")
+        expected_cols_and_types = dict(zip(self.columns, expected_types_mapped))
+        # self.logger.info(expected_types_mapped)
         # this only checks the first 100 rows
-        retrieved_types = {}
-        d = qf.to_dict()
+        retrieved_cols_and_types = {}
+        sample = self.copy().limit(100)
+        d = sample.to_dict()
         for col in d:
             unique_types = {type(val) for val in d[col] if val is not None}
             if len(unique_types) > 1:
@@ -883,9 +882,12 @@ class BaseDriver(ABC):
                 )
             if not unique_types:
                 unique_types = {type(None)}
-            retrieved_types[col] = list(unique_types)[0]
+            retrieved_cols_and_types[col] = list(unique_types)[0]
+        # self.logger.info(expected_cols_and_types)
 
-        mismatched_with_none = dict_diff(expected_types_mapped, retrieved_types, by="values")
+        mismatched_with_none = dict_diff(
+            expected_cols_and_types, retrieved_cols_and_types, by="values"
+        )
         mismatched = {
             col: dtype for col, dtype in mismatched_with_none.items() if dtype is not type(None)
         }
