@@ -81,6 +81,9 @@ class BaseDriver(ABC):
 
     @property
     def nrows(self) -> int:
+        limit = self.store.select.limit
+        if limit:
+            return limit
         records = self.to_records()
         return len(records)
 
@@ -580,6 +583,13 @@ class BaseDriver(ABC):
 
         return self
 
+    @property
+    def _limit(self):
+        try:
+            return int(self.store["select"]["limit"])
+        except TypeError:
+            return None
+
     def offset(self, offset: int):
         """Adds OFFSET statement.
 
@@ -866,7 +876,7 @@ class BaseDriver(ABC):
         retrieved_types = {}
         d = qf.to_dict()
         for col in d:
-            unique_types = {type(val) for val in d[col] if type(val) is not type(None)}
+            unique_types = {type(val) for val in d[col] if val is not None}
             if len(unique_types) > 1:
                 raise NotImplementedError(
                     f"Multiple types detected in {col}. This is not yet handled."
@@ -928,7 +938,7 @@ class BaseDriver(ABC):
                 else:
                     not_found_fields.append(field)
 
-        if not_found_fields != []:
+        if not_found_fields:
             self.logger.warning(f"Fields {not_found_fields} not found.")
 
         return output_fields if not not_found else (output_fields, not_found_fields)
