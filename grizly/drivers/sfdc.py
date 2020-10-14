@@ -18,17 +18,8 @@ class SFDCDriver(SQLDriver):
         response = self.source.con.query(query)
         records_raw = response["records"]
         records = self._sfdc_records_to_records(records_raw)
-        columns, types = self.columns, self.dtypes
-        _dict = {}
-        for i, column in enumerate(columns):
-            col_dtype = types[i]
-            col_dtype_mapped = sfdc_to_pyarrow(col_dtype)
-            for record in records:
-                record = [self._cast(val, dtype=col_dtype_mapped) for val in record]
-            col_dtype_mapped = sfdc_to_pyarrow(col_dtype)
-            col_values_casted = self._cast(column, col_dtype_mapped)
-            _dict[column] = col_values_casted
-        return records
+        records_casted = [tuple(self._cast(val) for val in record) for record in records]
+        return records_casted
 
     def to_arrow(self):
         self._fix_types(mismatched=self._check_types())
@@ -50,11 +41,14 @@ class SFDCDriver(SQLDriver):
             )
 
     @staticmethod
-    def _cast(val, dtype):
+    def _cast(val, dtype="auto"):
         """Fix columns with mixed dtypes"""
 
         if not val:
             return None
+
+        if dtype == "auto":
+            dtype = sfdc_to_pyarrow(type(val))
 
         dtype_str = str(dtype)
         if "string" in dtype_str:
