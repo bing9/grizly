@@ -1,5 +1,5 @@
 from .base import RDBMSBase
-from typing import Literal
+from typing import Literal, List
 
 
 class Redshift(RDBMSBase):
@@ -12,19 +12,17 @@ class Redshift(RDBMSBase):
         types: list,
         schema: str = None,
         if_exists: str = "skip",
-        type: Literal["base_table", "external"] = "base_table",
+        table_type: Literal["base", "external"] = "base",
         **kwargs,
     ):
         """Extends parent class with external tables"""
-
-        if type == "external":
-            if not (("bucket" in kwargs) and ("s3_key" in kwargs)):
-                msg = (
-                    "'bucket' and 's3_key' parameters are required when creating an external table"
-                )
+        if table_type == "external":
+            if not (("bucket" in kwargs and "s3_key" in kwargs) or "s3_url" in kwargs):
+                msg = "'bucket' and 's3_key' or 's3_url' parameters are required"
                 raise ValueError(msg)
             bucket = kwargs.get("bucket")
             s3_key = kwargs.get("s3_key")
+            s3_url = kwargs.get("s3_url")
             self._create_external_table(
                 table=table,
                 columns=columns,
@@ -33,6 +31,7 @@ class Redshift(RDBMSBase):
                 if_exists=if_exists,
                 bucket=bucket,
                 s3_key=s3_key,
+                s3_url=s3_url,
             )
         else:
             super().create_table(
@@ -42,7 +41,15 @@ class Redshift(RDBMSBase):
         return self
 
     def _create_external_table(
-        self, table, columns, types, bucket, s3_key, schema=None, if_exists: str = "skip"
+        self,
+        table: str,
+        columns: List[str],
+        types: List[str],
+        bucket: str = None,
+        s3_key: str = None,
+        s3_url: str = None,
+        schema: str = None,
+        if_exists: str = "skip",
     ):
         """Creates an external table"""
         valid_if_exists = ("fail", "skip", "drop")
@@ -52,6 +59,7 @@ class Redshift(RDBMSBase):
             )
 
         full_table_name = schema + "." + table if schema else table
+        s3_url = s3_url or f"s3://{bucket}/{s3_key}"
 
         if self.check_if_exists(table=table, schema=schema):
             if if_exists == "fail":
@@ -77,7 +85,7 @@ class Redshift(RDBMSBase):
         'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'
         OUTPUTFORMAT
         'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
-        location 's3://{bucket}/{s3_key}';
+        location '{s3_url}';
         """
         self._run_query(sql, autocommit=True)
         self.logger.info(f"Table {full_table_name} has been successfully created.")
