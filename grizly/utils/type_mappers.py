@@ -132,8 +132,8 @@ def sfdc_to_pyarrow(dtype: str):
         "combobox": pa.string(),
         "currency": pa.float64(),
         "datacategorygroupreference": pa.string(),
-        "date": pa.date64(),
-        "datetime": pa.date64(),
+        "datetime": pa.timestamp("ms", tz="utc"),
+        "date": pa.date32(),
         "double": pa.float64(),
         "email": pa.string(),
         "encryptedstring": pa.string(),
@@ -162,8 +162,8 @@ def sfdc_to_sqlalchemy(dtype):
         "combobox": "VARCHAR",
         "currency": "FLOAT8",
         "datacategorygroupreference": "VARCHAR",
-        "date": "DATE",
         "datetime": "DATETIME",
+        "date": "DATE",
         "double": "DOUBLE_PRECISION",
         "email": "VARCHAR(128)",
         "encryptedstring": "VARCHAR",
@@ -180,6 +180,35 @@ def sfdc_to_sqlalchemy(dtype):
         "url": "VARCHAR(1024)",
     }
     return _map_type(mapping, dtype, default="VARCHAR(255)")
+
+
+def sfdc_to_python(dtype):
+    mapping = {
+        "address": str,
+        "anytype": str,
+        "base64": str,
+        "boolean": bool,
+        "combobox": str,
+        "currency": float,
+        "datacategorygroupreference": str,
+        "datetime": datetime.datetime,
+        "date": datetime.date,
+        "double": float,
+        "email": str,
+        "encryptedstring": str,
+        "id": str,
+        "int": int,
+        "multipicklist": str,
+        "percent": float,
+        "phone": str,
+        "picklist": str,
+        "reference": str,
+        "string": str,
+        "textarea": str,
+        "time": datetime.datetime,
+        "url": str,
+    }
+    return _map_type(mapping, dtype, default=str)
 
 
 def sql_to_python(dtype):
