@@ -13,9 +13,12 @@ def _map_type(mapping, dtype, default=None):
         field_is_var_length = bool(match)
         if field_is_var_length:
             length = match.group(2).strip("(").strip(")")
-            for source_dtype in mapping:
-                if re.search(source_dtype, dtype):
-                    return mapping[source_dtype] + f"({length})"
+            for unmapped in mapping:
+                if re.search(unmapped, dtype):
+                    if isinstance(mapping[unmapped], str):
+                        return mapping[unmapped] + f"({length})"
+                    else:
+                        return mapping[unmapped]
         for source_dtype in mapping:
             if re.search(source_dtype, dtype):
                 return mapping[source_dtype]
