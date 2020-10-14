@@ -349,16 +349,13 @@ class SQLDriver(BaseDriver):
         if not isinstance2(destination, Redshift):
             raise NotImplementedError("Writing to external tables is only supported in Redshift")
 
-        columns = self.get_fields(aliased=True)
         bucket = kwargs.get("bucket")
         s3_key = kwargs.get("s3_key")
-        if not (("bucket" in kwargs) and ("s3_key" in kwargs)):
-            msg = "'bucket' and 's3_key' parameters are required when creating an external table"
-            raise ValueError(msg)
-
+        s3_url = kwargs.get("s3_url")
+        columns = self.get_fields(aliased=True)
         mapped_types = self.source.map_types(self.get_dtypes(), to=destination.dialect)
         destination.create_table(
-            type="external_table",
+            table_type="external",
             columns=columns,
             types=mapped_types,
             table=table,
@@ -366,6 +363,7 @@ class SQLDriver(BaseDriver):
             if_exists=if_exists,
             bucket=bucket,
             s3_key=s3_key,
+            s3_url=s3_url,
         )
         return self
 
