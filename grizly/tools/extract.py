@@ -40,7 +40,8 @@ class SimpleExtract:
         self.s3_root_url = s3_root_url or f"s3://{self.bucket}/extracts/{self.name_snake_case}/"
         self.output_external_table = output_external_table or self.name_snake_case
         self.output_external_schema = output_external_schema or os.getenv(
-            "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA")
+            "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
+        )
         self.output_dsn = output_dsn
         self.if_exists = if_exists
         self.table_if_exists = self._map_if_exists(if_exists)
@@ -100,8 +101,7 @@ class SimpleExtract:
             schema=self.output_external_schema,
             table=self.output_external_table,
             dsn=self.output_dsn,
-            bucket=self.bucket,
-            s3_key=s3_staging_key,
+            s3_url=s3_staging_key,
             if_exists=self.table_if_exists,
         )
 
@@ -145,7 +145,7 @@ class SimpleExtract:
         self.extract_job = Job(self.name, logger=self.logger, db=db)
         self.extract_job.register(tasks=self.generate_tasks(), **kwargs)
 
-    def submit(self, **kwargs):
+    def submit(self, db, if_exists=None, **kwargs):
         """Submit the extract job
 
         Parameters
@@ -153,8 +153,8 @@ class SimpleExtract:
         kwargs: arguments to pass to Job.register() and Job.submit()
 
         """
-        self.register(**kwargs)
-        self.job.submit(**kwargs)
+        self.register(db=db, if_exists=if_exists)
+        self.extract_job.submit(**kwargs)
 
 
 class Extract:
