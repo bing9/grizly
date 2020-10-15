@@ -841,13 +841,15 @@ class BaseDriver(ABC):
 
     def to_arrow(self):
         """Write QFrame to pyarrow.Table"""
+        self.logger.debug("Generating PyArrow table...")
         self._fix_types()
         columns = self.get_fields(aliased=True)
         types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
-        self.logger.debug(f"Generating PyArrow table with schema: \n{schema}")
+        self.logger.debug(f"Retrieved schema: {schema}")
         _dict = self.to_dict()
         table = pa.Table.from_pydict(_dict, schema=schema)
+        self.logger.debug("PyArrow table has been generated successfully.")
         return table
 
     def copy(self):
@@ -878,7 +880,7 @@ class BaseDriver(ABC):
             unique_types = {type(val) for val in d[col] if val is not None}
             if len(unique_types) > 1:
                 raise NotImplementedError(
-                    f"Multiple types detected in {col}. This is not yet handled."
+                    f"Multiple types detected in {col}: {unique_types}. This is not yet handled."
                 )
             if not unique_types:
                 unique_types = {type(None)}
