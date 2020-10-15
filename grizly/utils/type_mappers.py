@@ -164,7 +164,7 @@ def sfdc_to_sqlalchemy(dtype):
         "datacategorygroupreference": "VARCHAR",
         "datetime": "DATETIME",
         "date": "DATE",
-        "double": "DOUBLE_PRECISION",
+        "double": "DOUBLE PRECISION",
         "email": "VARCHAR(128)",
         "encryptedstring": "VARCHAR",
         "id": "VARCHAR(18)",
