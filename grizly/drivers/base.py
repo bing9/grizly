@@ -1,22 +1,21 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
+import csv
 import decimal
 from functools import partial
 import logging
+import os
 import re
-from typing import Any, Callable, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
 import deprecation
 from pandas import DataFrame
 import pyarrow as pa
 
 from ..store import Store
-from ..utils.type_mappers import (
-    python_to_sql,
-    rds_to_pyarrow,
-    sql_to_python,
-)
-from ..utils.functions import dict_diff
+from ..tools.crosstab import Crosstab
+from ..utils.functions import copy_df_to_excel, dict_diff
+from ..utils.type_mappers import python_to_sql, rds_to_pyarrow, sql_to_python
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
 
@@ -817,7 +816,14 @@ class BaseDriver(ABC):
         store_fields = self.store["select"]["fields"]
         return [store_fields[field]["dtype"] for field in fields]
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[list]:
+        """Write QFrame result to Python dictionary
+
+        Returns
+        -------
+        dict
+            QFrame result
+        """
         _dict = {}
         columns = self.get_fields(aliased=True)
         records = self.to_records()
@@ -828,29 +834,127 @@ class BaseDriver(ABC):
             _dict[column] = column_values
         return _dict
 
-    def to_df(self, chunksize: int = None, verbose=False):
-        """Write QFrame to DataFrame
+    def to_df(self, chunksize: int = None, verbose=False) -> DataFrame:
+        """Write QFrame result to pandas.DataFrame
 
         Returns
         -------
         DataFrame
-            Data generated from sql.
+            QFrame result
         """
+        self.logger.debug("Generating pandas DataFrame...")
         d = self.to_dict()
-        return DataFrame(d)
+        df = DataFrame(d)
+        self.logger.debug("Pandas DataFrame has been generated successfully")
 
-    def to_arrow(self):
-        """Write QFrame to pyarrow.Table"""
+        return df
+
+    def to_arrow(self) -> pa.Table:
+        """Write QFrame result to pyarrow.Table
+
+        Returns
+        -------
+        pa.Table
+            QFrame result
+        """
         self.logger.debug("Generating PyArrow table...")
         self._fix_types()
         columns = self.get_fields(aliased=True)
         types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
         self.logger.debug(f"Retrieved schema: {schema}")
+
         _dict = self.to_dict()
         table = pa.Table.from_pydict(_dict, schema=schema)
-        self.logger.debug("PyArrow table has been generated successfully.")
+        self.logger.debug("PyArrow table has been generated successfully")
+
         return table
+
+    def to_crosstab(self, dimensions: list, measures: list, **ct_kwargs) -> Crosstab:
+        """Write QFrame records to grizly.Crosstab
+
+        Parameters
+        ----------
+        dimensions : list
+            List of dimensions columns
+        measures : list
+            List of numeric columns
+        **ct_kwargs
+            Additional keyword arguments passed to `grizly.Crosstab`
+
+        Returns
+        -------
+        Crosstab
+            QFrame result
+        """
+        df = self.to_df()
+        self.logger.debug("Generating grizly Crosstab...")
+        ct = Crosstab(logger=self.logger, **ct_kwargs).from_df(
+            df=df, dimensions=dimensions, measures=measures
+        )
+        self.logger.debug("Grizly Crosstab has been generated successfully")
+
+        return ct
+
+    def to_csv(self, csv_path: str, sep: str = "\t", chunksize=None, debug=False):
+        """Write QFrame result to CSV file
+
+        Parameters
+        ----------
+        csv_path : str
+            Path to csv file
+        sep : str, optional
+            Separator/delimiter in csv file, by default "\t"
+        """
+        columns = self.get_fields(aliased=True)
+        records = self.to_records()
+
+        self.logger.info(f"Writing data into '{os.path.basename(csv_path)}'...")
+
+        with open(csv_path, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile, delimiter=sep)
+            writer.writerow(columns)
+            writer.writerows(records)
+
+        self.logger.info(f"Successfully wrote to '{os.path.basename(csv_path)}'")
+
+    def to_excel(
+        self,
+        input_excel_path: str = None,
+        output_excel_path: str = None,
+        index: bool = False,
+        header: bool = True,
+        **pd_kwargs,
+    ):
+        """Write QFrame result to Excel file
+
+        Parameters
+        ----------
+        input_excel_path : str
+            Path to template Excel file, by default 'grizly_test.xlsx'
+        output_excel_path : str
+            Path to Excel file in which we want to save data, if None then input_excel_path
+        index : bool, optional
+            Write row index, by default False
+        header : bool, optional
+            Write header, by default False
+        **pd_kwargs
+            Additional keyword arguments passed to `pandas.DataFrame.to_excel`
+        """
+        input_excel_path = input_excel_path or "grizly_test.xlsx"
+        output_excel_path = output_excel_path or input_excel_path
+        df = self.to_df()
+
+        self.logger.info(f"Writing data into '{os.path.basename(output_excel_path)}'...")
+        copy_df_to_excel(
+            df=df,
+            input_excel_path=input_excel_path,
+            outout_excel_path=output_excel_path,
+            index=index,
+            header=header,
+            **pd_kwargs,
+        )
+        self.logger.info(f"Successfully wrote to '{os.path.basename(output_excel_path)}'")
 
     def copy(self):
         """Makes a copy of QFrame.
