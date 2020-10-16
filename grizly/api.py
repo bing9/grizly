@@ -3,7 +3,9 @@ from .store import Store
 from .config import Config, config
 
 # from .tools.base import copy_df_to_excel
-from .drivers.old_qframe import QFrame, union, join
+# from .drivers.old_qframe import QFrame, union, join
+from .drivers.frames_factory import QFrame
+from .drivers.sql import union, join
 from .tools.crosstab import Crosstab
 from .tools.email import Email
 from .drivers.sfdc import SFDCDriver
