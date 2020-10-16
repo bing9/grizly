@@ -11,8 +11,14 @@ from .sql import SQLDriver
 
 
 class SFDCDriver(SQLDriver):
-    def __init__(self, source: SFDB = sfdb, table: str = None, logger: Logger = None):
-        super().__init__(source=source, table=table, logger=logger)
+    def __init__(
+        self,
+        source: SFDB = sfdb,
+        table: str = None,
+        columns: List[str] = None,
+        logger: Logger = None,
+    ):
+        super().__init__(source=source, table=table, columns=columns, logger=logger)
 
     def to_records(self) -> List[tuple]:
         self._validate_fields()
@@ -52,7 +58,7 @@ class SFDCDriver(SQLDriver):
         ]
         return compound_fields
 
-    def _remove_compound_fields(self) -> SFDCDriver:
+    def remove_compound_fields(self) -> SFDCDriver:
         for field in self._get_compound_fields():
             self.remove(field)
         return self
@@ -97,7 +103,7 @@ class SFDCDriver(SQLDriver):
             # self.logger.info(f"{val}, {dtype_str}")
             casted = float(val)
         elif "date32" in dtype_str and type(val) == str:
-            casted = datetime.datetime.strptime(val, "%Y-%m-%d")
+            casted = datetime.datetime.strptime(val, "%Y-%m-%d").date()
         # TODO: put below logic in _cast_datetime()
         elif "timestamp" in dtype_str and type(val) == str:
             casted = datetime.datetime.strptime(val, "%Y-%m-%dT%H:%M:%S.%f%z")
