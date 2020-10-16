@@ -68,6 +68,7 @@ class SimpleExtract:
 
     @dask.delayed
     def to_arrow(self):
+        self.logger.info("Writing data to arrow...")
         pa = self.driver.to_arrow()
         gc.collect()
         return pa
