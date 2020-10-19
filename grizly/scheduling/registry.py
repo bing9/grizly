@@ -352,7 +352,7 @@ class JobRun(SchedulerObject):
     def info(self):
         d = self.meta
         s = (
-            f"id: {d._id}\n"
+            f"id: {self._id}\n"
             f"name: {d.name}\n"
             f"created_at: {d.created_at}\n"
             f"finished_at: {d.finished_at}\n"

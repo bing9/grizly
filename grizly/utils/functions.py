@@ -1,12 +1,13 @@
+from functools import partial, wraps
 import json
 import logging
 import os
-from functools import partial, wraps
 from sys import platform
 from time import sleep
 from typing import TypeVar
 
 import deprecation
+import openpyxl
 import pandas as pd
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
@@ -284,3 +285,28 @@ def isinstance2(obj, _cls):
         return obj_class == cls_class
     else:
         return isinstance(obj, _cls)
+
+
+def copy_df_to_excel(
+    df: pd.DataFrame,
+    input_excel_path: str,
+    output_excel_path: str,
+    index: bool = False,
+    header: bool = False,
+    **kwargs,
+):
+    if os.path.exists(input_excel_path):
+        writer = pd.ExcelWriter(input_excel_path, engine="openpyxl")
+        book = openpyxl.load_workbook(input_excel_path)
+        writer.book = book
+
+        writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
+
+        df.to_excel(writer, index=index, header=header, **kwargs)
+
+        writer.path = output_excel_path
+        writer.save()
+        writer.close()
+    else:
+        df.to_excel(output_excel_path, index=index, header=header, **kwargs)
+

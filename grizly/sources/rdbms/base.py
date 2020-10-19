@@ -237,7 +237,7 @@ class RDBMSBase(BaseSource):
         if where is not None:
             sql += f" WHERE {where} "
         sql += "; commit;"
-        self.logger.info(f"Deleting records from table {full_table_name}...")
+        self.logger.info(f"Deleting records from table {full_table_name} {where}...")
         self._run_query(sql)
 
         return self

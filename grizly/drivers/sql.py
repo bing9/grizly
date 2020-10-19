@@ -1,21 +1,21 @@
+from copy import deepcopy
+from functools import partial
 import json
 import os
 import re
-from copy import deepcopy
-from functools import partial
+from typing import Literal
 
 import deprecation
 import sqlparse
 
 from ..sources.filesystem.old_s3 import S3
 from ..sources.rdbms.rdbms_factory import RDBMS
-from ..sources.rdbms.rdbms_factory import RDBMS as SQLDB
 from ..store import Store
 from ..types import Redshift, Source
 from ..utils.functions import isinstance2
 from .base import BaseDriver
 
-deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
+deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.4.5")
 
 
 class SQLDriver(BaseDriver):
@@ -85,6 +85,21 @@ class SQLDriver(BaseDriver):
         _dict["select"]["schema"] = schema
 
         return Store(_dict)
+
+    def from_table(
+        self,
+        table: str,
+        schema: str = None,
+        columns: list = None,
+        json_path: str = None,
+        subquery: str = None,
+    ):
+        self.store = self._load_store_from_table(table=table, schema=schema, columns=columns)
+
+        if json_path:
+            self.store.to_json(json_path=json_path, subquery=subquery)
+
+        return self
 
     @property
     def nrows(self):
@@ -283,8 +298,8 @@ class SQLDriver(BaseDriver):
         schema="",
         char_size=500,
         dsn=None,
-        sqldb=None,
-        if_exists: str = "skip",
+        rdbms=None,
+        if_exists: Literal["fail", "skip", "drop"] = "skip",
         **kwargs,
     ):
         """Creates a new empty QFrame table in database if the table doesn't exist.
@@ -303,19 +318,20 @@ class SQLDriver(BaseDriver):
         -------
         QFrame
         """
-        engine_str = kwargs.get("engine_str")
-        if engine_str is not None:
-            dsn = engine_str.split("://")[-1]
+        sqldb = kwargs.get("sqldb")
+        if sqldb:
+            rdbms = sqldb
             self.logger.warning(
-                f"Parameter engine_str is deprecated as of 0.3 and will be removed in 0.4. Please use dsn='{dsn}' instead.",
+                "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
+                " Please use rdbms parameter instead.",
             )
 
-        sqldb = sqldb or (
-            self.sqldb if dsn is None else SQLDB(dsn=dsn, logger=self.logger, **kwargs)
+        rdbms = rdbms or (
+            self.source if dsn is None else RDBMS(dsn=dsn, logger=self.logger, **kwargs)
         )
-        mapped_types = sqldb.map_types(self.get_dtypes(), to=sqldb.dialect)
+        mapped_types = rdbms.map_types(self.get_dtypes(), to=rdbms.dialect)
 
-        sqldb.create_table(
+        rdbms.create_table(
             type="base_table",
             columns=self.get_fields(aliased=True),
             types=mapped_types,
@@ -634,44 +650,6 @@ class SQLDriver(BaseDriver):
             json.dump(json_data, f, indent=4)
 
         self.logger.info(f"Data saved in {json_path}")
-
-    @deprecation.deprecated(details="Use QFrame(json_path=json_path, subquery=subquery) instead",)
-    def from_json(self, json_path: str, subquery: str = ""):
-        if json_path.startswith("s3://"):
-            data = S3(url=json_path).to_serializable()
-        else:
-            with open(json_path, "r") as f:
-                data = json.load(f)
-        if data:
-            if not subquery:
-                self.store = Store(self.validate_data(data))
-            else:
-                self.store = Store(self.validate_data(data[subquery]))
-        else:
-            self.store = Store(data)
-        return self
-
-    @deprecation.deprecated(details="Use QFrame(dsn=dsn, store=data) instead",)
-    def from_dict(self, data: dict):
-        self.store = Store(self.validate_data(data))
-
-        return self
-
-    @deprecation.deprecated(details="Use QFrame(dsn=dsn, table=table, schema=schema) instead",)
-    def from_table(
-        self,
-        table: str,
-        schema: str = None,
-        columns: list = None,
-        json_path: str = None,
-        subquery: str = None,
-    ):
-        store = self._load_store_from_table(table=table, schema=schema, columns=columns)
-
-        if json_path:
-            store.to_json(json_path=json_path, subquery=subquery)
-
-        return self
 
 
 def join(qframes=[], join_type=None, on=None, unique_col=True):

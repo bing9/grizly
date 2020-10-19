@@ -486,6 +486,33 @@ def test_to_df():
     assert df_from_qf.equals(test_df)
 
 
+def test_to_crosstab():
+    q = QFrame(dsn="redshift_acoe").from_table(table="table_tutorial", schema="grizly")
+    test_html = q.to_crosstab(dimensions=["col1", "col2"], measures=["col4"]).to_html()
+    html = """<table>
+            <thead>
+            <tr>
+                <th> col1 </th>
+                <th> col2 </th>
+                <th> col4 </th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <th> item1 </th>
+                <th> 1.3 </th>
+                <td> 3.5 </td>
+            </tr>
+            <tr>
+                <th> item2 </th>
+                <th> 0.0 </th>
+                <td> 0 </td>
+            </tr>
+            </tbody>
+            </table>"""
+    assert clean_testexpr(test_html) == clean_testexpr(html)
+
+
 playlists = {
     "select": {
         "fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}},
