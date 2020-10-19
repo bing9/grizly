@@ -2,7 +2,7 @@ import os
 from sys import platform
 from typing import TypeVar
 
-from ..grizly.utils import file_extension, get_path, isinstance2, set_cwd
+from ..grizly.utils.functions import file_extension, get_path, isinstance2, set_cwd
 
 
 def write_out(out):

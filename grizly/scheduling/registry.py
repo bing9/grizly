@@ -387,7 +387,7 @@ class JobRun(SchedulerObject):
 
     @property
     def finished_at(self) -> datetime:
-        return self._deserialize(self.con.hget(self.hash_name, "finished_at"))
+        return self._deserialize(self.con.hget(self.hash_name, "finished_at"), type="datetime")
 
     @finished_at.setter
     @_check_if_exists()

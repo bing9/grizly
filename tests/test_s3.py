@@ -7,10 +7,10 @@ import pytest
 from hypothesis import given
 from hypothesis.strategies import integers, text, lists
 
-from ..grizly.tools.qframe import QFrame
-from ..grizly.tools.s3 import S3
-from ..grizly.tools.sqldb import SQLDB
-from ..grizly.utils import get_path
+from ..grizly.drivers.frames_factory import QFrame
+from ..grizly.sources.filesystem.old_s3 import S3
+from ..grizly.sources.rdbms.rdbms_factory import RDBMS
+from ..grizly.utils.functions import get_path
 from ..grizly.config import config
 
 
@@ -39,6 +39,7 @@ def test_can_upload():
 
 def test_to_rds():
     import os
+
     print(os.environ)
 
     dsn = get_path("grizly_dev", "tests", "Chinook.sqlite")
@@ -117,9 +118,9 @@ def test_to_rds():
     qf_csv.distinct()
     assert len(qf_csv) == 30
 
-    sqldb = SQLDB(dsn="redshift_acoe")
-    sqldb.drop_table(table=table_parquet, schema=schema)
-    sqldb.drop_table(table=table_csv, schema=schema)
+    rdbms = RDBMS(dsn="redshift_acoe")
+    rdbms.drop_table(table=table_parquet, schema=schema)
+    rdbms.drop_table(table=table_csv, schema=schema)
 
 
 def test_to_aurora():
@@ -181,7 +182,7 @@ def test_to_aurora():
     qf_csv.distinct()
     assert len(qf_csv) == 30
 
-    SQLDB(dsn="aurora_db").drop_table(table=table_csv, schema=schema)
+    RDBMS(dsn="aurora_db").drop_table(table=table_csv, schema=schema)
 
 
 def test_to_serializable():

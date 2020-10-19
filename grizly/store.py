@@ -66,25 +66,24 @@ class Store(Box):
             Key in json file, by default None
         """
         json_data = {}
-        data = {}
 
         # attempt to load the json from provided location
-        if os.path.isfile(json_path):
-            with open(json_path, "r") as f:
-                json_data = json.load(f)
-                if json_data:
-                    data = json_data
+        if json_path.startswith("s3://"):
+            json_data = self._from_s3(url=json_path)
+        else:
+            json_data = self._from_local(json_path=json_path)
+
         if subquery:
-            data[subquery] = self.to_dict()
+            json_data[subquery] = self.to_dict()
         else:
             if json_data:
                 self.logger.warning("Overwriting existing store.")
-            data = self.to_dict()
+            json_data = self.to_dict()
 
         if json_path.startswith("s3://"):
-            self._to_s3(json_path, data)
+            self._to_s3(json_path, json_data)
         else:
-            self._to_local(json_path, data)
+            self._to_local(json_path, json_data)
 
         self.logger.info(f"Data saved in {json_path}")
 
@@ -96,3 +95,21 @@ class Store(Box):
     @staticmethod
     def _to_s3(url, serializable):
         S3(url=url).from_serializable(serializable)
+
+    @staticmethod
+    def _from_local(json_path: str) -> dict:
+        if os.path.exists(json_path):
+            with open(json_path, "r") as f:
+                data = json.load(f)
+        else:
+            data = {}
+        return data
+
+    @staticmethod
+    def _from_s3(url: str) -> dict:
+        s3 = S3(url=url)
+        if s3.exists():
+            data = s3.to_serializable()
+        else:
+            data = {}
+        return data

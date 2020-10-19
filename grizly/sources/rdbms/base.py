@@ -187,12 +187,12 @@ class RDBMSBase(BaseSource):
 
         col_tuples = []
 
-        for col, _type in zip(types, columns):
+        for col, _type in zip(columns, types):
             column = col + " " + _type
             col_tuples.append(column)
 
         columns_str = ", ".join(col_tuples)
-        sql = " {} ({}); commit;".format(full_table_name, columns_str)
+        sql += f" {full_table_name} ({columns_str}); commit;"
         self._run_query(sql)
         self.logger.info(f"Table {full_table_name} has been successfully created.")
 
