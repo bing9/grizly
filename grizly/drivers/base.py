@@ -61,6 +61,14 @@ class BaseDriver(ABC):
             store = self.validate_data(store)
         return store
 
+    def from_json(self, json_path: str, subquery: str = ""):
+        self.store = self._load_store(store=None, json_path=json_path, subquery=subquery,)
+        return self
+
+    def from_dict(self, data: dict):
+        self.store = self._load_store(store=data)
+        return self
+
     def __len__(self) -> int:
         return self.nrows
 

@@ -7,6 +7,7 @@ from .aurora import AuroraPostgreSQL
 from .denodo import Denodo
 from .redshift import Redshift
 from .sqlite import SQLite
+from .mariadb import MariaDB
 
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
@@ -33,6 +34,8 @@ def RDBMS(dsn: str, dialect: str = None, db: str = None, *args, **kwargs):
         return Denodo(dsn=dsn, *args, **kwargs)
     elif db == "sqlite":
         return SQLite(dsn=dsn, *args, **kwargs)
+    elif db == "mariadb":
+        return MariaDB(dsn=dsn, *args, **kwargs)
 
 
 @deprecation.deprecated(details="Use RDBMS class instead",)

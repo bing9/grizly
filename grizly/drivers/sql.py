@@ -86,6 +86,21 @@ class SQLDriver(BaseDriver):
 
         return Store(_dict)
 
+    def from_table(
+        self,
+        table: str,
+        schema: str = None,
+        columns: list = None,
+        json_path: str = None,
+        subquery: str = None,
+    ):
+        self.store = self._load_store_from_table(table=table, schema=schema, columns=columns)
+
+        if json_path:
+            self.store.to_json(json_path=json_path, subquery=subquery)
+
+        return self
+
     @property
     def nrows(self):
         query = f"SELECT COUNT(*) FROM ({self.get_sql()}) sq"
@@ -635,44 +650,6 @@ class SQLDriver(BaseDriver):
             json.dump(json_data, f, indent=4)
 
         self.logger.info(f"Data saved in {json_path}")
-
-    @deprecation.deprecated(details="Use QFrame(json_path=json_path, subquery=subquery) instead",)
-    def from_json(self, json_path: str, subquery: str = ""):
-        if json_path.startswith("s3://"):
-            data = S3(url=json_path).to_serializable()
-        else:
-            with open(json_path, "r") as f:
-                data = json.load(f)
-        if data:
-            if not subquery:
-                self.store = Store(self.validate_data(data))
-            else:
-                self.store = Store(self.validate_data(data[subquery]))
-        else:
-            self.store = Store(data)
-        return self
-
-    @deprecation.deprecated(details="Use QFrame(dsn=dsn, store=data) instead",)
-    def from_dict(self, data: dict):
-        self.store = Store(self.validate_data(data))
-
-        return self
-
-    @deprecation.deprecated(details="Use QFrame(dsn=dsn, table=table, schema=schema) instead",)
-    def from_table(
-        self,
-        table: str,
-        schema: str = None,
-        columns: list = None,
-        json_path: str = None,
-        subquery: str = None,
-    ):
-        self.store = self._load_store_from_table(table=table, schema=schema, columns=columns)
-
-        if json_path:
-            self.store.to_json(json_path=json_path, subquery=subquery)
-
-        return self
 
 
 def join(qframes=[], join_type=None, on=None, unique_col=True):
