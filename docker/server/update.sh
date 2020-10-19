@@ -7,4 +7,4 @@ cd server/dask_worker
 docker-compose build
 docker tag dask_worker:latest acoeteam/dask_worker
 cd ../
-docker-compose up --build --force-recreate --scale dask_worker=2 --scale rq-worker=5
+docker-compose up --build --force-recreate --scale dask_worker=1 --scale rq-worker=5
