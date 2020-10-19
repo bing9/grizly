@@ -871,7 +871,6 @@ class BaseDriver(ABC):
     def _check_types(self):
         expected_types_mapped = self.source.map_types(self.dtypes, to="python")
         expected_cols_and_types = dict(zip(self.columns, expected_types_mapped))
-        # self.logger.info(expected_types_mapped)
         # this only checks the first 100 rows
         retrieved_cols_and_types = {}
         sample = self.copy().limit(100)
@@ -885,7 +884,6 @@ class BaseDriver(ABC):
             if not unique_types:
                 unique_types = {type(None)}
             retrieved_cols_and_types[col] = list(unique_types)[0]
-        # self.logger.info(expected_cols_and_types)
 
         mismatched_with_none = dict_diff(
             expected_cols_and_types, retrieved_cols_and_types, by="values"
