@@ -1,6 +1,7 @@
 import re
 import pyarrow as pa
 import datetime
+import numpy as np
 
 
 def _map_type(mapping, dtype, default=None):
@@ -141,7 +142,7 @@ def sfdc_to_pyarrow(dtype: str):
         "int8": pa.int8(),
         "int": pa.int32(),
         "multipicklist": pa.string(),
-        "percent": pa.float16(),
+        "percent": pa.float32(),
         "phone": pa.string(),
         "picklist": pa.string(),
         "reference": pa.string(),
@@ -160,7 +161,7 @@ def sfdc_to_sqlalchemy(dtype):
         "base64": "VARCHAR",
         "boolean": "BOOLEAN",
         "combobox": "VARCHAR",
-        "currency": "FLOAT8",
+        "currency": "DOUBLE PRECISION",
         "datacategorygroupreference": "VARCHAR",
         "datetime": "DATETIME",
         "date": "DATE",
@@ -189,17 +190,17 @@ def sfdc_to_python(dtype):
         "base64": str,
         "boolean": bool,
         "combobox": str,
-        "currency": float,
+        "currency": np.float64,
         "datacategorygroupreference": str,
         "datetime": datetime.datetime,
         "date": datetime.date,
-        "double": float,
+        "double": np.float64,
         "email": str,
         "encryptedstring": str,
         "id": str,
         "int": int,
         "multipicklist": str,
-        "percent": float,
+        "percent": np.float32,
         "phone": str,
         "picklist": str,
         "reference": str,

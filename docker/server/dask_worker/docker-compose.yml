@@ -2,6 +2,9 @@ version: '3'
 services:
   dask_worker:
     image: dask_worker:latest
-    build: .
+    build:
+      context: .
+      args:
+        - MEMORY_LIMIT=2GB
     container_name: dask_worker
     restart: "always"

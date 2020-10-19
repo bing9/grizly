@@ -1,4 +1,4 @@
-from ..exceptions import JobNotFoundError, JobRunNotFoundError
+from ..exceptions import JobNotFoundError, JobRunNotFoundError, JobAlreadyRunningError
 from ..config import Config
 from rq_scheduler import Scheduler
 from rq import Queue
@@ -926,58 +926,60 @@ class Job(SchedulerObject):
 
         self.logger.info(f"{self} successfully removed from registry")
 
+    def _is_running(self):
+        if self.last_run and self.last_run.status == "running":
+            # and self.params == self.last_run.params -- TODO: add __eq__()
+            # and check in running jobs registry using __eq__() rather than comparing to last run
+            return True
+        return False
+
     @_check_if_exists()
     def submit(
-        self,
-        client: Client = None,
-        scheduler_address: str = None,
-        priority: int = None,
-        to_dask=True,
+        self, client: Client = None, scheduler_address: str = None, priority: int = 1, to_dask=True,
     ) -> Any:
 
-        if self.last_run and self.last_run.status == "running":
-            self.logger.warning(
-                f"Job {self.name} is already running. To stop the process please use ..."
-            )
-        else:
-            priority = priority or 1
-            if to_dask:
-                if client is None:
-                    self.scheduler_address = scheduler_address or os.getenv(
-                        "GRIZLY_DASK_SCHEDULER_ADDRESS"
-                    )
-                    client = Client(self.scheduler_address)
-                else:
-                    self.scheduler_address = client.scheduler.address
+        if self._is_running():
+            msg = f"Job {self.name} is already running. Please use Job.stop() or Job.restart()"
+            raise JobAlreadyRunningError(msg)
 
-            self.logger.info(f"Submitting {self}...")
-            job_run = JobRun(job_name=self.name, logger=self.logger, db=self.db)
-            job_run.status = "running"
+        if to_dask:
+            if client is None:
+                self.scheduler_address = scheduler_address or os.getenv(
+                    "GRIZLY_DASK_SCHEDULER_ADDRESS"
+                )
+                client = Client(self.scheduler_address)
+            else:
+                self.scheduler_address = client.scheduler.address
 
-            start = time()
-            try:
-                result = self.graph.compute()
-                status = "success"
-                self.logger.info(f"{self} finished with status {status}")
-                if self.downstream:
-                    self.__submit_downstream_jobs()
-                # self.__notify_listeners_on_change()
-            except Exception:
-                result = [None]
-                status = "fail"
-                _, exc_value, _ = sys.exc_info()
-                job_run.error = str(exc_value)
-                self.logger.info(f"{self} finished with status {status}")
-            finally:
-                end = time()
-                job_run.finished_at = datetime.now(timezone.utc)
-                job_run.duration = int(end - start)
-                job_run.status = status
-                job_run.result = result
+        self.logger.info(f"Submitting job {self.name}...")
+        job_run = JobRun(job_name=self.name, logger=self.logger, db=self.db)
+        job_run.status = "running"
 
-                if to_dask:
-                    client.close()
-                return result
+        start = time()
+        try:
+            result = self.graph.compute()
+            job_run.status = "success"
+            job_run.result = result
+            # self.__notify_listeners_on_change()
+        except Exception:
+            result = [None]
+            job_run.status = "fail"
+            job_run.result = result
+            _, exc_value, _ = sys.exc_info()
+            job_run.error = str(exc_value)
+        finally:
+            self.logger.info(f"Job {self} finished with status {job_run.status}")
+            end = time()
+            job_run.finished_at = datetime.now(timezone.utc)
+            job_run.duration = int(end - start)
+
+        if self.downstream and job_run.status == "success":
+            self.__submit_downstream_jobs()
+
+        if to_dask:
+            client.close()
+
+        return result
 
     @_check_if_exists()
     def visualize(self, **kwargs):

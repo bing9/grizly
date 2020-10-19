@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+from datetime import datetime, date
 from logging import Logger
 from typing import List, Union, Dict, Any
 
@@ -8,6 +8,17 @@ from ..sources.rdbms.sfdc import sfdb
 from ..types import SFDB
 from ..utils.type_mappers import sfdc_to_pyarrow
 from .sql import SQLDriver
+import numpy as np
+from pyarrow.types import (
+    is_floating,
+    is_timestamp,
+    is_date32,
+    is_string,
+    is_temporal,
+    is_float32,
+    is_float64,
+)
+import pyarrow as pa
 
 
 class SFDCDriver(SQLDriver):
@@ -16,15 +27,17 @@ class SFDCDriver(SQLDriver):
         source: SFDB = sfdb,
         table: str = None,
         columns: List[str] = None,
+        batch_size: int = 5000,
         logger: Logger = None,
     ):
         super().__init__(source=source, table=table, columns=columns, logger=logger)
+        self.batch_size = batch_size
 
     def to_records(self) -> List[tuple]:
         self._validate_fields()
         query = self.get_sql()
         table = getattr(self.source.con.bulk, self.table)
-        response = table.query(query)
+        response = table.query(query, batch_size=self.batch_size)
         # records_raw = response["records"]  # this is for non-bulk API
         records = self._sfdc_records_to_records(response)
         # records_casted = [
@@ -88,6 +101,41 @@ class SFDCDriver(SQLDriver):
             casted.append(tuple(record_casted))
         return casted
 
+    @staticmethod
+    def _cast_float(val: Any, dtype: pa.DataType) -> Union[np.float32, np.float64]:
+        if is_float32(dtype):
+            casted = np.float32(val)
+        elif is_float64(dtype):
+            casted = np.float64(val)
+        else:
+            raise NotImplementedError
+        return casted
+
+    @staticmethod
+    def _cast_temporal(val: Union[str, int], dtype: pa.DataType) -> Union[date, datetime]:
+        if is_date32(dtype):  # and type(val) == str:
+            casted = datetime.strptime(val, "%Y-%m-%d").date()
+        elif is_timestamp(dtype):
+            if type(val) == str:
+                casted = datetime.strptime(val, "%Y-%m-%dT%H:%M:%S.%f%z")
+            elif type(val) == int:
+                # check if it's UTC
+                assert len(str(val)) == 13, "Unrecognized timestamp format"
+                tz_str = str(val)[-3:]
+                utc_tz_str = "000"
+                if tz_str == utc_tz_str:
+                    casted = datetime.fromtimestamp(val / 1000)
+                else:
+                    # should convert to UTC, but hopefully we don't have to bother
+                    raise NotImplementedError("Casting non-UTC timestamps is not yet supported.")
+            else:
+                raise ValueError("A serialized date must be a string or integer")
+        else:
+            raise NotImplementedError(
+                "Currently, only casting to date32 and timestamp is supported"
+            )
+        return casted
+
     def _cast(self, val: Any, dtype: str) -> Any:
         """Fix columns with mixed/serialized dtypes"""
 
@@ -96,29 +144,14 @@ class SFDCDriver(SQLDriver):
 
         dtype_mapped = sfdc_to_pyarrow(dtype)
 
-        dtype_str = str(dtype_mapped)
-        if "string" in dtype_str:
+        if is_string(dtype_mapped):
             casted = str(val)
-        elif "float" in dtype_str or "double" in dtype_str:
-            # self.logger.info(f"{val}, {dtype_str}")
-            casted = float(val)
-        elif "date32" in dtype_str and type(val) == str:
-            casted = datetime.datetime.strptime(val, "%Y-%m-%d").date()
-        # TODO: put below logic in _cast_datetime()
-        elif "timestamp" in dtype_str and type(val) == str:
-            casted = datetime.datetime.strptime(val, "%Y-%m-%dT%H:%M:%S.%f%z")
-        elif "timestamp" in dtype_str and type(val) == int:
-            # check if it's UTC
-            assert len(str(val)) == 13, "Unrecognized timestamp format"
-            tz_str = str(val)[-3:]
-            utc_tz_str = "000"
-            if tz_str == utc_tz_str:
-                casted = datetime.datetime.fromtimestamp(val / 1000)
-            else:
-                # should convert to UTC, but hopefully we don't have to bother
-                raise NotImplementedError("Casting non-UTC timestamps is not yet supported.")
+        elif is_floating(dtype_mapped):
+            casted = self._cast_float(val, dtype_mapped)
+        elif is_temporal(dtype_mapped):
+            casted = self._cast_temporal(val, dtype_mapped)
         else:
-            return val
+            casted = val
         return casted
 
     def describe(self):
