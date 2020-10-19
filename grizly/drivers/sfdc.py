@@ -27,15 +27,17 @@ class SFDCDriver(SQLDriver):
         source: SFDB = sfdb,
         table: str = None,
         columns: List[str] = None,
+        batch_size: int = 5000,
         logger: Logger = None,
     ):
         super().__init__(source=source, table=table, columns=columns, logger=logger)
+        self.batch_size = batch_size
 
     def to_records(self) -> List[tuple]:
         self._validate_fields()
         query = self.get_sql()
         table = getattr(self.source.con.bulk, self.table)
-        response = table.query(query)
+        response = table.query(query, batch_size=self.batch_size)
         # records_raw = response["records"]  # this is for non-bulk API
         records = self._sfdc_records_to_records(response)
         # records_casted = [
