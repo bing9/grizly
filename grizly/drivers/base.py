@@ -816,7 +816,7 @@ class BaseDriver(ABC):
         store_fields = self.store["select"]["fields"]
         return [store_fields[field]["dtype"] for field in fields]
 
-    def to_dict(self) -> Dict[list]:
+    def to_dict(self) -> Dict[str, list]:
         """Write QFrame result to Python dictionary
 
         Returns
