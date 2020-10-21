@@ -69,14 +69,20 @@ class SFDCDriver(SQLDriver):
         return self
 
     def _cast_records(self, records: List[tuple]) -> List[tuple]:
-        dtypes = self.dtypes
+        dtypes = self.dtypes  # costly property, so we only execute it once here
+        # ------
+        # to avoid searching outer scope gazillion times
+        sf_to_pyarrow = sfdc_to_pyarrow
+        cast = self._cast
+        # ------
         casted = []
         for record in records:
             record_casted = []
             for i, val in enumerate(record):
                 col_dtype = dtypes[i]
+                pyarrow_dtype = sf_to_pyarrow(col_dtype)
                 try:
-                    val_casted = self._cast(val, dtype=col_dtype)
+                    val_casted = cast(val, dtype=pyarrow_dtype)
                 except (AssertionError, NotImplementedError):
                     msg = f"Column {self.columns[i]} seems to be in an unsupported format"
                     self.logger.exception(msg)
@@ -85,20 +91,18 @@ class SFDCDriver(SQLDriver):
             casted.append(tuple(record_casted))
         return casted
 
-    def _cast(self, val: Any, dtype: str) -> Any:
+    def _cast(self, val: Any, dtype: pa.DataType) -> Any:
         """Fix columns with mixed/serialized dtypes"""
 
         if not val:
             return None
 
-        dtype_mapped = sfdc_to_pyarrow(dtype)
-
-        if is_string(dtype_mapped):
+        if is_string(dtype):
             casted = str(val)
-        elif is_floating(dtype_mapped):
-            casted = self._cast_float(val, dtype_mapped)
-        elif is_temporal(dtype_mapped):
-            casted = self._cast_temporal(val, dtype_mapped)
+        elif is_floating(dtype):
+            casted = self._cast_float(val, dtype)
+        elif is_temporal(dtype):
+            casted = self._cast_temporal(val, dtype)
         else:
             casted = val
         return casted
