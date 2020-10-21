@@ -202,7 +202,7 @@ class SFDCExtract(BaseExtract):
         return [final_task]
 
     @dask.delayed
-    def get_urls(self) -> List[url]:
+    def get_urls(self) -> List[str]:
         return self.driver.source._get_urls_from_response(query=self.driver.get_sql())
 
     @staticmethod
