@@ -174,15 +174,20 @@ class SimpleExtract(BaseExtract):
 
 
 class SFDCExtract(BaseExtract):
+    def __init__(self, *args, scheduler_address=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
+
     def generate_tasks(self) -> List[Delayed]:
         self.logger.info("Generating tasks...")
 
         batch_no = 1
         s3_uploads = []
-        # self.get_urls() returns URLs in chunks
         urls = self.get_urls()
-        url_chunks = self.chunk(urls, chunksize=20).compute()
-        for url_chunk in url_chunks:
+        url_chunks = self.chunk(urls, chunksize=50)
+        client = self._get_client()
+        chunks = client.compute(url_chunks).result()
+        for url_chunk in chunks:
             file_name = f"{batch_no}.parquet"
             arrow_table = self.urls_to_arrow(url_chunk)
             to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
