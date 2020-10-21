@@ -181,7 +181,7 @@ class SFDCExtract(BaseExtract):
         s3_uploads = []
         # self.get_urls() returns URLs in chunks
         urls = self.get_urls()
-        url_chunks = self.chunk(urls, chunksize=2).compute()
+        url_chunks = self.chunk(urls, chunksize=20).compute()
         for url_chunk in url_chunks:
             file_name = f"{batch_no}.parquet"
             arrow_table = self.urls_to_arrow(url_chunk)
