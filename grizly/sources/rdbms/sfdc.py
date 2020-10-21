@@ -3,6 +3,7 @@ import os
 from logging import Logger
 from sqlite3.dbapi2 import NotSupportedError
 from typing import Any, Dict, Iterable, List
+import math
 
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
@@ -118,17 +119,12 @@ class SFDB(RDBMSBase):
 
     def _get_urls_from_response(self, query: str) -> List[str]:
         result = self.con.query(query, include_deleted=False)
+        total_size = result["totalSize"]
         second_url = result["nextRecordsUrl"]
-        chunksize = second_url.split("-")[1]
-        first_url = second_url.replace(chunksize, "0")
-        urls = [first_url]
-        while True:
-            if not result["done"]:
-                url = result["nextRecordsUrl"]
-                urls.append(url)
-                result = self.con.query_more(result["nextRecordsUrl"], identifier_is_url=True)
-            else:
-                break
+        chunksize = int(second_url.split("-")[1])
+        url_base = second_url.split("-")[0]
+        no_chunks = math.ceil(total_size / chunksize)
+        urls = [url_base + f"-{chunk * chunksize}" for chunk in range(no_chunks)]
         return urls
 
     def _fetch_records_url(self, url: str) -> List[tuple]:
