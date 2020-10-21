@@ -69,11 +69,12 @@ class SFDCDriver(SQLDriver):
         return self
 
     def _cast_records(self, records: List[tuple]) -> List[tuple]:
+        dtypes = self.dtypes
         casted = []
         for record in records:
             record_casted = []
             for i, val in enumerate(record):
-                col_dtype = self.dtypes[i]
+                col_dtype = dtypes[i]
                 try:
                     val_casted = self._cast(val, dtype=col_dtype)
                 except (AssertionError, NotImplementedError):
