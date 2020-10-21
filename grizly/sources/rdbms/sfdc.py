@@ -2,13 +2,16 @@ import logging
 import os
 from logging import Logger
 from sqlite3.dbapi2 import NotSupportedError
+from typing import Any, Dict, Iterable, List
+
+from simple_salesforce import Salesforce
+from simple_salesforce.login import SalesforceAuthenticationFailed
 
 from ...config import Config
 from ...config import config as default_config
+from ...utils.functions import chunker
+from ...utils.type_mappers import sfdc_to_pyarrow, sfdc_to_python, sfdc_to_sqlalchemy
 from .base import BaseTable, RDBMSBase
-from ...utils.type_mappers import sfdc_to_pyarrow, sfdc_to_sqlalchemy, sfdc_to_python
-from simple_salesforce import Salesforce
-from simple_salesforce.login import SalesforceAuthenticationFailed
 
 
 class SFDCTable(BaseTable):
@@ -87,7 +90,7 @@ class SFDB(RDBMSBase):
                 config = default_config
             self._load_attrs_from_config(config)
 
-    def _load_attrs_from_config(self, config):
+    def _load_attrs_from_config(self, config: Config):
         sfdc_config = config.get_service("sfdc")
         self.username = sfdc_config.get("username")
         self.password = sfdc_config.get("password")
@@ -96,6 +99,57 @@ class SFDB(RDBMSBase):
             "http": os.getenv("HTTP_PROXY"),
             "https": os.getenv("HTTPS_PROXY"),
         }
+
+    def _fetch_records(self, query: str, table: str) -> List[tuple]:
+        table = getattr(self.con.bulk, table)
+        response = table.query(query)
+        records = self._sfdc_records_to_records(response)
+        return records
+
+    def _fetch_records_iter(self, query: str, chunksize: int = 20) -> Iterable:
+        urls = self._get_urls_from_response(query=query)
+        url_chunks = chunker(urls, size=chunksize)
+        for url_chunk in url_chunks:
+            records_chunk = []
+            for url in url_chunk:
+                records = self._fetch_records_url(url)
+                records_chunk.extend(records)
+            yield records_chunk
+
+    def _get_urls_from_response(self, query: str) -> List[str]:
+        result = self.con.query(query, include_deleted=False)
+        second_url = result["nextRecordsUrl"]
+        chunksize = second_url.split("-")[1]
+        first_url = second_url.replace(chunksize, "0")
+        urls = [first_url]
+        while True:
+            if not result["done"]:
+                url = result["nextRecordsUrl"]
+                urls.append(url)
+                result = self.con.query_more(result["nextRecordsUrl"], identifier_is_url=True)
+            else:
+                break
+        return urls
+
+    def _fetch_records_url(self, url: str) -> List[tuple]:
+        self.logger.debug(f"Fetching records from {url}...")
+        response = self.con.query_more(url, identifier_is_url=True)
+        records = self._sfdc_records_to_records(response)
+        self.logger.debug(f"Fetched {len(records)} from {url}.")
+        return records
+
+    @staticmethod
+    def _sfdc_records_to_records(sfdc_records: List[Dict[str, Any]]) -> List[tuple]:
+        """Convert weird SFDC response to records"""
+
+        if "records" in sfdc_records:  # non-bulk API responses
+            sfdc_records = sfdc_records["records"]
+
+        records = []
+        for i in range(len(sfdc_records)):
+            sfdc_records[i].pop("attributes")
+            records.append(tuple(sfdc_records[i].values()))
+        return records
 
     @property
     def con(self):
