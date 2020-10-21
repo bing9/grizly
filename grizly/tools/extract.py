@@ -12,6 +12,7 @@ import s3fs
 from dask.delayed import Delayed
 from distributed import Client
 from pyarrow import Table
+import datetime
 
 from ..config import config
 from ..drivers.old_qframe import QFrame
@@ -79,8 +80,6 @@ class BaseExtract:
 
     @dask.delayed
     def arrow_to_s3(self, arrow_table: Table, file_name: str = None):
-        self.logger.warning("Running arrow_to_s3")
-
         def _arrow_to_s3(arrow_table):
             def give_name(_):
                 return file_name
@@ -189,7 +188,7 @@ class SFDCExtract(BaseExtract):
         chunks = client.compute(url_chunks).result()
         for url_chunk in chunks:
             file_name = f"{batch_no}.parquet"
-            arrow_table = self.urls_to_arrow(url_chunk)
+            arrow_table = self.urls_to_arrow(url_chunk, batch_no=batch_no)
             to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
             s3_uploads.append(to_s3)
             batch_no += 1
@@ -216,19 +215,34 @@ class SFDCExtract(BaseExtract):
         return chunker(iterable, size=chunksize)
 
     @dask.delayed
-    def urls_to_arrow(self, urls: List[str]) -> pa.Table:
+    def urls_to_arrow(self, urls: List[str], batch_no: int) -> pa.Table:
+        self.logger.info(f"Converting batch no. {batch_no} into a pyarrow table...")
+        start = datetime.datetime.now()
         records = []
         for url in urls:
             records_chunk: List[tuple] = self.driver.source._fetch_records_url(url)
             redords_chunk_processed: List[tuple] = self.driver._cast_records(records_chunk)
             records.extend(redords_chunk_processed)
+
         cols = self.driver.columns
+
         _dict = {col: [] for col in cols}
         for record in records:
             for i, col_val in enumerate(record):
                 col_name = cols[i]
                 _dict[col_name].append(col_val)
+
+        duration = datetime.datetime.now() - start
+        self.logger.info(
+            f"It took {duration.seconds} second(s) to create a dict for batch no. {batch_no}"
+        )
+
         arrow_table = self.driver._dict_to_arrow(_dict)
+
+        duration = datetime.datetime.now() - start
+        self.logger.info(
+            f"Pyarrow table for batch no. {batch_no} has been successfully generated in {duration.seconds} second(s)."
+        )
         gc.collect()
         return arrow_table
 
