@@ -187,7 +187,9 @@ class SFDCExtract(BaseExtract):
         client = self._get_client()
         chunks = client.compute(url_chunks).result()
         for url_chunk in chunks:
-            file_name = f"{batch_no}.parquet"
+            first_url_pos = url_chunk[0].split("-")[1]
+            last_url_pos = url_chunk[0].split("-")[1]
+            file_name = f"{first_url_pos}-{last_url_pos}.parquet"
             arrow_table = self.urls_to_arrow(url_chunk, batch_no=batch_no)
             to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
             s3_uploads.append(to_s3)
