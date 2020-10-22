@@ -957,7 +957,7 @@ class BaseDriver(ABC):
         copy_df_to_excel(
             df=df,
             input_excel_path=input_excel_path,
-            outout_excel_path=output_excel_path,
+            output_excel_path=output_excel_path,
             index=index,
             header=header,
             **pd_kwargs,
