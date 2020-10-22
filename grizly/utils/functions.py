@@ -1,10 +1,11 @@
-from functools import partial, wraps
 import json
 import logging
 import os
+from functools import partial, wraps
+from itertools import chain, islice
 from sys import platform
 from time import sleep
-from typing import TypeVar
+from typing import Iterable, List, TypeVar
 
 import deprecation
 import openpyxl
@@ -310,3 +311,16 @@ def copy_df_to_excel(
     else:
         df.to_excel(output_excel_path, index=index, header=header, **kwargs)
 
+
+def make_batches(iterable, size):
+    source = iter(iterable)
+    while True:
+        chunk = [val for _, val in zip(range(size), source) if val is not None]
+        if not chunk:
+            return
+        yield chunk
+
+
+def chunker(seq: Iterable, size: int) -> List[Iterable]:
+    """Iterate through a sequence in chunks"""
+    return [seq[pos : pos + size] for pos in range(0, len(seq), size)]

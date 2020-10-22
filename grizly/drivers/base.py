@@ -6,7 +6,7 @@ from functools import partial
 import logging
 import os
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar, Union
 
 import deprecation
 from pandas import DataFrame
@@ -842,6 +842,20 @@ class BaseDriver(ABC):
             _dict[column] = column_values
         return _dict
 
+    def to_dicts(self, batch_size=20000) -> Iterator[Dict[str, Any]]:
+        # assuming to_records() returns a generator
+        columns = self.get_fields(aliased=True)
+        chunks = self.to_records_iter(batch_size=batch_size)
+        for chunk in chunks:
+            _dict = {}
+            for i, column in enumerate(columns):
+                column_values = [
+                    float(line[i]) if type(line[i]) == decimal.Decimal else line[i]
+                    for line in chunk
+                ]
+                _dict[column] = column_values
+            yield _dict
+
     def to_df(self, chunksize: int = None, verbose=False) -> DataFrame:
         """Write QFrame result to pandas.DataFrame
 
@@ -857,7 +871,46 @@ class BaseDriver(ABC):
 
         return df
 
+    def _dict_to_arrow(self, _dict):
+        self.logger.debug("Generating PyArrow table...")
+
+        self._fix_types()
+
+        columns = self.get_fields(aliased=True)
+        types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
+        schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
+
+        self.logger.debug(f"Retrieved schema: {schema}")
+
+        table = pa.Table.from_pydict(_dict, schema=schema)
+
+        self.logger.debug("PyArrow table has been generated successfully")
+
+        return table
+
     def to_arrow(self) -> pa.Table:
+        """Write QFrame result to pyarrow.Table
+
+        Returns
+        -------
+        pa.Table
+            QFrame result
+        """
+
+        self.logger.debug("Generating PyArrow table...")
+        self._fix_types()
+        columns = self.get_fields(aliased=True)
+        types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
+        schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
+        self.logger.debug(f"Retrieved schema: {schema}")
+
+        _dict = self.to_dict()
+        table = pa.Table.from_pydict(_dict, schema=schema)
+        self.logger.debug("PyArrow table has been generated successfully")
+
+        return table
+
+    def to_arrow_iter(self, batch_size=20000) -> Iterator[pa.Table]:
         """Write QFrame result to pyarrow.Table
 
         Returns
@@ -872,11 +925,10 @@ class BaseDriver(ABC):
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
         self.logger.debug(f"Retrieved schema: {schema}")
 
-        _dict = self.to_dict()
-        table = pa.Table.from_pydict(_dict, schema=schema)
-        self.logger.debug("PyArrow table has been generated successfully")
-
-        return table
+        dicts = self.to_dicts(batch_size=batch_size)
+        for _dict in dicts:
+            table = pa.Table.from_pydict(_dict, schema=schema)
+            yield table
 
     def to_crosstab(self, dimensions: list, measures: list, **ct_kwargs) -> Crosstab:
         """Write QFrame records to grizly.Crosstab

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, date
 from logging import Logger
-from typing import List, Union, Dict, Any
+from typing import List, Union, Any
 
 from ..sources.rdbms.sfdc import sfdb
 from ..types import SFDB
@@ -27,7 +27,7 @@ class SFDCDriver(SQLDriver):
         source: SFDB = sfdb,
         table: str = None,
         columns: List[str] = None,
-        batch_size: int = 5000,
+        batch_size: int = 20000,
         logger: Logger = None,
     ):
         super().__init__(source=source, table=table, columns=columns, logger=logger)
@@ -35,15 +35,7 @@ class SFDCDriver(SQLDriver):
 
     def to_records(self) -> List[tuple]:
         self._validate_fields()
-        query = self.get_sql()
-        table = getattr(self.source.con.bulk, self.table)
-        response = table.query(query, batch_size=self.batch_size)
-        # records_raw = response["records"]  # this is for non-bulk API
-        records = self._sfdc_records_to_records(response)
-        # records_casted = [
-        #     tuple(self._cast(val, dtype=self.dtypes[i]) for i, val in enumerate(record))
-        #     for record in records
-        # ]
+        records = self.source._fetch_records(self.get_sql(), self.table)
         records_casted = self._cast_records(records)
         return records_casted
 
@@ -76,29 +68,43 @@ class SFDCDriver(SQLDriver):
             self.remove(field)
         return self
 
-    @staticmethod
-    def _sfdc_records_to_records(sfdc_records: List[Dict[str, Any]]) -> List[tuple]:
-        """Convert weird SFDC response to records"""
-        records = []
-        for i in range(len(sfdc_records)):
-            sfdc_records[i].pop("attributes")
-            records.append(tuple(sfdc_records[i].values()))
-        return records
-
     def _cast_records(self, records: List[tuple]) -> List[tuple]:
+        dtypes = self.dtypes  # costly property, so we only execute it once here
+        # ------
+        # to avoid searching outer scope gazillion times
+        sf_to_pyarrow = sfdc_to_pyarrow
+        cast = self._cast
+        # ------
         casted = []
         for record in records:
             record_casted = []
             for i, val in enumerate(record):
-                col_dtype = self.dtypes[i]
+                col_dtype = dtypes[i]
+                pyarrow_dtype = sf_to_pyarrow(col_dtype)
                 try:
-                    val_casted = self._cast(val, dtype=col_dtype)
+                    val_casted = cast(val, dtype=pyarrow_dtype)
                 except (AssertionError, NotImplementedError):
                     msg = f"Column {self.columns[i]} seems to be in an unsupported format"
                     self.logger.exception(msg)
                     raise
                 record_casted.append(val_casted)
             casted.append(tuple(record_casted))
+        return casted
+
+    def _cast(self, val: Any, dtype: pa.DataType) -> Any:
+        """Fix columns with mixed/serialized dtypes"""
+
+        if not val:
+            return None
+
+        if is_string(dtype):
+            casted = str(val)
+        elif is_floating(dtype):
+            casted = self._cast_float(val, dtype)
+        elif is_temporal(dtype):
+            casted = self._cast_temporal(val, dtype)
+        else:
+            casted = val
         return casted
 
     @staticmethod
@@ -134,24 +140,6 @@ class SFDCDriver(SQLDriver):
             raise NotImplementedError(
                 "Currently, only casting to date32 and timestamp is supported"
             )
-        return casted
-
-    def _cast(self, val: Any, dtype: str) -> Any:
-        """Fix columns with mixed/serialized dtypes"""
-
-        if not val:
-            return None
-
-        dtype_mapped = sfdc_to_pyarrow(dtype)
-
-        if is_string(dtype_mapped):
-            casted = str(val)
-        elif is_floating(dtype_mapped):
-            casted = self._cast_float(val, dtype_mapped)
-        elif is_temporal(dtype_mapped):
-            casted = self._cast_temporal(val, dtype_mapped)
-        else:
-            casted = val
         return casted
 
     def describe(self):

@@ -4,26 +4,32 @@ import datetime
 import numpy as np
 
 
-def _map_type(mapping, dtype, default=None):
+def _map_type(mapping, dtype, default=None, method="advanced"):
     if not default:
         default = dtype
-    if isinstance(dtype, str):
-        # fuzzy search
-        variable_field = re.compile("^([a-zA-Z])*(\(\d+\))")
-        match = variable_field.search(dtype)
-        field_is_var_length = bool(match)
-        if field_is_var_length:
-            length = match.group(2).strip("(").strip(")")
-            for unmapped in mapping:
-                if re.search(unmapped, dtype):
-                    if isinstance(mapping[unmapped], str):
-                        return mapping[unmapped] + f"({length})"
-                    else:
-                        return mapping[unmapped]
-        for source_dtype in mapping:
-            if re.search(source_dtype, dtype):
-                return mapping[source_dtype]
-    return mapping.get(dtype, default)  # exact search
+    if method == "simple":
+        return mapping.get(dtype, default)
+    elif method == "intermediate":
+        dtype_no_length = dtype.split("(")[0]
+        return mapping.get(dtype_no_length, default)
+    else:
+        if isinstance(dtype, str):
+            # fuzzy search
+            variable_field = re.compile("^([a-zA-Z])*(\(\d+\))")
+            match = variable_field.search(dtype)
+            field_is_var_length = bool(match)
+            if field_is_var_length:
+                length = match.group(2).strip("(").strip(")")
+                for unmapped in mapping:
+                    if re.search(unmapped, dtype):
+                        if isinstance(mapping[unmapped], str):
+                            return mapping[unmapped] + f"({length})"
+                        else:
+                            return mapping[unmapped]
+            for source_dtype in mapping:
+                if re.search(source_dtype, dtype):
+                    return mapping[source_dtype]
+        return mapping.get(dtype, default)  # exact search
 
 
 def mysql_to_postgresql(dtype):
@@ -151,7 +157,7 @@ def sfdc_to_pyarrow(dtype: str):
         "time": pa.time64("us"),
         "url": pa.string(),
     }
-    return _map_type(mapping, dtype, default=pa.string())
+    return _map_type(mapping, dtype, default=pa.string(), method="intermediate")
 
 
 def sfdc_to_sqlalchemy(dtype):
