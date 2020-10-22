@@ -322,5 +322,5 @@ def make_batches(iterable, size):
 
 
 def chunker(seq: Iterable, size: int) -> List[Iterable]:
-    """Iterate through a sequence in chunks"""
+    """Take a list and return a list with elements grouped in chunks of 'size'"""
     return [seq[pos : pos + size] for pos in range(0, len(seq), size)]
