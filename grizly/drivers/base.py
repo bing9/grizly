@@ -1,16 +1,18 @@
-from abc import ABC, abstractmethod
-from copy import deepcopy
 import csv
 import decimal
-from functools import partial
+import gc
 import logging
 import os
-import re
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar, Union
+from abc import ABC, abstractmethod
+from copy import deepcopy
+from functools import partial
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 import deprecation
-from pandas import DataFrame
 import pyarrow as pa
+import pyarrow.parquet as pq
+import s3fs
+from pandas import DataFrame
 
 from ..store import Store
 from ..tools.crosstab import Crosstab
@@ -714,9 +716,9 @@ class BaseDriver(ABC):
         list
             List of QFrames
         """
-        no_rows = self.__len__()
+        nrows = self.__len__()
         qfs = []
-        for chunk in range(0, no_rows, chunksize):
+        for chunk in range(0, nrows, chunksize):
             qf = self.copy()
             qf = qf.window(
                 offset=chunk, limit=chunksize, deterministic=deterministic, order_by=order_by
@@ -842,10 +844,10 @@ class BaseDriver(ABC):
             _dict[column] = column_values
         return _dict
 
-    def to_dicts(self, batch_size=20000) -> Iterator[Dict[str, Any]]:
-        # assuming to_records() returns a generator
+    def to_dicts(self, chunksize=20000) -> Iterator[Dict[str, Any]]:
+        # requires subclass to implement to_records_iter()
         columns = self.get_fields(aliased=True)
-        chunks = self.to_records_iter(batch_size=batch_size)
+        chunks = self.to_records_iter(chunksize=chunksize)
         for chunk in chunks:
             _dict = {}
             for i, column in enumerate(columns):
@@ -908,9 +910,11 @@ class BaseDriver(ABC):
         table = pa.Table.from_pydict(_dict, schema=schema)
         self.logger.debug("PyArrow table has been generated successfully")
 
+        gc.collect()
+
         return table
 
-    def to_arrow_iter(self, batch_size=20000) -> Iterator[pa.Table]:
+    def to_arrow_iter(self, chunksize=20000) -> Iterator[pa.Table]:
         """Write QFrame result to pyarrow.Table
 
         Returns
@@ -925,10 +929,34 @@ class BaseDriver(ABC):
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
         self.logger.debug(f"Retrieved schema: {schema}")
 
-        dicts = self.to_dicts(batch_size=batch_size)
+        dicts = self.to_dicts(chunksize=chunksize)
         for _dict in dicts:
             table = pa.Table.from_pydict(_dict, schema=schema)
             yield table
+
+    def to_parquet(self, path: str) -> bool:
+
+        arrow_table = self.to_arrow()
+        root_path = os.path.dirname(path)
+        file_name = os.path.basename(path)
+
+        self.logger.info(f"Writing {file_name} to {root_path}...")
+
+        if path.startswith("s3://"):
+            filesystem = s3fs.S3FileSystem()
+        else:
+            filesystem = None
+
+        pq.write_to_dataset(
+            arrow_table,
+            root_path=root_path,
+            filesystem=filesystem,
+            partition_filename_cb=lambda x: file_name,
+        )
+
+        self.logger.info(f"Successfully wrote {file_name} to {root_path}")
+
+        return True
 
     def to_crosstab(self, dimensions: list, measures: list, **ct_kwargs) -> Crosstab:
         """Write QFrame records to grizly.Crosstab
