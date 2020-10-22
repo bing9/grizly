@@ -147,4 +147,3 @@ class Redshift(RDBMSBase):
             col_types = [typ for _, _, typ in records]
 
         return (col_names, col_types) if column_types else col_names
-

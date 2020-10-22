@@ -1,5 +1,5 @@
 from .base import RDBMSBase
-from typing import List, Tuple, Any
+from typing import List, Any
 
 
 class Denodo(RDBMSBase):
