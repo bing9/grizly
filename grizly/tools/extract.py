@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from abc import abstractmethod
-from typing import Any, Iterable, List, Union
+from typing import Any, List, Union
 
 import dask
 import pyarrow as pa
@@ -15,7 +15,7 @@ from pyarrow import Table
 import datetime
 
 from ..config import config
-from ..drivers.old_qframe import QFrame
+from ..drivers.frames_factory import QFrame
 from ..scheduling.orchestrate import Workflow
 from ..scheduling.registry import Job
 from ..sources.filesystem.old_s3 import S3
@@ -100,6 +100,10 @@ class BaseExtract:
         _arrow_to_s3(arrow_table)
 
     @dask.delayed
+    def to_s3(self, path):
+        self.driver.to_parquet(path)
+
+    @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
         s3_staging_key = os.path.join(self.s3_root_url, "data", "staging")
         # recreate the table even if if_exists is "append", because we append parquet files
@@ -156,10 +160,9 @@ class BaseExtract:
 class SimpleExtract(BaseExtract):
     def generate_tasks(self):
         file_name = self.name_snake_case + ".parquet"
-
-        arrow_table = self.to_arrow()
-        arrow_to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
-        external_table = self.create_external_table(upstream=arrow_to_s3)
+        path = os.path.join(self.s3_root_url, file_name)
+        s3 = self.driver.to_s3(path)
+        external_table = self.create_external_table(upstream=s3)
         base_table = self.create_table(upstream=external_table)
 
         if self.output_table_type == "base":
@@ -180,12 +183,13 @@ class SFDCExtract(BaseExtract):
     def generate_tasks(self) -> List[Delayed]:
         self.logger.info("Generating tasks...")
 
-        batch_no = 1
-        s3_uploads = []
         urls = self.get_urls()
         url_chunks = self.chunk(urls, chunksize=50)
         client = self._get_client()
         chunks = client.compute(url_chunks).result()
+
+        batch_no = 1
+        s3_uploads = []
         for url_chunk in chunks:
             first_url_pos = url_chunk[0].split("-")[1]
             last_url_pos = url_chunk[-1].split("-")[1]
@@ -208,12 +212,12 @@ class SFDCExtract(BaseExtract):
         return [final_task]
 
     @dask.delayed
-    def get_urls(self) -> List[str]:
+    def get_urls(self):
         return self.driver.source._get_urls_from_response(query=self.driver.get_sql())
 
     @staticmethod
     @dask.delayed
-    def chunk(iterable: Iterable, chunksize: int):
+    def chunk(iterable, chunksize):
         return chunker(iterable, size=chunksize)
 
     @dask.delayed
@@ -233,11 +237,6 @@ class SFDCExtract(BaseExtract):
             for i, col_val in enumerate(record):
                 col_name = cols[i]
                 _dict[col_name].append(col_val)
-
-        duration = datetime.datetime.now() - start
-        self.logger.info(
-            f"It took {duration.seconds} second(s) to create a dict for batch no. {batch_no}"
-        )
 
         arrow_table = self.driver._dict_to_arrow(_dict)
 
@@ -485,7 +484,7 @@ class Extract:
             self.logger.info("Skipping...")
             return
 
-        # crea te the workflow
+        # create te the workflow
         uploads = []
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
