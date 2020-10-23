@@ -218,7 +218,8 @@ def sfdc_to_python(dtype):
     return _map_type(mapping, dtype, default=str)
 
 
-def sql_to_python(dtype):
+def postgresql_to_python(dtype):
+    # TODO: fix below mapper
     mapping = {
         "BOOL": bool,
         "BOOLEAN": bool,
@@ -234,6 +235,45 @@ def sql_to_python(dtype):
         "FLOAT4": float,
         "FLOAT8": float,
         "DOUBLE PRECISION": float,
+        "REAL": float,
+        "NULL": None,
+        "DATE": datetime.date,
+        "VARCHAR": str,
+        "NVARCHAR": str,
+        "CHARACTER VARYING": str,
+        "TEXT": str,
+        "CHAR": str,
+        "CHARACTER": str,
+        "TIMESTAMP": datetime.datetime,
+        "TIMESTAMP WITHOUT TIME ZONE": datetime.datetime,
+        "TIMESTAMPTZ": datetime.datetime,
+        "TIMESTAMP WITH TIME ZONE": datetime.datetime,
+        "GEOMETRY": None,
+    }
+    return _map_type(mapping, dtype, default=str)
+
+
+def sql_to_python(dtype):
+    return postgresql_to_python(dtype=dtype)
+
+
+def mysql_to_python(dtype):
+    # TODO: fix below mapper
+    mapping = {
+        "BOOL": bool,
+        "BOOLEAN": bool,
+        "INT": int,
+        "INTEGER": int,
+        "SMALLINT": int,
+        "BIGINT": int,
+        "INT2": int,
+        "INT4": int,
+        "INT8": int,
+        "NUMERIC": float,
+        "DECIMAL": float,
+        "FLOAT4": float,
+        "FLOAT8": float,
+        "DOUBLE": float,
         "REAL": float,
         "NULL": None,
         "DATE": datetime.date,

@@ -25,7 +25,7 @@ def test_create_external_table():
     schema = "acoe_spectrum"
 
     rdbms = rdbms.create_table(
-        type="external_table",
+        type="external",
         table=table,
         columns=["col1", "col2"],
         types=["varchar(100)", "int"],
@@ -38,7 +38,7 @@ def test_create_external_table():
 
     with pytest.raises(ValueError):
         rdbms = rdbms.create_table(
-            type="external_table",
+            type="external",
             table=table,
             columns=["col1", "col2"],
             types=["varchar(100)", "int"],
@@ -48,8 +48,6 @@ def test_create_external_table():
             if_exists="fail",
         )
 
-    con = rdbms.get_connection(autocommit=True)
-    con.execute(f"DROP TABLE {schema}.{table}")
-    con.close()
+    rdbms._run_query(sql=f"DROP TABLE {schema}.{table}", autocommit=True)
 
-    assert not rdbms.check_if_exists(table=table, schema=schema, external=True)
+    assert not rdbms.check_if_exists(table=table, schema=schema)

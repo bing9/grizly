@@ -7,8 +7,9 @@ class MariaDB(RDBMSBase):
     _quote = "`"
     dialect = "mysql"
 
-    def map_types(self, dtypes: List[str], to_dialect: str = None):
-        if to_dialect == "postgresql":
+    @staticmethod
+    def map_types(dtypes: List[str], to: str = None):
+        if to == "postgresql":
             return [mysql_to_postgresql(dtype) for dtype in dtypes]
         else:
             raise NotImplementedError

@@ -82,14 +82,13 @@ class SFDB(RDBMSBase):
 
     def __init__(
         self,
-        config: Config = None,
         username: str = "",
         password: str = "",
         organization_id: str = "",
         proxies: dict = None,
-        logger: Logger = None,
+        **kwargs,
     ):
-        self.logger = logger or logging.getLogger(__name__)
+        super().__init__(**kwargs)
         self._con = None
         if username and password and organization_id and proxies:
             self.username = username
@@ -97,16 +96,15 @@ class SFDB(RDBMSBase):
             self.organization_id = organization_id
             self.proxies = proxies
         else:
-            if not config:
-                config = default_config
+            config = default_config
             self._load_attrs_from_config(config)
 
     def _load_attrs_from_config(self, config: Config):
-        sfdc_config = config.get_service("sfdc")
+        sfdc_config = config.get_service("sources").get(self.dsn)
         self.username = sfdc_config.get("username")
         self.password = sfdc_config.get("password")
         self.organization_id = sfdc_config.get("organizationId")
-        self.proxies = sfdc_config.get("proxies") or {
+        self.proxies = config.get_service("proxies") or {
             "http": os.getenv("HTTP_PROXY"),
             "https": os.getenv("HTTPS_PROXY"),
         }
@@ -265,5 +263,3 @@ class SFDB(RDBMSBase):
     def write_to(self, **kwargs):
         raise NotSupportedError
 
-
-sfdb = SFDB()

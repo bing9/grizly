@@ -29,6 +29,10 @@ based on what types are actually retrieved from the top 100 rows.
 - read_config
 - initiate
 
+### Removed classes
+
+- Store
+
 ## [0.3.8](https://github.com/kfk/grizly/compare/v0.3.7...v0.3.8) - 17-09-2020
 
 ### Job

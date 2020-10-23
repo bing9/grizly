@@ -1,3 +1,6 @@
+from typing import List
+
+from ...utils.type_mappers import mysql_to_postgresql, mysql_to_python
 from .base import RDBMSBase
 
 
@@ -39,3 +42,12 @@ class SQLite(RDBMSBase):
             return col_names, col_types
         else:
             return col_names
+
+    @staticmethod
+    def map_types(dtypes: List[str], to: str = None):
+        if to == "postgresql":
+            return [mysql_to_postgresql(dtype) for dtype in dtypes]
+        if to == "python":
+            return [mysql_to_python(dtype) for dtype in dtypes]
+        else:
+            raise NotImplementedError

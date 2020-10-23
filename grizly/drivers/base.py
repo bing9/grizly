@@ -17,9 +17,11 @@ from pandas import DataFrame
 from ..store import Store
 from ..tools.crosstab import Crosstab
 from ..utils.functions import copy_df_to_excel, dict_diff
+from ..utils.deprecation import deprecated_params
 from ..utils.type_mappers import python_to_sql, rds_to_pyarrow, sql_to_python
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
+deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="0.4.5")
 
 
 class BaseDriver(ABC):
@@ -27,25 +29,17 @@ class BaseDriver(ABC):
     _allowed_group_by = _allowed_agg + ["GROUP"]
     _allowed_order_by = ["ASC", "DESC", ""]
 
+    @deprecated_params(params_mapping={"data": "store"})
     def __init__(
         self,
         store: Optional[Store] = None,
         json_path: str = None,
         subquery: str = None,
         logger: logging.Logger = None,
-        *args,
         **kwargs,
     ):
         self.logger = logger or logging.getLogger(__name__)
         self.getfields = kwargs.get("getfields")
-
-        data = kwargs.get("data")
-        if data:
-            store = data
-            self.logger.warning(
-                "Parameter data in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                " Please use store parameter instead.",
-            )
 
         self.store = self._load_store(store=store, json_path=json_path, subquery=subquery,)
 
@@ -934,10 +928,12 @@ class BaseDriver(ABC):
             table = pa.Table.from_pydict(_dict, schema=schema)
             yield table
 
-    def to_parquet(self, path: str) -> bool:
+    @deprecated_params(params_mapping={"parquet_path": "path"})
+    def to_parquet(self, path: str, **kwargs) -> bool:
+        # NOTE: self.source has to have map_types(to="python") method defined
 
         arrow_table = self.to_arrow()
-        root_path = os.path.dirname(path)
+        root_path = os.path.dirname(path) or os.getcwd()
         file_name = os.path.basename(path)
 
         self.logger.info(f"Writing {file_name} to {root_path}...")

@@ -3,7 +3,8 @@ import json
 import logging
 import os
 from abc import abstractmethod
-from typing import Any, List, Union
+from os import stat
+from typing import Any, List, Union, Optional
 
 import dask
 import pyarrow as pa
@@ -16,8 +17,7 @@ import datetime
 
 from ..config import config
 from ..drivers.frames_factory import QFrame
-from ..scheduling.orchestrate import Workflow
-from ..scheduling.registry import Job
+from ..scheduling.registry import Job, SchedulerDB
 from ..sources.filesystem.old_s3 import S3
 from ..types import BaseDriver
 from ..utils.functions import chunker
@@ -37,7 +37,7 @@ class BaseExtract:
         if_exists: str = "append",
         output_table_type: str = "external",
     ):
-        self.bucket = config.get_service("sources")["s3"]["bucket"]
+        self.bucket = config.get_service("s3")["bucket"]
         self.name = name
         self.name_snake_case = self._to_snake_case(name)
         self.driver = driver
@@ -130,7 +130,13 @@ class BaseExtract:
     def generate_tasks(self):
         pass
 
-    def register(self, db=None, **kwargs):
+    def register(
+        self,
+        db: Optional[SchedulerDB] = None,
+        redis_host: Optional[str] = None,
+        redis_port: Optional[int] = None,
+        **kwargs,
+    ):
         """Submit the partitions and/or extract job
 
         Parameters
@@ -142,6 +148,7 @@ class BaseExtract:
         db_dev = SchedulerDB(dev_scheduler_addr)
         Extract().register(db=db_dev, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
         """
+        db = db or SchedulerDB(logger=self.logger, redis_host=redis_host, redis_port=redis_port)
         self.extract_job = Job(self.name, logger=self.logger, db=db)
         self.extract_job.register(tasks=self.generate_tasks(), **kwargs)
 
@@ -248,30 +255,20 @@ class SFDCExtract(BaseExtract):
         return arrow_table
 
 
-class Extract:
+class Extract(BaseExtract):
     def __init__(
         self,
-        name: str,
-        driver: BaseDriver,
+        *args,
         store_backend: str = "local",
         store_path: str = None,
-        s3_bucket: str = None,
-        s3_key: str = None,
         store: dict = None,
         scheduler_address: str = None,
-        if_exists: str = "append",
-        logger: logging.Logger = None,
         **kwargs,
     ):
-        self.name = name
-        self.driver = driver
+        super().__init__(*args, **kwargs)
         self.store_backend = store_backend.lower()
-        self.bucket = s3_bucket or config.get_service("s3")["bucket"]
-        self.s3_key = s3_key or f"extracts/{self.name_snake_case}/"
-        self.root_url = f"s3://{self.bucket}/{self.s3_key}"
         self.store_path = store_path or self._get_default_store_path()
         self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
-        self.if_exists = if_exists
         self.store = store or self.load_store()
         self._load_attrs_from_store(self.store)
 
@@ -279,7 +276,7 @@ class Extract:
         if self.store_backend == "local":
             path = os.path.join(WORKING_DIR, "store.json")
         elif self.store_backend == "s3":
-            path = os.path.join(self.root_url, "store.json")
+            path = os.path.join(self.s3_root_url, "store.json")
         else:
             raise NotImplementedError
         return path
@@ -366,7 +363,7 @@ class Extract:
 
         self.logger.info("Starting the extract process...")
 
-        s3 = S3(s3_key=self.s3_key + "data/staging/")
+        s3 = S3(url=os.path.join(self.s3_root_url, "data", "staging"))
         existing_partitions = []
         for file_name in s3.list():
             extension = file_name.split(".")[-1]
@@ -396,7 +393,7 @@ class Extract:
     @dask.delayed
     def to_store_backend(self, serializable: Any, file_name: str):
         if self.store_backend == "s3":
-            url = os.path.join(self.root_url, file_name)
+            url = os.path.join(self.s3_root_url, file_name)
             s3 = S3(url=url)
             self.logger.info(f"Copying {file_name} from memory to {url}...")
             s3.from_serializable(serializable)
@@ -428,7 +425,12 @@ class Extract:
     def remove_table(self, schema, table):
         pass
 
-    def generate_workflow(
+    @staticmethod
+    @dask.delayed
+    def to_parquet(driver, path):
+        driver.to_parquet(path)
+
+    def generate_tasks(
         self,
         scheduler_address: str = None,
         refresh_partitions_list: bool = True,
@@ -484,52 +486,26 @@ class Extract:
             self.logger.info("Skipping...")
             return
 
-        # create te the workflow
         uploads = []
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
-            s3_key = self.s3_key + "data/staging/" + f"{partition}.parquet"
+            file_name = f"{partition}.parquet"
             where = f"{partition_cols}='{partition_concatenated}'"
-            processed_driver = self.query_driver(query=where)
-            arrow_table = self.to_arrow(driver=processed_driver, partition=partition)
-            push_to_backend = self.arrow_to_s3(arrow_table, s3_key=s3_key)
-            if not self.if_exists == "skip":
-                uploads.append(push_to_backend)
-            else:
-                uploads.append(arrow_table)
-        if not self.if_exists == "skip":
-            external_table = self.create_external_table(upstream=uploads)
-            if self.output_table_type == "base":
-                regular_table = self.create_table(upstream=external_table)
-                # clear_spectrum = self.remove_table(self.output_schema, self.output_table, upstream=regular_table)
-                final_task = regular_table
-            else:
-                final_task = external_table
+            processed_qf = self.query_driver(query=where)
+            s3 = self.to_parquet(
+                processed_qf, os.path.join(self.s3_root_url, "data", "staging", file_name)
+            )
+            uploads.append(s3)
+
+        external_table = self.create_external_table(upstream=uploads)
+        if self.output_table_type == "base":
+            regular_table = self.create_table(upstream=external_table)
+            # clear_spectrum = self.remove_table(self.output_schema, self.output_table, upstream=regular_table)
+            final_task = regular_table
         else:
-            final_task = uploads
+            final_task = external_table
         self.extract_tasks = [final_task]
-        wf = Workflow(name=self.name, tasks=[final_task])
-        self.workflow = wf
-        self.logger.debug("Workflow generated successfully")
-        return wf
-
-    def submit(self, scheduler_address, **kwargs):
-        """Submit to cluster
-
-        Parameters
-        ----------
-        kwargs: arguments to pass to Workflow.submit()
-
-        Examples
-        --------
-        Extract().submit(scheduler_address="grizly_scheduler:8786")
-        """
-        if not scheduler_address:
-            scheduler_address = self.scheduler_address
-        wf = self.generate_workflow(scheduler_address, **kwargs)
-        # client = self._get_client(scheduler_address)
-        wf.submit(scheduler_address=scheduler_address, **kwargs)
-        # client.close()
+        # return [final_task]
 
     def register(self, db=None, crons=None, **kwargs):
         """Submit the partitions and/or extract job
@@ -546,11 +522,13 @@ class Extract:
         partitions_job_name = self.name + " - partitions"
         self.partitions_job = Job(partitions_job_name, logger=self.logger, db=db)
         self.extract_job = Job(self.name, logger=self.logger, db=db)
-        self.generate_workflow()  # calculate partition tasks
-        self.partitions_job.register(tasks=self.partition_tasks, crons=crons, **kwargs)
+        self.generate_tasks()  # calculate partition tasks
+        self.partitions_job.register(tasks=self.partition_tasks, crons=crons or [], **kwargs)
         self.extract_job.register(tasks=self.extract_tasks, upstream=partitions_job_name, **kwargs)
 
-    def submit_new(self, **kwargs):
+    def submit(
+        self, **kwargs,
+    ):
         """Submit the extract job
 
         Parameters
@@ -559,7 +537,12 @@ class Extract:
 
         """
         self.register(**kwargs)
-        self.partitions_job.submit(**kwargs)
+        self.partitions_job.submit(
+            client=kwargs.get("client"),
+            scheduler_address=kwargs.get("scheduler_address"),
+            priority=kwargs.get("priority"),
+            to_dask=kwargs.get("to_dask"),
+        )
 
     def validate(self):
         pass

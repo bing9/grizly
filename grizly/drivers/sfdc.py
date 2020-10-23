@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, date
-from logging import Logger
 from typing import List, Union, Any
 
-from ..sources.rdbms.sfdc import sfdb
 from ..types import SFDB
 from ..utils.type_mappers import sfdc_to_pyarrow
 from .sql import SQLDriver
@@ -22,20 +20,13 @@ import pyarrow as pa
 
 
 class SFDCDriver(SQLDriver):
-    def __init__(
-        self,
-        source: SFDB = sfdb,
-        table: str = None,
-        columns: List[str] = None,
-        batch_size: int = 20000,
-        logger: Logger = None,
-    ):
-        super().__init__(source=source, table=table, columns=columns, logger=logger)
+    def __init__(self, batch_size: int = 20000, **kwargs):
+        super().__init__(**kwargs)
         self.batch_size = batch_size
 
     def to_records(self) -> List[tuple]:
         self._validate_fields()
-        records = self.source._fetch_records(self.get_sql(), self.table)
+        records = self.source._fetch_records(self.get_sql(), self.store["select"]["table"])
         records_casted = self._cast_records(records)
         return records_casted
 

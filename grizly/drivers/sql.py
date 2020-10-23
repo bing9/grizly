@@ -31,19 +31,7 @@ class SQLDriver(BaseDriver):
     ):
         super().__init__(*args, **kwargs)
 
-        sqldb = kwargs.get("sqldb")
-        if sqldb:
-            source = sqldb
-            self.logger.warning(
-                "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                " Please use source parameter instead.",
-            )
-        if source is None and dsn is None:
-            raise ValueError("Please specify either source or dsn parameter")
-
         self.source = source or RDBMS(dsn=dsn, *args, **kwargs)
-        self.schema = schema
-        self.table = table
 
         if self.store == Store() and table:
             self.store = self._load_store_from_table(schema=schema, table=table, columns=columns)
@@ -236,7 +224,8 @@ class SQLDriver(BaseDriver):
             qf.orderby(qf.get_fields())
         col_values = qf.to_records()
 
-        values = self._get_fields_names([values], aliased=True)[0]
+        value = self._get_fields_names([values], aliased=True)[0]
+        value_type = self.store["select"]["fields"][value]["dtype"]
         columns = self._get_fields_names(columns, aliased=True)
 
         self.select(rows).groupby()
@@ -263,8 +252,8 @@ class SQLDriver(BaseDriver):
             col_filter = " AND ".join(col_filter)
 
             self.assign(
-                **{col_name: f'CASE WHEN {col_filter} THEN "{values}" ELSE 0 END'},
-                type="num",
+                **{col_name: f'CASE WHEN {col_filter} THEN "{value}" ELSE 0 END'},
+                dtype=value_type,
                 group_by=aggtype,
             )
 
