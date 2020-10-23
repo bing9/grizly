@@ -14,13 +14,17 @@ import os
 import logging
 from typing import Union, List
 from time import sleep
+from ..utils.deprecation import deprecated_params
+from functools import partial
+
+deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="0.4.2")
 
 
 class EmailAccount:
-    # @deprecated_params(params_maping={"email_address": "address", "email_password": "password"})
+    @deprecated_params(params_maping={"email_address": "address", "email_password": "password"})
     def __init__(self, address=None, password=None, alias=None, proxy=None, **kwargs):
-        address = address or kwargs.get("email_address")  # delete in 0.4
-        password = password or kwargs.get("email_password")  # delete in 0.4
+        address = address or kwargs.get("email_address")  # delete in 0.4.2
+        password = password or kwargs.get("email_password")  # delete in 0.4.2
         config = grizly_config.get_service("email")
         self.logger = logging.getLogger(__name__)
         self.address = address or os.getenv("GRIZLY_EMAIL_ADDRESS") or config.get("address")
@@ -75,13 +79,14 @@ class Email:
         [description], by default None
     is_html : bool, optional
         [description], by default False
-    email_address : str, optional
+    address : str, optional
         Email address used to send an email, by default None
-    email_password : str, optional
-        Password to the email specified in email_address, by default None
+    password : str, optional
+        Password to the email specified in address, by default None
     config_key : str, optional
         Config key, by default 'standard'"""
 
+    @deprecated_params(params_maping={"email_address": "address", "email_password": "password"})
     def __init__(
         self,
         subject: str,
@@ -89,19 +94,20 @@ class Email:
         attachment_paths: str = None,
         logger=None,
         is_html: bool = False,
-        email_address: str = None,
-        email_password: str = None,
+        address: str = None,
+        password: str = None,
         proxy: str = None,
+        **kwargs,
     ):
+        address = address or kwargs.get("email_address")  # delete in 0.4.2
+        password = password or kwargs.get("email_password")  # delete in 0.4.2
         self.subject = subject
         self.body = body if not is_html else HTMLBody(body)
         self.logger = logger or logging.getLogger(__name__)
-        if None in [email_address, email_password]:
+        if None in [address, password]:
             config = grizly_config.get_service("email")
-        self.address = email_address or config.get("email_address") or os.getenv("EMAIL_ADDRESS")
-        self.password = (
-            email_password or config.get("email_password") or os.getenv("EMAIL_PASSWORD")
-        )
+        self.address = address or config.get("address") or os.getenv("GRIZLY_EMAIL_ADDRESS")
+        self.password = password or config.get("password") or os.getenv("GRIZLY_EMAIL_PASSWORD")
         self.attachment_paths = self.to_list(attachment_paths)
         self.attachments = self.get_attachments(self.attachment_paths)
         try:
@@ -222,9 +228,9 @@ class Email:
                 pass
             send_as = self.address
 
-        email_address = self.address
-        email_password = self.password
-        account = EmailAccount(email_address, email_password).account
+        address = self.address
+        password = self.password
+        account = EmailAccount(address, password).account
 
         m = Message(
             account=account,
