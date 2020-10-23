@@ -1051,14 +1051,15 @@ class BaseDriver(ABC):
 
     def _fix_types(self):
         mismatched = self._check_types()
-        for col in mismatched:
+        mismatched_names = self._get_fields_names(mismatched.keys())
+        for col in mismatched_names:
             python_dtype = mismatched[col]
             sql_dtype = python_to_sql(python_dtype)
             self.store["select"]["fields"][col]["dtype"] = sql_dtype
 
     def _check_types(self):
         expected_types_mapped = self.source.map_types(self.dtypes, to="python")
-        expected_cols_and_types = dict(zip(self.columns, expected_types_mapped))
+        expected_cols_and_types = dict(zip(self.get_fields(aliased=False), expected_types_mapped))
         # this only checks the first 100 rows
         retrieved_cols_and_types = {}
         sample = self.copy().limit(100)

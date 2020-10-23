@@ -225,7 +225,7 @@ class SQLDriver(BaseDriver):
         col_values = qf.to_records()
 
         value = self._get_fields_names([values], aliased=True)[0]
-        value_type = self.store["select"]["fields"][value]["dtype"]
+        value_type = self.store["select"]["fields"][self._get_fields_names([values])[0]]["dtype"]
         columns = self._get_fields_names(columns, aliased=True)
 
         self.select(rows).groupby()

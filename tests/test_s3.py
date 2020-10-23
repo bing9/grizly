@@ -47,7 +47,7 @@ def test_to_rds():
 
     qf.window(offset=100, limit=30, order_by=["TrackId"])
 
-    qf.assign(LikeIt="CASE WHEN GenreId = 5 THEN 1 ELSE 0 END", custom_type="BOOL")
+    qf.assign(LikeIt="CASE WHEN GenreId = 5 THEN 1 ELSE 0 END", dtype="BOOL")
     qf.assign(SpareColumn="NULL")
 
     qf.rename(

@@ -11,12 +11,12 @@ def write_out(out):
 
 def test_check_if_exists():
     rdbms = RDBMS(dsn="redshift_acoe")
-    assert rdbms.check_if_exists("fiscal_calendar_weeks", "base_views") == True
+    assert rdbms.check_if_exists("fiscal_calendar_weeks", "base_views")
 
 
 def test_pyodbc_interface():
     rdbms = RDBMS(dsn="redshift_acoe")
-    assert rdbms.check_if_exists("fiscal_calendar_weeks", "base_views") == True
+    assert rdbms.check_if_exists("fiscal_calendar_weeks", "base_views")
 
 
 def test_create_external_table():
@@ -25,7 +25,7 @@ def test_create_external_table():
     schema = "acoe_spectrum"
 
     rdbms = rdbms.create_table(
-        type="external",
+        table_type="external",
         table=table,
         columns=["col1", "col2"],
         types=["varchar(100)", "int"],
@@ -34,11 +34,11 @@ def test_create_external_table():
         bucket="acoe-s3",
         if_exists="drop",
     )
-    assert rdbms.check_if_exists(table=table, schema=schema, external=True)
+    assert rdbms.check_if_exists(table=table, schema=schema)
 
     with pytest.raises(ValueError):
         rdbms = rdbms.create_table(
-            type="external",
+            table_type="external",
             table=table,
             columns=["col1", "col2"],
             types=["varchar(100)", "int"],
