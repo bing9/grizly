@@ -218,7 +218,7 @@ class Email:
         if not send_as:
             try:
                 send_as = (
-                    Config().get_service(config_key=self.config_key, service="email").get("send_as")
+                    grizly_config.get_service("email").get("send_as")
                 )
             except KeyError:
                 pass

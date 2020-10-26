@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### QFrame
 
 - Added QFrame._fix_types(), which changes the datatypes inside QFrame (self.data) 
-based on what types are actually retrieved from the top 100 rows.
+based on what types are actually retrieved from the top 100 rows
+- Added QFrame.store with `to_dict()` and `to_json()` methods
 - [sfdc driver]
 - Added `to_crosstab()`, `to_arrow()` methods
 - Deprecated `save_json()` method (`QFrame.store.to_json()` should be used instead)
@@ -23,7 +24,7 @@ based on what types are actually retrieved from the top 100 rows.
 
 ### SQLDB
 
-- Since grizly 0.4 SQLDB class is deprecated, Source class should be used instead
+- Since grizly 0.4 SQLDB class is deprecated, RDBMS class should be used instead
 
 ### Removed functions
 
@@ -60,15 +61,15 @@ based on what types are actually retrieved from the top 100 rows.
 ### Config
 
 - Added `s3` key with `bucket` subkey
+- Changed "email_address" and "email_password" keys to "address" and "password"
 
 ### Extract
 
 - Released first version
 - Moved from `dangerous/experimental.py` to `tools/extract.py`
 - Added tutorial in `tutorials`
-
-### QFrame
-- Added QFrame.store with `to_dict()` and `to_json()` methods
+- Added SimpleExtract to extract data in single-node mode
+- Added SFDCExtract for Salesforce extracts
 
 ## [0.3.7](https://github.com/kfk/grizly/compare/v0.3.7rc1...v0.3.7) - 04-09-2020
 
