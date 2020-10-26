@@ -73,7 +73,7 @@ def mysql_to_postgresql(dtype):
     return _map_type(mapping, dtype)
 
 
-def pyarrow_to_rds(dtype):
+def pyarrow_to_postgresql(dtype):
     mapping = {
         "bool": "BOOL",
         "int8": "SMALLINT",
@@ -96,7 +96,11 @@ def pyarrow_to_rds(dtype):
     return _map_type(mapping, dtype, default="VARCHAR(500)")
 
 
-def rds_to_pyarrow(dtype):
+def pyarrow_to_rds(dtype):
+    return pyarrow_to_postgresql(dtype=dtype)
+
+
+def postgresql_to_pyarrow(dtype):
     mapping = {
         "BOOL": pa.bool_(),
         "BOOLEAN": pa.bool_(),
@@ -121,6 +125,48 @@ def rds_to_pyarrow(dtype):
         "TEXT": pa.string(),
         "CHAR": pa.string(),
         "CHARACTER": pa.string(),
+        "TIMESTAMP": pa.date64(),
+        "TIMESTAMP WITHOUT TIME ZONE": pa.date64(),
+        "TIMESTAMPTZ": pa.date64(),
+        "TIMESTAMP WITH TIME ZONE": pa.date64(),
+        "GEOMETRY": None,
+    }
+    return _map_type(mapping, dtype, default=pa.string())
+
+
+def rds_to_pyarrow(dtype):
+    return postgresql_to_pyarrow(dtype=dtype)
+
+
+def mysql_to_pyarrow(dtype):
+    # TODO: fix below mapper
+    mapping = {
+        "BOOL": pa.bool_(),
+        "BIT": pa.bool_(),
+        "INT": pa.int32(),
+        "INTEGER": pa.int32(),
+        "MEDIUMINT": pa.int32(),
+        "SMALLINT": pa.int8(),
+        "TINYINT": pa.int8(),
+        "BIGINT": pa.int64(),
+        "INT2": pa.int8(),
+        "INT4": pa.int8(),
+        "INT8": pa.int8(),
+        "NUMERIC": pa.float64(),
+        "DECIMAL": pa.float64(),
+        "FLOAT4": pa.float32(),
+        "FLOAT8": pa.float64(),
+        "DOUBLE": pa.float64(),
+        "FLOAT": pa.float32(),
+        "NULL": pa.null(),
+        "DATE": pa.date64(),
+        "VARCHAR": pa.string(),
+        "NVARCHAR": pa.string(),
+        "CHARACTER VARYING": pa.string(),
+        "TEXT": pa.string(),
+        "CHAR": pa.string(),
+        "CHARACTER": pa.string(),
+        "DATETIME": pa.date64(),
         "TIMESTAMP": pa.date64(),
         "TIMESTAMP WITHOUT TIME ZONE": pa.date64(),
         "TIMESTAMPTZ": pa.date64(),

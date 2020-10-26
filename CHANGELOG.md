@@ -7,9 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased](https://github.com/kfk/grizly/compare/v0.3.8...0.4)
 
+### Overall changes
+
+- [api change - drivers and sources]
+- Changed configuration file
+
 ### QFrame
-- Added QFrame.fix_types(), which changes the datatypes inside QFrame (self.data) 
+
+- Added QFrame._fix_types(), which changes the datatypes inside QFrame (self.data) 
 based on what types are actually retrieved from the top 100 rows.
+- [sfdc driver]
+- Added `to_crosstab()`, `to_arrow()` methods
+- Deprecated `save_json()` method (`QFrame.store.to_json()` should be used instead)
+- Replaced 'type' and 'custom_type' keys with 'dtype' key
+
+### SQLDB
+
+- Since grizly 0.4 SQLDB class is deprecated, Source class should be used instead
 
 ### Removed functions
 
