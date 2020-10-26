@@ -21,10 +21,8 @@ deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="
 
 
 class EmailAccount:
-    @deprecated_params(params_maping={"email_address": "address", "email_password": "password"})
+    @deprecated_params(params_mapping={"email_address": "address", "email_password": "password"})
     def __init__(self, address=None, password=None, alias=None, proxy=None, **kwargs):
-        address = address or kwargs.get("email_address")  # delete in 0.4.2
-        password = password or kwargs.get("email_password")  # delete in 0.4.2
         config = grizly_config.get_service("email")
         self.logger = logging.getLogger(__name__)
         self.address = address or os.getenv("GRIZLY_EMAIL_ADDRESS") or config.get("address")
@@ -86,7 +84,7 @@ class Email:
     config_key : str, optional
         Config key, by default 'standard'"""
 
-    @deprecated_params(params_maping={"email_address": "address", "email_password": "password"})
+    @deprecated_params(params_mapping={"email_address": "address", "email_password": "password"})
     def __init__(
         self,
         subject: str,
@@ -99,8 +97,6 @@ class Email:
         proxy: str = None,
         **kwargs,
     ):
-        address = address or kwargs.get("email_address")  # delete in 0.4.2
-        password = password or kwargs.get("email_password")  # delete in 0.4.2
         self.subject = subject
         self.body = body if not is_html else HTMLBody(body)
         self.logger = logger or logging.getLogger(__name__)
