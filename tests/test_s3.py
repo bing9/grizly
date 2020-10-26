@@ -47,7 +47,7 @@ def test_to_rds():
 
     qf.window(offset=100, limit=30, order_by=["TrackId"])
 
-    qf.assign(LikeIt="CASE WHEN GenreId = 5 THEN 1 ELSE 0 END", custom_type="BOOL")
+    qf.assign(LikeIt="CASE WHEN GenreId = 5 THEN 1 ELSE 0 END", dtype="BOOL")
     qf.assign(SpareColumn="NULL")
 
     qf.rename(
@@ -80,19 +80,19 @@ def test_to_rds():
 
     qf.to_parquet(path_parquet)
     s3_parquet.from_file(keep_file=False)
-    s3_parquet.to_rds(table=table_parquet, schema=schema, if_exists="replace")
+    s3_parquet.to_rds(dsn="redshift_acoe", table=table_parquet, schema=schema, if_exists="replace")
     qf_parquet = QFrame(dsn="redshift_acoe").from_table(table=table_parquet, schema=schema)
     assert len(qf_parquet) == 30
 
     qf.to_csv(path_csv)
     s3_csv.from_file(keep_file=False)
-    s3_csv.to_rds(table=table_csv, schema=schema, if_exists="replace")
+    s3_csv.to_rds(dsn="redshift_acoe", table=table_csv, schema=schema, if_exists="replace")
     qf_csv = QFrame(dsn="redshift_acoe").from_table(table=table_csv, schema=schema)
     assert len(qf_csv) == 30
 
     qf.to_parquet(path_parquet)
     s3_parquet.from_file(keep_file=False)
-    s3_parquet.to_rds(table=table_parquet, schema=schema, if_exists="append")
+    s3_parquet.to_rds(dsn="redshift_acoe", table=table_parquet, schema=schema, if_exists="append")
     assert len(qf_parquet) == 60
 
     qf.rearrange(
@@ -112,7 +112,7 @@ def test_to_rds():
     )
     qf.to_csv(path_csv)
     s3_csv.from_file(keep_file=False)
-    s3_csv.to_rds(table=table_csv, schema=schema, if_exists="append")
+    s3_csv.to_rds(dsn="redshift_acoe", table=table_csv, schema=schema, if_exists="append")
     assert len(qf_csv) == 60
 
     qf_csv.distinct()

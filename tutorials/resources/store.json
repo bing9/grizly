@@ -133,26 +133,23 @@
         "select": {
             "fields": {
                 "sq.Composer": {
-                    "type": "",
+                    "dtype": "NVARCHAR(220)",
                     "as": "Composer",
-                    "custom_type": "NVARCHAR(220)",
                     "group_by": "group"
                 },
                 "10_1": {
-                    "type": "num",
+                    "dtype": "NUMERIC(10,2)",
                     "as": "10_1",
                     "group_by": "sum",
                     "order_by": "",
-                    "expression": "CASE WHEN \"AlbumId\"='10' AND \"GenreId\"='1' THEN \"UnitPrice\" ELSE 0 END",
-                    "custom_type": ""
+                    "expression": "CASE WHEN \"AlbumId\"='10' AND \"GenreId\"='1' THEN \"UnitPrice\" ELSE 0 END"
                 },
                 "11_4": {
-                    "type": "num",
+                    "dtype": "NUMERIC(10,2)",
                     "as": "11_4",
                     "group_by": "sum",
                     "order_by": "",
-                    "expression": "CASE WHEN \"AlbumId\"='11' AND \"GenreId\"='4' THEN \"UnitPrice\" ELSE 0 END",
-                    "custom_type": ""
+                    "expression": "CASE WHEN \"AlbumId\"='11' AND \"GenreId\"='4' THEN \"UnitPrice\" ELSE 0 END"
                 }
             },
             "sql_blocks": {
@@ -176,104 +173,94 @@
                 "order_by": [],
                 "types": [
                     "NVARCHAR(220)",
-                    "FLOAT(53)",
-                    "FLOAT(53)"
+                    "NUMERIC(10,2)",
+                    "NUMERIC(10,2)"
                 ]
             }
         },
         "sq": {
             "select": {
-                "table": "Track",
-                "schema": "",
                 "fields": {
                     "TrackId": {
-                        "type": "",
                         "as": "",
+                        "dtype": "INTEGER",
                         "group_by": "",
                         "order_by": "ASC",
-                        "expression": "",
                         "select": "",
-                        "custom_type": "INTEGER"
+                        "expression": ""
                     },
                     "Name": {
-                        "type": "",
                         "as": "",
+                        "dtype": "NVARCHAR(200)",
                         "group_by": "",
                         "order_by": "",
-                        "expression": "",
                         "select": "",
-                        "custom_type": "NVARCHAR(200)"
+                        "expression": ""
                     },
                     "AlbumId": {
-                        "type": "",
                         "as": "",
+                        "dtype": "INTEGER",
                         "group_by": "",
                         "order_by": "",
-                        "expression": "",
                         "select": "",
-                        "custom_type": "INTEGER"
+                        "expression": ""
                     },
                     "MediaTypeId": {
-                        "type": "",
                         "as": "",
+                        "dtype": "INTEGER",
                         "group_by": "",
                         "order_by": "",
-                        "expression": "",
                         "select": "",
-                        "custom_type": "INTEGER"
+                        "expression": ""
                     },
                     "GenreId": {
-                        "type": "",
                         "as": "",
+                        "dtype": "INTEGER",
                         "group_by": "",
                         "order_by": "",
-                        "expression": "",
                         "select": "",
-                        "custom_type": "INTEGER"
+                        "expression": ""
                     },
                     "Composer": {
-                        "type": "",
                         "as": "",
+                        "dtype": "NVARCHAR(220)",
                         "group_by": "",
                         "order_by": "",
-                        "expression": "",
                         "select": "",
-                        "custom_type": "NVARCHAR(220)"
+                        "expression": ""
                     },
                     "Milliseconds": {
-                        "type": "",
                         "as": "",
+                        "dtype": "INTEGER",
                         "group_by": "",
                         "order_by": "",
-                        "expression": "",
                         "select": "",
-                        "custom_type": "INTEGER"
+                        "expression": ""
                     },
                     "Bytes": {
-                        "type": "",
                         "as": "",
+                        "dtype": "INTEGER",
                         "group_by": "",
                         "order_by": "",
-                        "expression": "",
                         "select": "",
-                        "custom_type": "INTEGER"
+                        "expression": ""
                     },
                     "UnitPrice": {
-                        "type": "",
                         "as": "",
+                        "dtype": "NUMERIC(10,2)",
                         "group_by": "",
                         "order_by": "",
-                        "expression": "",
                         "select": "",
-                        "custom_type": "NUMERIC(10,2)"
+                        "expression": ""
                     }
                 },
-                "engine": "",
                 "where": "",
                 "distinct": "",
                 "having": "",
                 "offset": "90",
                 "limit": "15",
+                "table": "Track",
+                "schema": "",
                 "sql_blocks": {
                     "select_names": [
                         "\"TrackId\"",

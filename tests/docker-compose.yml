@@ -14,6 +14,7 @@ services:
     volumes:
       - 'redis_data:/bitnami/redis/data'
     container_name: pytest_redis
+    restart: "always"
   pytest_grizly_notebook:
     image: grizly_notebook:latest
     environment:

@@ -1,23 +1,27 @@
-from abc import ABC, abstractmethod
-from copy import deepcopy
 import csv
 import decimal
-from functools import partial
+import gc
 import logging
 import os
-import re
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar, Union
+from abc import ABC, abstractmethod
+from copy import deepcopy
+from functools import partial
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 import deprecation
-from pandas import DataFrame
 import pyarrow as pa
+import pyarrow.parquet as pq
+import s3fs
+from pandas import DataFrame
 
 from ..store import Store
 from ..tools.crosstab import Crosstab
 from ..utils.functions import copy_df_to_excel, dict_diff
+from ..utils.deprecation import deprecated_params
 from ..utils.type_mappers import python_to_sql, rds_to_pyarrow, sql_to_python
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
+deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="0.4.5")
 
 
 class BaseDriver(ABC):
@@ -25,25 +29,17 @@ class BaseDriver(ABC):
     _allowed_group_by = _allowed_agg + ["GROUP"]
     _allowed_order_by = ["ASC", "DESC", ""]
 
+    @deprecated_params(params_mapping={"data": "store"})
     def __init__(
         self,
         store: Optional[Store] = None,
         json_path: str = None,
         subquery: str = None,
         logger: logging.Logger = None,
-        *args,
         **kwargs,
     ):
         self.logger = logger or logging.getLogger(__name__)
         self.getfields = kwargs.get("getfields")
-
-        data = kwargs.get("data")
-        if data:
-            store = data
-            self.logger.warning(
-                "Parameter data in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                " Please use store parameter instead.",
-            )
 
         self.store = self._load_store(store=store, json_path=json_path, subquery=subquery,)
 
@@ -714,9 +710,9 @@ class BaseDriver(ABC):
         list
             List of QFrames
         """
-        no_rows = self.__len__()
+        nrows = self.__len__()
         qfs = []
-        for chunk in range(0, no_rows, chunksize):
+        for chunk in range(0, nrows, chunksize):
             qf = self.copy()
             qf = qf.window(
                 offset=chunk, limit=chunksize, deterministic=deterministic, order_by=order_by
@@ -842,10 +838,10 @@ class BaseDriver(ABC):
             _dict[column] = column_values
         return _dict
 
-    def to_dicts(self, batch_size=20000) -> Iterator[Dict[str, Any]]:
-        # assuming to_records() returns a generator
+    def to_dicts(self, chunksize=20000) -> Iterator[Dict[str, Any]]:
+        # requires subclass to implement to_records_iter()
         columns = self.get_fields(aliased=True)
-        chunks = self.to_records_iter(batch_size=batch_size)
+        chunks = self.to_records_iter(chunksize=chunksize)
         for chunk in chunks:
             _dict = {}
             for i, column in enumerate(columns):
@@ -908,9 +904,11 @@ class BaseDriver(ABC):
         table = pa.Table.from_pydict(_dict, schema=schema)
         self.logger.debug("PyArrow table has been generated successfully")
 
+        gc.collect()
+
         return table
 
-    def to_arrow_iter(self, batch_size=20000) -> Iterator[pa.Table]:
+    def to_arrow_iter(self, chunksize=20000) -> Iterator[pa.Table]:
         """Write QFrame result to pyarrow.Table
 
         Returns
@@ -925,10 +923,36 @@ class BaseDriver(ABC):
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
         self.logger.debug(f"Retrieved schema: {schema}")
 
-        dicts = self.to_dicts(batch_size=batch_size)
+        dicts = self.to_dicts(chunksize=chunksize)
         for _dict in dicts:
             table = pa.Table.from_pydict(_dict, schema=schema)
             yield table
+
+    @deprecated_params(params_mapping={"parquet_path": "path"})
+    def to_parquet(self, path: str, **kwargs) -> bool:
+        # NOTE: self.source has to have map_types(to="python") method defined
+
+        arrow_table = self.to_arrow()
+        root_path = os.path.dirname(path) or os.getcwd()
+        file_name = os.path.basename(path)
+
+        self.logger.info(f"Writing {file_name} to {root_path}...")
+
+        if path.startswith("s3://"):
+            filesystem = s3fs.S3FileSystem()
+        else:
+            filesystem = None
+
+        pq.write_to_dataset(
+            arrow_table,
+            root_path=root_path,
+            filesystem=filesystem,
+            partition_filename_cb=lambda x: file_name,
+        )
+
+        self.logger.info(f"Successfully wrote {file_name} to {root_path}")
+
+        return True
 
     def to_crosstab(self, dimensions: list, measures: list, **ct_kwargs) -> Crosstab:
         """Write QFrame records to grizly.Crosstab
@@ -1009,7 +1033,7 @@ class BaseDriver(ABC):
         copy_df_to_excel(
             df=df,
             input_excel_path=input_excel_path,
-            outout_excel_path=output_excel_path,
+            output_excel_path=output_excel_path,
             index=index,
             header=header,
             **pd_kwargs,
@@ -1026,15 +1050,17 @@ class BaseDriver(ABC):
         return deepcopy(self)
 
     def _fix_types(self):
-        mismatched = self._check_types()
-        for col in mismatched:
-            python_dtype = mismatched[col]
+        mismatched: dict = self._check_types()
+        mismatched_aliases = list(mismatched.keys())
+        mismatched_names = self._get_fields_names(mismatched_aliases)
+        for field_name, field_alias in zip(mismatched_names, mismatched_aliases):
+            python_dtype = mismatched[field_alias]
             sql_dtype = python_to_sql(python_dtype)
-            self.store["select"]["fields"][col]["dtype"] = sql_dtype
+            self.store["select"]["fields"][field_name]["dtype"] = sql_dtype
 
     def _check_types(self):
         expected_types_mapped = self.source.map_types(self.dtypes, to="python")
-        expected_cols_and_types = dict(zip(self.columns, expected_types_mapped))
+        expected_cols_and_types = dict(zip(self.get_fields(aliased=False), expected_types_mapped))
         # this only checks the first 100 rows
         retrieved_cols_and_types = {}
         sample = self.copy().limit(100)

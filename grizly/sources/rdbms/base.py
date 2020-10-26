@@ -16,9 +16,9 @@ class RDBMSBase(BaseSource):
     dialect = "postgresql"
 
     def __init__(
-        self, dsn: str, *args, **kwargs,
+        self, dsn: str, **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
         self.dsn = dsn
 
     def __repr__(self):
@@ -467,7 +467,7 @@ class RDBMSBase(BaseSource):
 
     @staticmethod
     def map_types(types: Union[str, List[Any]], to: str = None):
-        pass
+        raise NotImplementedError
 
 
 class BaseTable(ABC):

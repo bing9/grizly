@@ -1,5 +1,7 @@
+from typing import List, Literal
+
+from ...utils.type_mappers import postgresql_to_pyarrow, postgresql_to_python
 from .base import RDBMSBase
-from typing import Literal, List
 
 
 class Redshift(RDBMSBase):
@@ -148,3 +150,11 @@ class Redshift(RDBMSBase):
 
         return (col_names, col_types) if column_types else col_names
 
+    @staticmethod
+    def map_types(dtypes: List[str], to: str = None):
+        if to == "python":
+            return [postgresql_to_python(dtype) for dtype in dtypes]
+        elif to == "pyarrow":
+            return [postgresql_to_pyarrow(dtype) for dtype in dtypes]
+        else:
+            raise NotImplementedError
