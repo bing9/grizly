@@ -61,6 +61,9 @@ class EmailAccount:
                 "Connection to Exchange server failed. Please check your credentials and/or proxy settings"
             )
 
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}("{self.address}")'
+
 
 class Email:
     """Class used to build and send email using Exchange Web Services (EWS) API.
@@ -217,9 +220,7 @@ class Email:
 
         if not send_as:
             try:
-                send_as = (
-                    grizly_config.get_service("email").get("send_as")
-                )
+                send_as = grizly_config.get_service("email").get("send_as")
             except KeyError:
                 pass
             send_as = self.address
