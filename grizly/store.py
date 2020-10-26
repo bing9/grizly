@@ -25,7 +25,8 @@ class Store(Box):
         d = deepcopy(self.to_dict())
         return Store(d)
 
-    def from_json(self, json_path: str, subquery: str = None):
+    @classmethod
+    def from_json(cls, json_path: str, subquery: str = None):
         """Read QFrame.data from json file
 
         Parameters
@@ -45,15 +46,9 @@ class Store(Box):
             with open(json_path, "r") as f:
                 json_data = json.load(f)
 
-        if json_data and subquery:
-            new_data = json_data[subquery]
-        else:
-            new_data = json_data
+        data = json_data.get(subquery, json_data)
 
-        self.clear()
-        self.update(new_data)
-
-        return self
+        return cls(data)
 
     def to_json(self, json_path: str, subquery: str = None):
         """Save Store to json file
