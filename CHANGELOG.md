@@ -20,6 +20,8 @@ based on what types are actually retrieved from the top 100 rows
     from grizly import QFrame
 
     qf = QFrame(dsn="sfdc", table="Account")
+    qf.remove_compound_fields() # querying compound fields is not supported
+    qf.limit(10).to_df()
     ```
 - Added `to_crosstab()`, `to_arrow()` methods
 - Deprecated `save_json()` method (`QFrame.store.to_json()` should be used instead)
