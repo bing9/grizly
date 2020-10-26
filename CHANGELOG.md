@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0rc0](https://github.com/kfk/grizly/compare/v0.3.8...v0.4.0rc0) - 25-10-2020
 
 ### Overall changes
-This release contains a lot of internal api changes. We extened QFrame to support also Salesforce database and we are planning to extend it to be able to query filesystems and APIs. To make your life easier we want to manage sources configuration in grizly config file so that you only need to pass dsn (datasource name).
+
+This release contains a lot of internal api changes. We extened QFrame to support also Salesforce database and we are planning to extend it to be able to query filesystems and APIs. To make your life easier we want to manage sources configuration in grizly config file so that you only need to pass dsn (datasource name). We also moved to new scheduling infrastructure so **old orchestrate has been removed**.
 
 ### QFrame
 
@@ -37,6 +38,11 @@ based on what types are actually retrieved from the top 100 rows
 - Added SimpleExtract to extract data in single-node mode
 - Added SFDCExtract for Salesforce extracts
 
+### Removed classes
+
+- Workflow, Listener, EmailListener, Schedule, Runner - please use Job class to manage scheduling instead
+- Store
+
 ### Removed functions
 
 - QFrame.to_rds
@@ -55,9 +61,6 @@ based on what types are actually retrieved from the top 100 rows
 - read_config
 - initiate
 
-### Removed classes
-
-- Store
 
 ## [0.3.8](https://github.com/kfk/grizly/compare/v0.3.7...v0.3.8) - 17-09-2020
 
