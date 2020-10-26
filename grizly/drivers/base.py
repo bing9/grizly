@@ -1050,12 +1050,13 @@ class BaseDriver(ABC):
         return deepcopy(self)
 
     def _fix_types(self):
-        mismatched = self._check_types()
-        mismatched_names = self._get_fields_names(mismatched.keys())
-        for col in mismatched_names:
-            python_dtype = mismatched[col]
+        mismatched: dict = self._check_types()
+        mismatched_aliases = list(mismatched.keys())
+        mismatched_names = self._get_fields_names(mismatched_aliases)
+        for field_name, field_alias in zip(mismatched_names, mismatched_aliases):
+            python_dtype = mismatched[field_alias]
             sql_dtype = python_to_sql(python_dtype)
-            self.store["select"]["fields"][col]["dtype"] = sql_dtype
+            self.store["select"]["fields"][field_name]["dtype"] = sql_dtype
 
     def _check_types(self):
         expected_types_mapped = self.source.map_types(self.dtypes, to="python")

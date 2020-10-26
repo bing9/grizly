@@ -488,6 +488,7 @@ def test_to_df():
 
 def test_to_crosstab():
     q = QFrame(dsn="redshift_acoe").from_table(table="table_tutorial", schema="grizly")
+    q.orderby("col1")
     test_html = q.to_crosstab(dimensions=["col1", "col2"], measures=["col4"]).to_html()
     html = """<table>
             <thead>
