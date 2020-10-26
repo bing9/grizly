@@ -2,7 +2,6 @@ import json
 import logging
 import os
 from functools import partial, wraps
-from itertools import chain, islice
 from sys import platform
 from time import sleep
 from typing import Iterable, List, TypeVar
@@ -193,25 +192,6 @@ def clean(df):
     df[bool_cols] = df[bool_cols].astype(int)
 
     return df
-
-
-@deprecation.deprecated(
-    details="Use Config().from_json function or in case of AWS credentials - start using S3 class !!!",
-)
-def read_config():
-    if platform.startswith("linux"):
-        home_env = "HOME"
-    else:
-        home_env = "USERPROFILE"
-    default_config_dir = os.path.join(os.environ[home_env], ".grizly")
-
-    try:
-        json_path = os.path.join(default_config_dir, "etl_config.json")
-        with open(json_path, "r") as f:
-            config = json.load(f)
-    except KeyError:
-        config = "Error with UserProfile"
-    return config
 
 
 def retry(exceptions, tries=4, delay=3, backoff=2, logger=None):

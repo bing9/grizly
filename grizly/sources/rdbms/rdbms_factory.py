@@ -41,6 +41,5 @@ def RDBMS(dsn: str, dialect: str = None, db: str = None, **kwargs):
         return SFDB(dsn=dsn, **kwargs)
 
 
-@deprecation.deprecated(details="Use RDBMS class instead",)
 def SQLDB(*args, **kwargs):
     return RDBMS(*args, **kwargs)

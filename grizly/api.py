@@ -1,4 +1,4 @@
-from .utils.functions import set_cwd, get_path, file_extension, read_config, retry
+from .utils.functions import set_cwd, get_path, file_extension, retry
 from .store import Store
 from .config import Config, config
 
