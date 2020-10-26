@@ -8,23 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased](https://github.com/kfk/grizly/compare/v0.3.8...0.4)
 
 ### Overall changes
-
-- [api change - drivers and sources]
-- Changed configuration file
+This release contains a lot of internal api changes. We extened QFrame to support also Salesforce database and we are planning to extend it to be able to query filesystems and APIs. To make your life easier we want to manage sources configuration in grizly config file so that you only need to pass dsn (datasource name).
 
 ### QFrame
 
-- Added QFrame._fix_types(), which changes the datatypes inside QFrame (self.data) 
+- Added QFrame._fix_types(), which changes the datatypes inside QFrame (self.data)
 based on what types are actually retrieved from the top 100 rows
 - Added QFrame.store with `to_dict()` and `to_json()` methods
-- [sfdc driver]
+- Added SFDC driver - requires right configuration file and then can be used like
+    ```python
+    from grizly import QFrame
+
+    qf = QFrame(dsn="sfdc", table="Account")
+    ```
 - Added `to_crosstab()`, `to_arrow()` methods
 - Deprecated `save_json()` method (`QFrame.store.to_json()` should be used instead)
 - Replaced 'type' and 'custom_type' keys with 'dtype' key
 
-### SQLDB
+### Config
 
-- Since grizly 0.4 SQLDB class is deprecated, RDBMS class should be used instead
+- Changed "email_address" and "email_password" keys to "address" and "password"
+- Renamed "sqldb" key to "sources" key and moved "github" and "sfdc" keys under
+
+### Extract
+
+- Added SimpleExtract to extract data in single-node mode
+- Added SFDCExtract for Salesforce extracts
 
 ### Removed functions
 
@@ -61,15 +70,12 @@ based on what types are actually retrieved from the top 100 rows
 ### Config
 
 - Added `s3` key with `bucket` subkey
-- Changed "email_address" and "email_password" keys to "address" and "password"
 
 ### Extract
 
 - Released first version
 - Moved from `dangerous/experimental.py` to `tools/extract.py`
 - Added tutorial in `tutorials`
-- Added SimpleExtract to extract data in single-node mode
-- Added SFDCExtract for Salesforce extracts
 
 ## [0.3.7](https://github.com/kfk/grizly/compare/v0.3.7rc1...v0.3.7) - 04-09-2020
 
