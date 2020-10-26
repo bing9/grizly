@@ -11,7 +11,7 @@ from logging import Logger
 from time import sleep, time
 from typing import Any, Dict, Iterable, List
 from distributed import Client, Future, progress
-from ..tools.s3 import S3
+from ..sources.filesystem.old_s3 import S3
 
 import dask
 import graphviz
@@ -25,8 +25,8 @@ from exchangelib.errors import ErrorFolderNotFound
 
 from ..config import Config
 from ..tools.email import Email, EmailAccount
-from ..utils import get_path, retry
-from ..tools.sqldb import SQLDB
+from ..utils.functions import get_path, retry
+from ..sources.rdbms.rdbms_factory import RDBMS as SQLDB
 
 
 workflows_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows/workflows"

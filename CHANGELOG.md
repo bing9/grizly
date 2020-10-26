@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [0.4.0rc0](https://github.com/kfk/grizly/compare/v0.3.8...v0.4.0rc0) - 25-10-2020
+
+### Overall changes
+
+This release contains a lot of internal api changes. We extened QFrame to support also Salesforce database and we are planning to extend it to be able to query filesystems and APIs. To make your life easier we want to manage sources configuration in grizly config file so that you only need to pass dsn (datasource name). We also moved to new scheduling infrastructure so **old orchestrate has been removed**.
+
+### QFrame
+
+- Added `_fix_types()`, which changes the datatypes inside QFrame (self.data)
+based on what types are actually retrieved from the top 100 rows
+- Added QFrame.store with `to_dict()` and `to_json()` methods
+- Added SFDC driver - requires right configuration file and then can be used like
+    ```python
+    from grizly import QFrame
+
+    qf = QFrame(dsn="sfdc", table="Account")
+    qf.remove_compound_fields() # querying compound fields is not supported
+    qf.limit(10).to_df()
+    ```
+- Added `to_crosstab()`, `to_arrow()` methods
+- Deprecated `save_json()` method (`QFrame.store.to_json()` should be used instead)
+- Replaced 'type' and 'custom_type' keys with 'dtype' key
+
+### Config
+
+- Changed `email_address` and `email_password` keys to `address` and `password`
+- Renamed `sqldb` key to `sources` key and moved `github` and `sfdc` keys under
+
+### Extract
+
+- Added SimpleExtract to extract data in single-node mode
+- Added SFDCExtract for Salesforce extracts
+
+### Removed classes
+
+- Workflow, Listener, EmailListener, Schedule, Runner - please use Job class to manage scheduling instead
+- Store
+
+### Removed functions
+
+- QFrame.to_rds
+- QFrame.csv_to_s3
+- QFrame.s3_to_rds
+- s3_to_csv
+- csv_to_s3
+- df_to_s3
+- s3_to_rds
+- check_if_exists
+- create_table
+- write_to
+- get_columns
+- delete_where
+- copy_table
+- read_config
+- initiate
+
+
 ## [0.3.8](https://github.com/kfk/grizly/compare/v0.3.7...v0.3.8) - 17-09-2020
 
 ### Job
@@ -25,9 +82,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved from `dangerous/experimental.py` to `tools/extract.py`
 - Added tutorial in `tutorials`
 
-### QFrame
-- Added QFrame.store with `to_dict()` and `to_json()` methods
-
 ## [0.3.7](https://github.com/kfk/grizly/compare/v0.3.7rc1...v0.3.7) - 04-09-2020
 
 ### Scheduling
@@ -41,19 +95,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
       sum_task_1 = add(1, 2)
       job = Job(name="job_name_1")
-      job.register(tasks=[sum_task_1], 
+      job.register(tasks=[sum_task_1],
                    owner="johnsnow@example.com",
                    crons="* * * * *")
-                   
+
       sum_task_2 = add(2, 3)
       job = Job(name="job_name_2")
-      job.register(tasks=[sum_task_2], 
+      job.register(tasks=[sum_task_2],
                    owner="johnsnow@example.com",
                    upstream="job_name_1")
       ```
 
 ### Docker
-- Integrated platform with grizly repo 
+- Integrated platform with grizly repo
 
 ### S3
 - Adjusted `to_df()` and `from_df()` methods to load data to memory not local files  [#524](https://github.com/tedcs/grizly/issues/524)
@@ -76,7 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the possibility to run and cancel control checks (eg. `grizly workflow run "sales daily news control check" --local`). To cancel checks running on prod, run eg. `grizly workflow cancel "sales daily news control check"`
 - **IMPORTANT**: Engine strings (`engine` or `engine_str` parameters) are deprecated since version `0.3.6`. They are replaced with suitable datasource names (`dsn` parameter) [#455](https://github.com/kfk/grizly/issues/455)
 - Added experimental.py with the experimental Extract class
-- Removed SQLAlchemy from requirements 
+- Removed SQLAlchemy from requirements
 
 ### Orchestrate
 
@@ -84,7 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Workflow
 
-- **IMPORTANT** run() method has been removed 
+- **IMPORTANT** run() method has been removed
 
 ### SQLDB
 
@@ -180,7 +234,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### SQLDB:
 
-- Added parameter `logger` 
+- Added parameter `logger`
 - Added parameter `interface` with options: "sqlalchemy", "turbodbc", "pyodbc"
 - `check_if_exists()` - added option `column`
 
@@ -290,6 +344,8 @@ For the S3 we use AWS configuration so if you don't have it in `.aws` folder ple
 - **PROXY**
 You can get some connection errors if you don't have at least one of `HTTPS_PROXY` or `HTTP_PROXY` specified in env variables. Some libraries may not be installed if you don't have `HTTPS_PROXY` specified.
 
+[0.3.8]: https://github.com/kfk/grizly/compare/v0.3.7...v0.3.8
+[0.3.7]: https://github.com/kfk/grizly/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/kfk/grizly/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/kfk/grizly/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/kfk/grizly/compare/v0.3.3...v0.3.4
