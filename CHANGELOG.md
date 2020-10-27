@@ -5,14 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
-## [Unreleased](https://github.com/kfk/grizly/compare/v0.3.8...0.4)
+## [0.4.0rc0](https://github.com/kfk/grizly/compare/v0.3.8...v0.4.0rc0) - 26-10-2020
 
 ### Overall changes
-This release contains a lot of internal api changes. We extened QFrame to support also Salesforce database and we are planning to extend it to be able to query filesystems and APIs. To make your life easier we want to manage sources configuration in grizly config file so that you only need to pass dsn (datasource name).
+
+This release contains a lot of internal api changes. We extened QFrame to support also Salesforce database and we are planning to extend it to be able to query filesystems and APIs. To make your life easier we want to manage sources configuration in grizly config file so that you only need to pass dsn (datasource name). We also moved to new scheduling infrastructure so **old orchestrate has been removed**.
 
 ### QFrame
 
-- Added QFrame._fix_types(), which changes the datatypes inside QFrame (self.data)
+- Added `_fix_types()`, which changes the datatypes inside QFrame (self.data)
 based on what types are actually retrieved from the top 100 rows
 - Added QFrame.store with `to_dict()` and `to_json()` methods
 - Added SFDC driver - requires right configuration file and then can be used like
@@ -20,6 +21,8 @@ based on what types are actually retrieved from the top 100 rows
     from grizly import QFrame
 
     qf = QFrame(dsn="sfdc", table="Account")
+    qf.remove_compound_fields() # querying compound fields is not supported
+    qf.limit(10).to_df()
     ```
 - Added `to_crosstab()`, `to_arrow()` methods
 - Deprecated `save_json()` method (`QFrame.store.to_json()` should be used instead)
@@ -27,13 +30,18 @@ based on what types are actually retrieved from the top 100 rows
 
 ### Config
 
-- Changed "email_address" and "email_password" keys to "address" and "password"
-- Renamed "sqldb" key to "sources" key and moved "github" and "sfdc" keys under
+- Changed `email_address` and `email_password` keys to `address` and `password`
+- Renamed `sqldb` key to `sources` key and moved `github` and `sfdc` keys under
 
 ### Extract
 
 - Added SimpleExtract to extract data in single-node mode
 - Added SFDCExtract for Salesforce extracts
+
+### Removed classes
+
+- Workflow, Listener, EmailListener, Schedule, Runner - please use Job class to manage scheduling instead
+- Store
 
 ### Removed functions
 
@@ -53,9 +61,6 @@ based on what types are actually retrieved from the top 100 rows
 - read_config
 - initiate
 
-### Removed classes
-
-- Store
 
 ## [0.3.8](https://github.com/kfk/grizly/compare/v0.3.7...v0.3.8) - 17-09-2020
 
