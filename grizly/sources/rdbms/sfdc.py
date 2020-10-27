@@ -207,6 +207,23 @@ class SFDB(RDBMSBase):
             )
             raise SalesforceAuthenticationFailed
 
+    def get_columns(self, schema=None, table=None, columns=None, column_types=True):
+        all_source_columns = self.table(table).columns
+        all_source_dtypes = self.table(table).types
+        if columns:
+            cols_to_return = [col for col in all_source_columns if col in columns]
+        else:
+            cols_to_return = all_source_columns
+        if column_types:
+            types = [
+                dtype
+                for col, dtype in dict(zip(all_source_columns, all_source_dtypes)).items()
+                if col in cols_to_return
+            ]
+            return cols_to_return, types
+        else:
+            return cols_to_return
+
     @property
     def tables(self):
         """Alias for objects"""
