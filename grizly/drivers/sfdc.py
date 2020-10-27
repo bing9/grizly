@@ -50,7 +50,7 @@ class SFDCDriver(SQLDriver):
         compound_fields = [
             field
             for field in fields_and_types_cleaned
-            if fields_and_types_cleaned[field] in compound_types
+            if fields_and_types_cleaned[field].lower() in compound_types
         ]
         return compound_fields
 
