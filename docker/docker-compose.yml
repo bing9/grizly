@@ -32,3 +32,21 @@ services:
       - "3000:3000"
     container_name: sqlpad
     restart: "always"
+  dask_scheduler:
+    image: acoeteam/dask_scheduler:latest
+    ports:
+      - "8787:8787"
+    container_name: dask_scheduler
+    restart: "always"
+  dask_worker:
+    image: acoeteam/dask_worker:latest
+    volumes:
+      - .../..:/home/analyst
+      - ../../.config/odbc.ini:/etc/odbc.ini
+    environment:
+      - HTTPS_PROXY=${PROXY}
+    depends_on:
+      - dask_scheduler
+    links:
+      - grizly_notebook
+    restart: "always"
