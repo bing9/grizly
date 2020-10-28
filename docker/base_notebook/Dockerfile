@@ -1,4 +1,4 @@
-FROM python:3.8.5-buster
+FROM python:3.8.6-buster
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
@@ -18,8 +18,14 @@ RUN touch /etc/wgetrc && \
 RUN apt-get update &&\
     yes | apt-get install git python3-dev unixodbc-dev g++ libboost-all-dev\
     apt-utils vim unixodbc odbc-postgresql awscli wkhtmltopdf \
-    fonts-font-awesome graphviz sudo ca-certificates && \
+    fonts-font-awesome graphviz sudo ca-certificates zsh && \
     rm -rf /var/lib/apt/lists/*
+
+## Beautify shell
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" && \
+    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k && \
+    echo 'ZSH_THEME="powerlevel10k/powerlevel10k"' >> ~/.zshrc
+# TODO: add premade .zshrc and .p10k.zsh
 
 # Java stuff is "special"
 RUN curl -sL https://deb.nodesource.com/setup_12.x | bash - && \
@@ -28,15 +34,15 @@ RUN curl -sL https://deb.nodesource.com/setup_12.x | bash - && \
 ## External packages
 WORKDIR /opt
 #Creating PDFs from HTML
-RUN wget https://github.com/wkhtmltopdf/wkhtmltopdf/releases/download/0.12.3/wkhtmltox-0.12.3_linux-generic-amd64.tar.xz --no-check-certificate && \
-    tar -vxf wkhtmltox-0.12.3_linux-generic-amd64.tar.xz && \
-    rm -rf wkhtmltox-0.12.3_linux-generic-amd64.tar.xz
+RUN wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.buster_amd64.deb --no-check-certificate && \
+    apt install -y ./wkhtmltox_0.12.6-1.buster_amd64.deb && \
+    rm -rf wkhtmltox_0.12.6-1.buster_amd64.deb
 
 ## Databases, ODBC
 # Redshift
-RUN wget https://redshift-downloads.s3.amazonaws.com/drivers/odbc/1.4.10.1000/AmazonRedshiftODBC-64-bit-1.4.10.1000-1.x86_64.deb && \
-    apt install ./AmazonRedshiftODBC-64-bit-1.4.10.1000-1.x86_64.deb && \
-    rm -rf AmazonRedshiftODBC-64-bit-1.4.10.1000-1.x86_64.deb
+RUN wget https://s3.amazonaws.com/redshift-downloads/drivers/odbc/1.4.17.1000/AmazonRedshiftODBC-64-bit-1.4.17.1000-1.x86_64.deb && \
+    apt install ./AmazonRedshiftODBC-64-bit-1.4.17.1000-1.x86_64.deb && \
+    rm -rf AmazonRedshiftODBC-64-bit-1.4.17.1000-1.x86_64.deb
 
 # Denodo
 ENV DENODO_HOME="/opt/denodo"
@@ -45,7 +51,7 @@ RUN tar -vxf Denodo/denodo-vdp-odbcdriver.tar.gz && \
     rm -rf Denodo
 
 # appdend odbcini configs
-COPY docker/base_notebook/odbcinst.ini .
+# COPY docker/base_notebook/odbcinst.ini .
 # RUN echo "" >> /etc/odbcinst.ini && \
 #     cat odbcinst.ini >> /etc/odbcinst.ini && \
 #     rm -f odbcinst.ini
@@ -88,5 +94,3 @@ RUN jupyter labextension install @jupyterlab/toc --no-build && \
     rm -rf $HOME/.node-gyp && \
     rm -rf $HOME/.local && \
     jupyter serverextension enable dask_labextension
-
-ENTRYPOINT ["/bin/bash", "-c", "jupyter notebook --port=8888 --no-browser --ip=0.0.0.0 --allow-root --NotebookApp.token=''"]

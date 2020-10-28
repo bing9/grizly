@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, date
+from sqlite3.dbapi2 import NotSupportedError
 from typing import List, Union, Any
 
 from ..types import SFDB
@@ -29,6 +30,9 @@ class SFDCDriver(SQLDriver):
         records = self.source._fetch_records(self.get_sql(), self.store["select"]["table"])
         records_casted = self._cast_records(records)
         return records_casted
+
+    def rename(self, *args, **kwargs):
+        raise NotSupportedError("Field aliases are not supported in SOSQL")
 
     def _validate_fields(self):
         """Check if requested fields are in SF table

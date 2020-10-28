@@ -1,18 +1,16 @@
-import logging
+import datetime
+import math
 import os
-from logging import Logger
 from sqlite3.dbapi2 import NotSupportedError
 from typing import Any, Dict, Iterable, List
-import math
-import pytz
-import datetime
 
+import pytz
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
 
 from ...config import Config
 from ...config import config as default_config
-from ...utils.functions import chunker
+from ...utils.functions import chunker, get_past_date
 from ...utils.type_mappers import sfdc_to_pyarrow, sfdc_to_python, sfdc_to_sqlalchemy
 from .base import BaseTable, RDBMSBase
 
@@ -57,12 +55,33 @@ class SFDCTable(BaseTable):
         return dtypes
 
     def deleted(self, n: int, unit: str = "days") -> List[str]:
+        """Show deleted records"""
         end = datetime.datetime.now(pytz.UTC)  # SFDC API requires UTC
         period = eval(f"datetime.timedelta({unit}={n})")
         start = end - period
         response = self.sf_table.deleted(start, end)
         ids = [record["id"] for record in response["deletedRecords"]]
         return ids
+
+    def modified(self, n: int, unit: str = "days", columns: List[str] = ["Id"]) -> List[tuple]:
+        """Show modified records"""
+        start = get_past_date(n=n, unit=unit)
+        return self._filter_by_date(_date=start, filter_column="SystemModstamp", columns=columns)
+
+    def created(self, n: int, unit: str = "days", columns: List[str] = ["Id"]) -> List[tuple]:
+        """Show new records"""
+        start = get_past_date(n=n, unit=unit)
+        return self._filter_by_date(_date=start, filter_column="CreatedDate", columns=columns)
+
+    def _filter_by_date(
+        self, _date: datetime.datetime, filter_column: str, columns: List[str] = ["Id"]
+    ) -> List[tuple]:
+        # WARNING - this only returns the first 2k records
+        cols_sql = ", ".join(columns)
+        query = f"SELECT {cols_sql} FROM {self.name} WHERE {filter_column} > {_date.isoformat()}"
+        response = self.source.con.query(query)
+        records = self.source._sfdc_records_to_records(response)
+        return records
 
     @property
     def nrows(self):
@@ -188,12 +207,6 @@ class SFDB(RDBMSBase):
             )
             raise SalesforceAuthenticationFailed
 
-    @property
-    def tables(self):
-        """Alias for objects"""
-        return self.objects
-
-    # TODO: delete
     def get_columns(self, schema=None, table=None, columns=None, column_types=True):
         all_source_columns = self.table(table).columns
         all_source_dtypes = self.table(table).types
@@ -210,6 +223,11 @@ class SFDB(RDBMSBase):
             return cols_to_return, types
         else:
             return cols_to_return
+
+    @property
+    def tables(self):
+        """Alias for objects"""
+        return self.objects
 
     @property
     def objects(self):
@@ -262,4 +280,3 @@ class SFDB(RDBMSBase):
 
     def write_to(self, **kwargs):
         raise NotSupportedError
-

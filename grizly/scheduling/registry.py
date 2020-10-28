@@ -1,25 +1,29 @@
-from ..exceptions import JobNotFoundError, JobRunNotFoundError, JobAlreadyRunningError
-from ..config import Config
-from rq_scheduler import Scheduler
-from rq import Queue
-from rq.job import Job as RqJob, NoSuchJobError
-from redis import Redis
-from distributed.protocol.serialize import deserialize as dask_deserialize
-from distributed.protocol.serialize import serialize as dask_serialize
-from distributed import Client, Future
-from dask.delayed import Delayed
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sys
+from abc import ABC, abstractmethod
+from datetime import datetime, timezone
+from functools import wraps
+from time import time
+from typing import Any, List, Literal, Optional, Union
+
 import dask
 from croniter import croniter
-from typing import Any, Dict, List, Literal, Union, Optional
-from time import time
-import sys
-import os
-import logging
-import json
-from functools import wraps
-from datetime import datetime, timezone
-from abc import ABC, abstractmethod
+from dask.delayed import Delayed
+from distributed import Client, Future
+from distributed.protocol.serialize import deserialize as dask_deserialize
+from distributed.protocol.serialize import serialize as dask_serialize
+from redis import Redis
+from rq import Queue
+from rq.job import Job as RqJob
+from rq.job import NoSuchJobError
+from rq_scheduler import Scheduler
 
+from ..config import Config
+from ..exceptions import JobAlreadyRunningError, JobNotFoundError, JobRunNotFoundError
 from ..store import Store
 
 
@@ -67,6 +71,7 @@ class SchedulerDB:
             stream=sys.stderr,
         )
         self.config = Config().get_service("scheduling")
+        self._con = None
         self.redis_host = (
             redis_host
             or os.getenv("GRIZLY_REDIS_HOST")
@@ -79,8 +84,9 @@ class SchedulerDB:
 
     @property
     def con(self):
-        con = Redis(host=self.redis_host, port=self.redis_port, db=0)
-        return con
+        if not self._con:
+            self._con = Redis(host=self.redis_host, port=self.redis_port, db=0)
+        return self._con
 
     def add_trigger(self, name: str):
         tr = Trigger(name=name, logger=self.logger, db=self)
@@ -130,12 +136,16 @@ class SchedulerDB:
             jobs.append(job)
         return sorted(jobs, key=lambda job: job.name)
 
-    def get_job_runs(self, job_name: Optional[str] = None) -> List["JobRun"]:
-        job_runs = []
+    def get_job_runs(self, job_name: Optional[str] = None) -> List[JobRun]:
 
-        if job_name is not None:
+        if job_name is None:
+            jobs = self.get_jobs()
+            job_runs = [run for job in jobs for run in job.runs]
+        else:
             prefix = f"{JobRun.prefix}{job_name}:"
             job_run_hash_names = [val.decode("utf-8") for val in self.con.keys(f"{prefix}*")]
+
+            job_runs = []
             for job_run_hash_name in job_run_hash_names:
                 job_run_id = job_run_hash_name[len(f"{prefix}") :]
                 if job_run_id != "id":
@@ -143,11 +153,7 @@ class SchedulerDB:
                         job_name=job_name, id=int(job_run_id), logger=self.logger, db=self
                     )
                     job_runs.append(job_run)
-        else:
-            jobs = self.get_jobs()
-            for job in jobs:
-                job_runs.extend(job.runs)
-        return job_runs
+        return sorted(job_runs)
 
     def _check_if_jobs_exist(
         self, job_names: Union[List[str], str],
@@ -183,6 +189,7 @@ class SchedulerObject(ABC):
             self.name = name or ""
             self.hash_name = self.prefix + self.name
         self.db = db or SchedulerDB(logger=logger, redis_host=redis_host, redis_port=redis_port)
+        self._con = None
         self.logger = logger or logging.getLogger(__name__)
         logging.basicConfig(
             format="%(asctime)s | %(levelname)s : %(message)s",
@@ -198,8 +205,9 @@ class SchedulerObject(ABC):
 
     @property
     def con(self):
-        con = self.db.con
-        return con
+        if not self._con:
+            self._con = self.db.con
+        return self._con
 
     @property
     def created_at(self) -> datetime:
@@ -230,7 +238,7 @@ class SchedulerObject(ABC):
 
     @property
     def meta(self) -> Store:
-        deserialized_data = {}
+        deserialized_data = {"name": self.name}
         for key, value in self.con.hgetall(self.hash_name).items():
             key = key.decode()
             if key == "tasks":

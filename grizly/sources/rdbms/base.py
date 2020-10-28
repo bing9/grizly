@@ -452,7 +452,7 @@ class RDBMSBase(BaseSource):
             records = con.execute(sql).fetchall()
             self.logger.debug(f"Successfully ran query\n {sql}")
         except:
-            self.logger.exception(f"Error occured during running query\n {sql}")
+            self.logger.exception(f"Error occurred during running query\n {sql}")
         finally:
             con.close()
             self.logger.debug("Connection closed")
