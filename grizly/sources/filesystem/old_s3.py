@@ -73,7 +73,6 @@ class S3:
         self.id = next(self._ids)
 
         if url:
-            self.url = url
             _, _, self.bucket, *s3_key_list = url.split("/")[:-1]
             self.s3_key = "/".join(s3_key_list) + "/"
             self.file_name = url.split("/")[-1]
@@ -83,13 +82,9 @@ class S3:
             if not self.s3_key.endswith("/") and self.s3_key != "":
                 self.s3_key += "/"
             self.bucket = bucket or "acoe-s3"
-            self.url = f"s3://{self.bucket}/{self.s3_key}{self.file_name}"
 
-        self.file_ext = file_extension(self.file_name)
-        self.full_s3_key = self.s3_key + self.file_name
         self.file_dir = file_dir or get_path("s3_loads")
         os.makedirs(self.file_dir, exist_ok=True)
-        self.file_path = os.path.join(self.file_dir, self.file_name)
 
         self.min_time_window = min_time_window
         self.logger = logger or logging.getLogger(__name__)
@@ -105,6 +100,22 @@ class S3:
 
     def __repr__(self):
         return f"{self.__class__.__name__}(url='{self.url}')"
+
+    @property
+    def full_s3_key(self):
+        return self.s3_key + self.file_name
+
+    @property
+    def file_path(self):
+        return os.path.join(self.file_dir, self.file_name)
+
+    @property
+    def url(self):
+        return f"s3://{self.bucket}/{self.s3_key}{self.file_name}"
+
+    @property
+    def file_ext(self):
+        return file_extension(self.file_name)
 
     @property
     def aws_credentials(self):
@@ -284,17 +295,20 @@ class S3:
             df = clean(df)
             df = clean_colnames(df)
 
-        output = os.path.join(self.file_dir, self.file_name) if to_file else StringIO()
         if self.file_ext == "csv":
+            output = self.file_path if to_file else StringIO()
             df.to_csv(output, index=index, sep=sep, **kwargs)
         elif self.file_ext == "xlsx":
+            output = self.file_path if to_file else BytesIO()
             df.to_excel(output, index=index, **kwargs)
         else:
+            output = self.file_path if to_file else StringIO()
             df.to_parquet(output, index=index, **kwargs)
+
         if to_file:
             return self.from_file(keep_file=kwargs.get("keep_file", False), if_exists=if_exists)
         else:
-            return self._from_buffer(output)
+            return self.from_buffer(output, if_exists=if_exists)
 
     def from_file(
         self,
@@ -380,6 +394,46 @@ class S3:
         self.logger.info(
             f"Successfully uploaded '{self.file_name}' to 's3://{self.bucket}/{self.s3_key}'"
         )
+
+    def from_buffer(
+        self,
+        buffer: Union[BytesIO, StringIO],
+        if_exists: Literal["fail", "skip", "replace", "archive"] = "replace",
+        versioning: bool = True,
+    ):
+        """Writes local file to S3.
+
+        Parameters
+        ----------
+        keep_file:
+            Whether to keep the local file copy after uploading it to Amazon S3, by default True
+        if_exists : str, optional
+            How to behave if the S3 already exists.
+
+            * fail: Raise ValueError
+            * skip: Abort without throwing an error
+            * replace: Overwrite existing file
+            * archive: Move old S3 to archive/s3_key/file_name(version)
+
+        """
+        if if_exists not in ("fail", "skip", "replace", "archive"):
+            raise ValueError(f"'{if_exists}' is not valid for if_exists")
+
+        if self.exists():
+            if if_exists == "fail":
+                raise ValueError(f"{self.full_s3_key} already exists")
+            elif if_exists == "skip":
+                return self
+            elif if_exists == "archive":
+                self.archive(versioning=versioning)
+
+        self._from_buffer(buffer=buffer)
+        self.status = "uploaded"
+
+        self.logger.info(f"Successfully uploaded '{self.file_name}' to S3")
+        self.logger.debug(f"{self.file_name}'s S3 location: 's3://{self.bucket}/{self.s3_key}'")
+
+        return self
 
     @_check_if_s3_exists
     def to_df(self, to_file=False, **kwargs) -> DataFrame:
@@ -731,7 +785,7 @@ class S3:
         self.logger.debug(f"'{self.file_name}''s Aurora location: {table_name}")
 
     def archive(self, versioning=True):
-        """Moves S3 to 'archive/' key. It adds also the versions of the file
+        """Moves S3 to 'archive/[today]/' key. It adds also the versions of the file
         eg. file(0).csv, file(1).csv, ...
 
         Examples
