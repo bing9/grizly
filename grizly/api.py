@@ -1,8 +1,7 @@
-from .utils.functions import set_cwd, get_path, file_extension, retry
+from .utils.functions import set_cwd, get_path, file_extension, retry, copy_df_to_excel
 from .store import Store
 from .config import Config, config
 
-# from .tools.base import copy_df_to_excel
 from .drivers.frames_factory import QFrame
 from .drivers.sql import union, join
 from .tools.crosstab import Crosstab
