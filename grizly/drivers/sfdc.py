@@ -1,23 +1,24 @@
 from __future__ import annotations
-
-from datetime import datetime, date
+from datetime import date, datetime
+import re
 from sqlite3.dbapi2 import NotSupportedError
-from typing import List, Union, Any
+from typing import Any, List, Union
+
+import numpy as np
+import pyarrow as pa
+from pyarrow.types import (
+    is_date32,
+    is_float32,
+    is_float64,
+    is_floating,
+    is_string,
+    is_temporal,
+    is_timestamp,
+)
 
 from ..types import SFDB
 from ..utils.type_mappers import sfdc_to_pyarrow
 from .sql import SQLDriver
-import numpy as np
-from pyarrow.types import (
-    is_floating,
-    is_timestamp,
-    is_date32,
-    is_string,
-    is_temporal,
-    is_float32,
-    is_float64,
-)
-import pyarrow as pa
 
 
 class SFDCDriver(SQLDriver):
@@ -31,8 +32,8 @@ class SFDCDriver(SQLDriver):
         records_casted = self._cast_records(records)
         return records_casted
 
-    def rename(self, *args, **kwargs):
-        raise NotSupportedError("Field aliases are not supported in SOSQL")
+    # def rename(self, *args, **kwargs):
+    #     raise NotSupportedError("Field aliases are not supported in SOSQL")
 
     def _validate_fields(self):
         """Check if requested fields are in SF table
@@ -181,3 +182,82 @@ class SFDCDriver(SQLDriver):
             raise ValueError(
                 f"Ungroupable fields found: {invalid_fields}. Please remove them from your query."
             )
+
+    def _build_column_strings(self):
+        # quotes wrapping fields differ depending on database (NOT ONLY DIALECT)
+        quote = self.source._quote
+        if self.store == {}:
+            return {}
+
+        duplicates = self._get_duplicated_columns()
+        assert (
+            duplicates == {}
+        ), f"""Some of your fields have the same aliases {duplicates}. Use your_qframe.remove() to remove or your_qframe.rename() to rename columns."""
+        select_names = []
+        select_aliases = []
+        group_dimensions = []
+        group_values = []
+        order_by = []
+        types = []
+
+        fields = self.store["select"]["fields"]
+        selected_fields = self._get_fields(aliased=False, not_selected=False)
+
+        for field in fields:
+            if "expression" in fields[field] and fields[field]["expression"] != "":
+                expr = fields[field]["expression"]
+            else:
+                prefix = re.search(r"^sq\d*[.]", field)
+                if prefix is not None:
+                    expr = f"{prefix.group(0)}{quote}{field[len(prefix.group(0)):]}{quote}"
+                else:
+                    expr = f"{quote}{field}{quote}"
+
+            alias = field
+
+            pos = None
+            # we take either position or expression - depends if field is in select
+            if field in selected_fields and self.source._use_ordinal_position_notation:
+                pos = str(selected_fields.index(field) + 1)
+
+            if "group_by" in fields[field]:
+                if fields[field]["group_by"].upper() == "GROUP":
+                    group_dimensions.append(pos or expr)
+
+                elif fields[field]["group_by"].upper() in [
+                    "SUM",
+                    "COUNT",
+                    "MAX",
+                    "MIN",
+                    "AVG",
+                ]:
+                    agg = fields[field]["group_by"]
+                    expr = f"{agg}({expr})"
+                    group_values.append(alias)
+
+            if "order_by" in fields[field] and fields[field]["order_by"] != "":
+                if fields[field]["order_by"].upper() == "DESC":
+                    order = " DESC"
+                else:
+                    order = ""
+                order_by.append(f"{pos or expr}{order}")
+
+            if field in selected_fields:
+                select_name = expr
+
+                dtype = fields[field]["dtype"].upper()
+
+                select_names.append(select_name)
+                select_aliases.append(alias)
+                types.append(dtype)
+
+        sql_blocks = {
+            "select_names": select_names,
+            "select_aliases": select_aliases,
+            "group_dimensions": group_dimensions,
+            "group_values": group_values,
+            "order_by": order_by,
+            "types": types,
+        }
+
+        return sql_blocks
