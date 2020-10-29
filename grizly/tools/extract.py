@@ -1,10 +1,9 @@
+import datetime
 import gc
 import json
-import logging
 import os
 from abc import abstractmethod
-from os import stat
-from typing import Any, List, Union, Optional
+from typing import Any, List, Optional, Union
 
 import dask
 import pyarrow as pa
@@ -13,7 +12,6 @@ import s3fs
 from dask.delayed import Delayed
 from distributed import Client
 from pyarrow import Table
-import datetime
 
 from ..config import config
 from ..drivers.frames_factory import QFrame
@@ -26,10 +24,12 @@ WORKING_DIR = os.getcwd()
 
 
 class BaseExtract:
+    db = None
+
     def __init__(
         self,
         name: str,
-        driver: BaseDriver,
+        qf: QFrame,
         s3_root_url: str = None,
         output_external_table: str = None,
         output_external_schema: str = None,
@@ -40,7 +40,7 @@ class BaseExtract:
         self.bucket = config.get_service("s3")["bucket"]
         self.name = name
         self.name_snake_case = self._to_snake_case(name)
-        self.driver = driver
+        self.qf = qf
         self.output_table_type = output_table_type
         self.s3_root_url = s3_root_url or f"s3://{self.bucket}/extracts/{self.name_snake_case}/"
         self.output_external_table = output_external_table or self.name_snake_case
@@ -51,7 +51,7 @@ class BaseExtract:
         self.if_exists = if_exists
         self.table_if_exists = self._map_if_exists(if_exists)
         self.priority = 0
-        self.logger = self.driver.logger
+        self.logger = self.qf.logger
 
     @staticmethod
     def _to_snake_case(text):
@@ -74,7 +74,7 @@ class BaseExtract:
     @dask.delayed
     def to_arrow(self):
         self.logger.info("Writing data to arrow...")
-        pa = self.driver.to_arrow()
+        pa = self.qf.to_arrow()
         gc.collect()
         return pa
 
@@ -101,13 +101,13 @@ class BaseExtract:
 
     @dask.delayed
     def to_s3(self, path):
-        self.driver.to_parquet(path)
+        self.qf.to_parquet(path)
 
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
         s3_staging_key = os.path.join(self.s3_root_url, "data", "staging")
         # recreate the table even if if_exists is "append", because we append parquet files
-        self.driver.create_external_table(
+        self.qf.create_external_table(
             schema=self.output_external_schema,
             table=self.output_external_table,
             dsn=self.output_dsn,
@@ -165,10 +165,12 @@ class BaseExtract:
 
 
 class SimpleExtract(BaseExtract):
+    db = None
+
     def generate_tasks(self):
         file_name = self.name_snake_case + ".parquet"
         path = os.path.join(self.s3_root_url, file_name)
-        s3 = self.driver.to_s3(path)
+        s3 = self.qf.to_s3(path)
         external_table = self.create_external_table(upstream=s3)
         base_table = self.create_table(upstream=external_table)
 
@@ -183,6 +185,8 @@ class SimpleExtract(BaseExtract):
 
 
 class SFDCExtract(BaseExtract):
+    db = "sfdc"
+
     def __init__(self, *args, scheduler_address=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
@@ -220,7 +224,7 @@ class SFDCExtract(BaseExtract):
 
     @dask.delayed
     def get_urls(self):
-        return self.driver.source._get_urls_from_response(query=self.driver.get_sql())
+        return self.qf.source._get_urls_from_response(query=self.qf.get_sql())
 
     @staticmethod
     @dask.delayed
@@ -233,11 +237,11 @@ class SFDCExtract(BaseExtract):
         start = datetime.datetime.now()
         records = []
         for url in urls:
-            records_chunk: List[tuple] = self.driver.source._fetch_records_url(url)
-            redords_chunk_processed: List[tuple] = self.driver._cast_records(records_chunk)
+            records_chunk: List[tuple] = self.qf.source._fetch_records_url(url)
+            redords_chunk_processed: List[tuple] = self.qf._cast_records(records_chunk)
             records.extend(redords_chunk_processed)
 
-        cols = self.driver.columns
+        cols = self.qf.columns
 
         _dict = {col: [] for col in cols}
         for record in records:
@@ -245,7 +249,7 @@ class SFDCExtract(BaseExtract):
                 col_name = cols[i]
                 _dict[col_name].append(col_val)
 
-        arrow_table = self.driver._dict_to_arrow(_dict)
+        arrow_table = self.qf._dict_to_arrow(_dict)
 
         duration = datetime.datetime.now() - start
         self.logger.info(
@@ -255,7 +259,9 @@ class SFDCExtract(BaseExtract):
         return arrow_table
 
 
-class Extract(BaseExtract):
+class DenodoExtract(BaseExtract):
+    db = "denodo"
+
     def __init__(
         self,
         *args,
@@ -287,7 +293,7 @@ class Extract(BaseExtract):
     def _load_attrs_from_store(self, store):
         """Load values defined in store into attributes"""
         self.partition_cols = store["partition_cols"]
-        self.output_dsn = store["output"].get("dsn") or self.driver.source.dsn
+        self.output_dsn = store["output"].get("dsn") or self.qf.source.dsn
         self.output_external_schema = store["output"].get("external_schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
         )
@@ -325,28 +331,28 @@ class Extract(BaseExtract):
                     raise ValueError(f"Driver does not contain {column}")
 
         columns = self.partition_cols
-        existing_columns = self.driver.get_fields(aliased=True)
+        existing_columns = self.qf.get_fields(aliased=True)
         _validate_columns(columns, existing_columns)
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
         try:
             # faster method, but this will fail if user is working on multiple schemas/tables
-            schema = self.driver.store["select"]["schema"]
-            table = self.driver.store["select"]["table"]
-            where = self.driver.store["select"]["where"]
+            schema = self.qf.store["select"]["schema"]
+            table = self.qf.store["select"]["table"]
+            where = self.qf.store["select"]["where"]
 
-            partitions_driver = (
-                self.driver.copy()
+            partitions_qf = (
+                self.qf.copy()
                 .from_table(table=table, schema=schema, columns=columns)
                 .query(where)
                 .groupby()
             )
         except KeyError:
-            # source driver queries multiple tables; use source driver
-            partitions_driver = self.driver.copy().select(columns).groupby()
+            # source qf queries multiple tables; use source qf
+            partitions_qf = self.qf.copy().select(columns).groupby()
 
-        records = partitions_driver.to_records()
+        records = partitions_qf.to_records()
         if isinstance(columns, list):
             values = ["|".join(str(val) for val in row) for row in records]
         else:
@@ -417,8 +423,8 @@ class Extract(BaseExtract):
         return values
 
     @dask.delayed
-    def query_driver(self, query: str):
-        queried = self.driver.copy().query(query, if_exists="append")
+    def filter_qf(self, query: str):
+        queried = self.qf.copy().where(query, if_exists="append")
         return queried
 
     @dask.delayed
@@ -427,8 +433,8 @@ class Extract(BaseExtract):
 
     @staticmethod
     @dask.delayed
-    def to_parquet(driver, path):
-        driver.to_parquet(path)
+    def to_parquet(qf, path):
+        qf.to_parquet(path)
 
     def generate_tasks(
         self,
@@ -491,7 +497,7 @@ class Extract(BaseExtract):
             partition_concatenated = partition.replace("|", "")
             file_name = f"{partition}.parquet"
             where = f"{partition_cols}='{partition_concatenated}'"
-            processed_qf = self.query_driver(query=where)
+            processed_qf = self.filter_qf(query=where)
             s3 = self.to_parquet(
                 processed_qf, os.path.join(self.s3_root_url, "data", "staging", file_name)
             )
@@ -546,3 +552,13 @@ class Extract(BaseExtract):
 
     def validate(self):
         pass
+
+
+def Extract(qf: QFrame, *args, **kwargs):
+    db = config.get_service("sources")[qf.source.dsn]["db"]
+    if db == "sfdc":
+        return SFDCExtract(qf=qf, *args, **kwargs)
+    elif db == "denodo":
+        return DenodoExtract(qf=qf, *args, **kwargs)
+    else:
+        return SimpleExtract(qf=qf, *args, **kwargs)
