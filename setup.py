@@ -17,6 +17,7 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    entry_points={"console_scripts": ["grizly=grizly.cli:cli"]},
+    entry_points={"console_scripts": ["grizly=grizly.cli:cli"
+                    , "git-s3=grizly.cli.git_s3:cli"]},
 )
 
