@@ -839,10 +839,10 @@ def test_from_table_rds():
     assert clean_testexpr(sql) == clean_testexpr(qf.get_sql())
 
     dtypes = [
-        "CHARACTER VARYING(500)",
-        "DOUBLE PRECISION",
-        "CHARACTER VARYING(500)",
-        "DOUBLE PRECISION",
+        "character varying(500)",
+        "double precision",
+        "character varying(500)",
+        "double precision",
     ]
 
     assert dtypes == qf.get_dtypes()

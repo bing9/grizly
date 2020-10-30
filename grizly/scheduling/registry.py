@@ -71,7 +71,6 @@ class SchedulerDB:
             stream=sys.stderr,
         )
         self.config = Config().get_service("scheduling")
-        self._con = None
         self.redis_host = (
             redis_host
             or os.getenv("GRIZLY_REDIS_HOST")
@@ -84,9 +83,11 @@ class SchedulerDB:
 
     @property
     def con(self):
-        if not self._con:
-            self._con = Redis(host=self.redis_host, port=self.redis_port, db=0)
-        return self._con
+        return Redis(host=self.redis_host, port=self.redis_port, db=0)
+
+    @property
+    def _con(self):
+        return self.con
 
     def add_trigger(self, name: str):
         tr = Trigger(name=name, logger=self.logger, db=self)
@@ -189,7 +190,6 @@ class SchedulerObject(ABC):
             self.name = name or ""
             self.hash_name = self.prefix + self.name
         self.db = db or SchedulerDB(logger=logger, redis_host=redis_host, redis_port=redis_port)
-        self._con = None
         self.logger = logger or logging.getLogger(__name__)
         logging.basicConfig(
             format="%(asctime)s | %(levelname)s : %(message)s",
@@ -205,9 +205,11 @@ class SchedulerObject(ABC):
 
     @property
     def con(self):
-        if not self._con:
-            self._con = self.db.con
-        return self._con
+        return self.db.con
+
+    @property
+    def _con(self):
+        return self.con
 
     @property
     def created_at(self) -> datetime:
