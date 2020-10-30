@@ -31,7 +31,7 @@ class BaseExtract:
     def __init__(
         self,
         name: str,
-        qf: QFrame,
+        qf,
         s3_root_url: str = None,
         output_external_table: str = None,
         output_external_schema: str = None,
@@ -562,7 +562,7 @@ class DenodoExtract(BaseExtract):
         pass
 
 
-def Extract(qf: QFrame, *args, **kwargs):
+def Extract(qf, *args, **kwargs):
     db = config.get_service("sources")[qf.source.dsn]["db"]
     if db == "sfdc":
         return SFDCExtract(qf=qf, *args, **kwargs)
