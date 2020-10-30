@@ -444,22 +444,23 @@ class SQLDriver(BaseDriver):
 
         return data
 
-    def _get_sql(self, data, sqldb):
+    @classmethod
+    def _get_sql(cls, data, sqldb):
         if data == {}:
             return ""
 
-        data["select"]["sql_blocks"] = SQLDriver(source=sqldb, store=data)._build_column_strings()
+        data["select"]["sql_blocks"] = cls(source=sqldb, store=data)._build_column_strings()
         sql = ""
 
         if "union" in data["select"]:
             iterator = 1
             sq_data = deepcopy(data[f"sq{iterator}"])
-            sql += self._get_sql(sq_data, sqldb)
+            sql += cls._get_sql(sq_data, sqldb)
 
             for _ in data["select"]["union"]["union_type"]:
                 union_type = data["select"]["union"]["union_type"][iterator - 1]
                 sq_data = deepcopy(data[f"sq{iterator+1}"])
-                right_table = self._get_sql(sq_data, sqldb)
+                right_table = cls._get_sql(sq_data, sqldb)
 
                 sql += f" {union_type} {right_table}"
                 iterator += 1
@@ -482,13 +483,13 @@ class SQLDriver(BaseDriver):
             elif "join" in data["select"]:
                 iterator = 1
                 sq_data = deepcopy(data[f"sq{iterator}"])
-                left_table = self._get_sql(sq_data, sqldb)
+                left_table = cls._get_sql(sq_data, sqldb)
                 sql += f" FROM ({left_table}) sq{iterator}"
 
                 for _ in data["select"]["join"]["join_type"]:
                     join_type = data["select"]["join"]["join_type"][iterator - 1]
                     sq_data = deepcopy(data[f"sq{iterator+1}"])
-                    right_table = self._get_sql(sq_data, sqldb)
+                    right_table = cls._get_sql(sq_data, sqldb)
                     on = data["select"]["join"]["on"][iterator - 1]
 
                     sql += f" {join_type} ({right_table}) sq{iterator+1}"
@@ -498,7 +499,7 @@ class SQLDriver(BaseDriver):
 
             elif "table" not in data["select"] and "join" not in data["select"] and "sq" in data:
                 sq_data = deepcopy(data["sq"])
-                sq = self._get_sql(sq_data, sqldb)
+                sq = cls._get_sql(sq_data, sqldb)
                 sql += f" FROM ({sq}) sq"
 
             if "where" in data["select"] and data["select"]["where"] != "":
