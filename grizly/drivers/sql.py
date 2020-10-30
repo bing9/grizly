@@ -448,7 +448,7 @@ class SQLDriver(BaseDriver):
         if data == {}:
             return ""
 
-        data["select"]["sql_blocks"] = self._build_column_strings()
+        data["select"]["sql_blocks"] = SQLDriver(source=sqldb, store=data)._build_column_strings()
         sql = ""
 
         if "union" in data["select"]:

@@ -1,58 +1,58 @@
-from grizly import Job
-from grizly.tools.email import EmailAccount
-from exchangelib.errors import ErrorFolderNotFound
-from datetime import date
+# from grizly import Job
+# from grizly.tools.email import EmailAccount
+# from exchangelib.errors import ErrorFolderNotFound
+# from datetime import date
 
 
-class EmailScanJob:
-    def __init__(self, address, title, folder: str = None, *args, **kwargs):
-        self.address = address
-        self.title = title
-        self.folder = folder
-        super().__init__(*args, **kwargs)
+# class EmailScanJob:
+#     def __init__(self, address, title, folder: str = None, *args, **kwargs):
+#         self.address = address
+#         self.title = title
+#         self.folder = folder
+#         super().__init__(*args, **kwargs)
 
-    @staticmethod
-    def _validate_folder(account, folder_name):
-        if not folder_name:
-            return True
-        try:
-            account.inbox / folder_name
-        except ErrorFolderNotFound:
-            raise
+#     @staticmethod
+#     def _validate_folder(account, folder_name):
+#         if not folder_name:
+#             return True
+#         try:
+#             account.inbox / folder_name
+#         except ErrorFolderNotFound:
+#             raise
 
-    def get_last_email_date(self):
-        account = EmailAccount(alias=self.address).account
-        self._validate_folder(account, self.folder)
-        last_message = None
+#     def get_last_email_date(self):
+#         account = EmailAccount(alias=self.address).account
+#         self._validate_folder(account, self.folder)
+#         last_message = None
 
-        if self.folder:
-            try:
-                last_message = (
-                    account.inbox.glob("**/" + self.folder)
-                    .filter(subject=self.title)
-                    .order_by("-datetime_received")
-                    .only("datetime_received")[0]
-                )
-            except IndexError:
-                last_message = None
-        else:
-            try:
-                last_message = (
-                    account.inbox.filter(subject=self.title)
-                    .filter(subject=self.title)
-                    .order_by("-datetime_received")
-                    .only("datetime_received")[0]
-                )
-            except IndexError:
-                last_message = None
+#         if self.folder:
+#             try:
+#                 last_message = (
+#                     account.inbox.glob("**/" + self.folder)
+#                     .filter(subject=self.title)
+#                     .order_by("-datetime_received")
+#                     .only("datetime_received")[0]
+#                 )
+#             except IndexError:
+#                 last_message = None
+#         else:
+#             try:
+#                 last_message = (
+#                     account.inbox.filter(subject=self.title)
+#                     .filter(subject=self.title)
+#                     .order_by("-datetime_received")
+#                     .only("datetime_received")[0]
+#                 )
+#             except IndexError:
+#                 last_message = None
 
-        if not last_message:
-            return None
+#         if not last_message:
+#             return None
 
-        d = last_message.datetime_received.date()
-        last_received_date = date(d.year, d.month, d.day)
+#         d = last_message.datetime_received.date()
+#         last_received_date = date(d.year, d.month, d.day)
 
-        return last_received_date
+#         return last_received_date
 
 
 # from grizly.scheduling.system_jobs import EmailListenerJob
@@ -200,7 +200,7 @@ class EmailScanJob:
 #         previous_value = last_run.result[1] if last_run else None
 #         current_value = self.get_last_email_date(email_account)
 #         different = current_value == previous_value
-#         return different, current_value
+#         return current_value
 
 #     def register(self, *args, **kwargs):
 #         super().register(tasks=[self.listen], *args, **kwargs)

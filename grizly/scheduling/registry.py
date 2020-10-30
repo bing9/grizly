@@ -982,6 +982,7 @@ class Job(SchedulerObject):
             job_run.duration = int(end - start)
 
         if self.downstream and job_run.status == "success":
+            # self.__evaluate_downstream_condition()
             self.__submit_downstream_jobs()
 
         if to_dask:
