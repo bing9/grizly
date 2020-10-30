@@ -54,6 +54,9 @@ class SFDCTable(BaseTable):
             dtypes.append(_type)
         return dtypes
 
+    def set_password(self, user: str, password: str) -> dict:
+        return self.con.set_password(user, password)
+
     def deleted(self, n: int, unit: str = "days") -> List[str]:
         """Show deleted records"""
         end = datetime.datetime.now(pytz.UTC)  # SFDC API requires UTC
