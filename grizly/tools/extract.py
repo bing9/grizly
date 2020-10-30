@@ -24,12 +24,14 @@ WORKING_DIR = os.getcwd()
 
 
 class BaseExtract:
-    db = None
+    """
+    Common functions for all extracts. The logic for parallelization
+    must be defined in the subclass"""
 
     def __init__(
         self,
         name: str,
-        qf: QFrame,
+        qf,
         s3_root_url: str = None,
         output_external_table: str = None,
         output_external_schema: str = None,
@@ -165,7 +167,7 @@ class BaseExtract:
 
 
 class SimpleExtract(BaseExtract):
-    db = None
+    """"Extract data in single piece"""
 
     def generate_tasks(self):
         file_name = self.name_snake_case + ".parquet"
@@ -185,7 +187,15 @@ class SimpleExtract(BaseExtract):
 
 
 class SFDCExtract(BaseExtract):
-    db = "sfdc"
+    """
+    Exctract data from SFDC. The data is extracted using the standard API
+    in batches.
+
+    We partition data by querying SFDC, calculating the number of URLs with chunks of
+    response data, and grouping them into bigger chunks of eg. 50 URLs (with the typical limit
+    per URL being 250 rows). For example, a 125k row table could be split into 10 parallel
+    branches, each worker being responsible for executing one branch.
+    """
 
     def __init__(self, *args, scheduler_address=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -260,8 +270,6 @@ class SFDCExtract(BaseExtract):
 
 
 class DenodoExtract(BaseExtract):
-    db = "denodo"
-
     def __init__(
         self,
         *args,
@@ -554,7 +562,7 @@ class DenodoExtract(BaseExtract):
         pass
 
 
-def Extract(qf: QFrame, *args, **kwargs):
+def Extract(qf, *args, **kwargs):
     db = config.get_service("sources")[qf.source.dsn]["db"]
     if db == "sfdc":
         return SFDCExtract(qf=qf, *args, **kwargs)
