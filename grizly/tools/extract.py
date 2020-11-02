@@ -173,7 +173,7 @@ class SimpleExtract(BaseExtract):
     def generate_tasks(self):
         file_name = self.name_snake_case + ".parquet"
         path = os.path.join(self.s3_root_url, file_name)
-        s3 = self.qf.to_s3(path)
+        s3 = self.to_s3(path)
         external_table = self.create_external_table(upstream=s3)
         base_table = self.create_table(upstream=external_table)
 
