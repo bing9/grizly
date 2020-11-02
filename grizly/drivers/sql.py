@@ -292,7 +292,6 @@ class SQLDriver(BaseDriver):
         **kwargs,
     ):
         """Creates a new empty QFrame table in database if the table doesn't exist.
-        TODO: Remove engine_str, db, dsn and dialect and leave sqldb
 
         Parameters
         ----------
@@ -333,7 +332,6 @@ class SQLDriver(BaseDriver):
 
     def create_external_table(self, table, schema=None, dsn=None, if_exists=None, **kwargs):
         """Creates a new empty QFrame table in database if the table doesn't exist.
-        TODO: Remove engine_str, db, dsn and dialect and leave sqldb
 
         Parameters
         ----------
