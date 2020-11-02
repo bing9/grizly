@@ -17,7 +17,6 @@ from ..config import config
 from ..drivers.frames_factory import QFrame
 from ..scheduling.registry import Job, SchedulerDB
 from ..sources.filesystem.old_s3 import S3
-from ..types import BaseDriver
 from ..utils.functions import chunker
 
 WORKING_DIR = os.getcwd()
@@ -36,8 +35,9 @@ class BaseExtract:
         output_external_table: str = None,
         output_external_schema: str = None,
         output_dsn: str = None,
-        if_exists: str = "append",
+        scheduler_address: str = None,
         output_table_type: str = "external",
+        if_exists: str = "append",
     ):
         self.bucket = config.get_service("s3")["bucket"]
         self.name = name
@@ -50,6 +50,7 @@ class BaseExtract:
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
         )
         self.output_dsn = output_dsn
+        self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
         self.if_exists = if_exists
         self.table_if_exists = self._map_if_exists(if_exists)
         self.priority = 0
@@ -192,14 +193,10 @@ class SFDCExtract(BaseExtract):
     in batches.
 
     We partition data by querying SFDC, calculating the number of URLs with chunks of
-    response data, and grouping them into bigger chunks of eg. 50 URLs (with the typical limit
-    per URL being 250 rows). For example, a 125k row table could be split into 10 parallel
-    branches, each worker being responsible for executing one branch.
+    response data, and grouping them into bigger chunks of eg. 50 URLs (with the typical SFDC
+    limit per URL being 250-500 rows). For example, a 125k row table could be split into 10
+    parallel branches, each worker being responsible for processing a chunk containing 12.5k rows.
     """
-
-    def __init__(self, *args, scheduler_address=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
 
     def generate_tasks(self) -> List[Delayed]:
         self.logger.info("Generating tasks...")
@@ -251,7 +248,7 @@ class SFDCExtract(BaseExtract):
             redords_chunk_processed: List[tuple] = self.qf._cast_records(records_chunk)
             records.extend(redords_chunk_processed)
 
-        cols = self.qf.columns
+        cols = self.qf.get_fields(aliased=True)
 
         _dict = {col: [] for col in cols}
         for record in records:
@@ -262,9 +259,9 @@ class SFDCExtract(BaseExtract):
         arrow_table = self.qf._dict_to_arrow(_dict)
 
         duration = datetime.datetime.now() - start
-        self.logger.info(
-            f"Pyarrow table for batch no. {batch_no} has been successfully generated in {duration.seconds} second(s)."
-        )
+        seconds = duration.seconds
+        msg = f"Pyarrow table for batch no. {batch_no} has been successfully generated in {seconds} second(s)."
+        self.logger.info(msg)
         gc.collect()
         return arrow_table
 
@@ -276,13 +273,11 @@ class DenodoExtract(BaseExtract):
         store_backend: str = "local",
         store_path: str = None,
         store: dict = None,
-        scheduler_address: str = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.store_backend = store_backend.lower()
         self.store_path = store_path or self._get_default_store_path()
-        self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
         self.store = store or self.load_store()
         self._load_attrs_from_store(self.store)
 
@@ -472,7 +467,7 @@ class DenodoExtract(BaseExtract):
             existing_partitions = self.get_existing_partitions()
             partitions_to_download = self.get_partitions_to_download(
                 all_partitions, existing_partitions, upstream=cache_distinct_values_in_backend
-            )  # should return json obj
+            )
 
         # compute partitions on the cluster
         client = self._get_client(scheduler_address)
@@ -514,12 +509,14 @@ class DenodoExtract(BaseExtract):
         external_table = self.create_external_table(upstream=uploads)
         if self.output_table_type == "base":
             regular_table = self.create_table(upstream=external_table)
-            # clear_spectrum = self.remove_table(self.output_schema, self.output_table, upstream=regular_table)
+            # remove Spectrum table to avoid duplication
+            # clear_spectrum = self.remove_table(
+            #     self.output_schema, self.output_table, upstream=regular_table
+            # )
             final_task = regular_table
         else:
             final_task = external_table
         self.extract_tasks = [final_task]
-        # return [final_task]
 
     def register(self, db=None, crons=None, **kwargs):
         """Submit the partitions and/or extract job
@@ -563,7 +560,12 @@ class DenodoExtract(BaseExtract):
 
 
 def Extract(qf, *args, **kwargs):
+
+    if "sqlite" in qf.source.dsn:
+        return SimpleExtract(qf=qf, *args, **kwargs)
+
     db = config.get_service("sources")[qf.source.dsn]["db"]
+
     if db == "sfdc":
         return SFDCExtract(qf=qf, *args, **kwargs)
     elif db == "denodo":
