@@ -2,11 +2,11 @@ import logging
 import os
 
 import pytest
-from grizly import get_path
-from grizly.config import config
 
-from ..grizly.drivers.frames_factory import QFrame
-from ..grizly.tools.extract import Extract
+from grizly.config import config
+from grizly.drivers.frames_factory import QFrame
+from grizly.scheduling.registry import SchedulerDB
+from grizly.tools.extract import Extract
 
 """NOTE:
 When experimental.py is changing, grizly needs to be re-installed
@@ -21,6 +21,7 @@ denodo_dsn = "DenodoODBC"
 sfdc_dsn = "sfdc"
 output_dsn = "redshift_acoe"
 scheduler_address = "dask_scheduler:8786"
+db = SchedulerDB(redis_host="pytest_redis")
 
 s3_bucket = config.get_service("s3").get("bucket")
 
@@ -47,7 +48,7 @@ def simple_extract():
 @pytest.fixture(scope="session")
 def denodo_extract():
     qf = QFrame(dsn=denodo_dsn, logger=logger).from_json(f"s3://{s3_bucket}/test/qframe_store.json")
-    qf.limit(5)
+    qf.limit(1000)
     denodo_extract = Extract(
         name="Denodo Extract Test",
         qf=qf,
@@ -62,9 +63,9 @@ def denodo_extract():
 
 @pytest.fixture(scope="session")
 def sfdc_extract():
-    table = "User"
-    qf = QFrame(dsn=sfdc_dsn, table=table, logger=logger)
-    qf.limit(5)
+    table = "Account"
+    qf = QFrame(dsn=sfdc_dsn, table=table, columns=["Id", "Name"], logger=logger)
+    qf.limit(1000)
     sfdc_extract = Extract(
         name="SFDC Extract Test", qf=qf, output_dsn=output_dsn, scheduler_address=scheduler_address,
     )
@@ -79,8 +80,18 @@ def extract(simple_extract, denodo_extract, sfdc_extract, request):
 """test functions"""
 
 
-def test_connection(extract):
-    extract._get_client(scheduler_address)
+# def test_connection(extract):
+#     extract._get_client(scheduler_address)
+
+
+# def test_connection_fail(extract):
+#     with pytest.raises(OSError):
+#         extract._get_client("123:4")
+
+
+def test_e2e(simple_extract):
+    result = simple_extract.submit(db=db, scheduler_address=scheduler_address, if_exists="replace")
+    logger.warning(result)
 
 
 # def test_get_existing_partitions(extract_fixture):
