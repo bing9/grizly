@@ -24,6 +24,7 @@ from rq_scheduler import Scheduler
 
 from ..config import Config
 from ..exceptions import JobAlreadyRunningError, JobNotFoundError, JobRunNotFoundError
+from ..utils.functions import dict_diff
 from ..store import Store
 
 
@@ -281,7 +282,7 @@ class SchedulerObject(ABC):
 
             return value
 
-    def _add_values(self, key: str, new_values: Union[List[str], str]):
+    def _add_values_to_list(self, key: str, new_values: Union[List[str], str]):
         if isinstance(new_values, str):
             new_values = [new_values]
 
@@ -307,6 +308,38 @@ class SchedulerObject(ABC):
                 name=self.hash_name, key=key, value=self._serialize(out_values),
             )
         return added_values
+
+    def _update_dict_values(self, key: str, new: Dict[str, str]):
+        """
+        Parameters
+        ----------
+        key : str
+            Redis key
+        new : Dict[str, str]
+            Dictionary containing key/value pairs to be added/updated in 'key'
+        """
+        # TODO: split get_to_be_updated and update
+
+        # load existing data
+        existing = self._deserialize(self.con.hget(name=self.hash_name, key=key))
+
+        # filter out unchanged key/value pairs
+        to_update = dict_diff(existing, new, by="all")
+        if not to_update:
+            self.logger.warning("No values to update")
+            return {}
+
+        not_updated = dict_diff(to_update, new)
+        self.logger.warning(f"[{not_updated.keys()}] was not updated in {self}.{key}")
+
+        out = {**existing, **new}
+
+        # update Redis
+        self.logger.info(f"Updating {to_update.keys()} in {self}.{key}...")
+        self.con.hset(
+            name=self.hash_name, key=key, value=self._serialize(out),
+        )
+        return out
 
     def _remove_values(self, key: str, values: Union[List[str], str]):
         if isinstance(values, str):
@@ -639,7 +672,7 @@ class Job(SchedulerObject):
         trigger_names : Union[List[str], str]
             Name or list of names of triggers
         """
-        added_trigger_names = self._add_values(key="triggers", new_values=trigger_names)
+        added_trigger_names = self._add_values_to_list(key="triggers", new_values=trigger_names)
 
         for trigger_name in added_trigger_names:
             trigger = Trigger(name=trigger_name, logger=self.logger, db=self.db)
@@ -702,23 +735,25 @@ class Job(SchedulerObject):
         )
 
     @_check_if_exists()
-    def add_downstream_jobs(self, job_names: Union[List[str], str]):
+    def add_downstream_jobs(self, jobs_with_conditions: Dict[str, str]):
         """Add downstream jobs
 
         Parameters
         ----------
-        job_names : str or list
+        jobs_with_conditions : str or list
             Name or list of names of downstream jobs to add
         """
-        self.db._check_if_jobs_exist(job_names)
-
-        added_job_names = self._add_values(key="downstream", new_values=job_names)
+        self.db._check_if_jobs_exist(jobs_with_conditions.keys())
 
         # add the job as an upstream of the specified jobs
-        for job_name in added_job_names:
+        added_downstream = self._add_values_to_list(
+            key="downstream", new_values=jobs_with_conditions
+        )
+
+        for job_name, condition in added_downstream.items():
             downstream_job = Job(name=job_name, logger=self.logger, db=self.db)
-            if self not in downstream_job.upstream:
-                downstream_job.add_upstream_jobs(self.name)
+            if self not in downstream_job.upstream_jobs:
+                downstream_job.add_upstream_jobs({self.name: condition})
 
     @_check_if_exists()
     def remove_downstream_jobs(self, job_names: Union[str, List[str]]):
@@ -783,7 +818,7 @@ class Job(SchedulerObject):
         """
         self.db._check_if_jobs_exist(job_names)
 
-        added_job_names = self._add_values(key="upstream", new_values=job_names)
+        added_job_names = self._add_values_to_list(key="upstream", new_values=job_names)
 
         # add the job as a downstream of the specified jobs
         for job_name in added_job_names:
@@ -825,9 +860,9 @@ class Job(SchedulerObject):
         owner: Optional[str] = None,
         description: Optional[str] = None,
         timeout: int = 3600,
-        crons: Union[List[str], str] = [],
-        upstream: Union[List[str], str] = [],
-        triggers: Union[List[str], str] = [],
+        crons: Union[List[str], str] = None,
+        upstream: Dict[str, str] = None,
+        triggers: Union[List[str], str] = None,
         if_exists: Literal["fail", "replace"] = "fail",
         *args,
         **kwargs,
@@ -852,11 +887,9 @@ class Job(SchedulerObject):
             if not croniter.is_valid(cron):
                 raise ValueError(f"Invalid cron string {cron}")
         # upstream
-        if isinstance(upstream, str):
-            upstream = [upstream]
         if self.name in upstream:
             raise ValueError("Job cannot be its own upstream job !!!")
-        self.db._check_if_jobs_exist(upstream)
+        self.db._check_if_jobs_exist(upstream.keys())
         # triggers
         if isinstance(triggers, str):
             triggers = [triggers]
@@ -865,10 +898,10 @@ class Job(SchedulerObject):
             "owner": self._serialize(owner),
             "description": self._serialize(description),
             "timeout": self._serialize(timeout),
-            "crons": self._serialize(crons),
-            "upstream": self._serialize(upstream),
-            "downstream": self._serialize([]),
-            "triggers": self._serialize(triggers),
+            "crons": self._serialize(crons or []),
+            "upstream": self._serialize(upstream or dict()),
+            "downstream": self._serialize(dict()),
+            "triggers": self._serialize(triggers or dict()),
             "tasks": self._serialize(tasks),
             "args": self._serialize(args),
             "kwargs": self._serialize(kwargs),
@@ -885,9 +918,9 @@ class Job(SchedulerObject):
         self._rq_job_ids = self.__add_to_scheduler(crons, *args, **kwargs)
 
         # add the job as downstream in all upstream jobs
-        for upstream_job_name in upstream:
+        for upstream_job_name, condition in upstream.items():
             upstream_job = Job(name=upstream_job_name, logger=self.logger, db=self.db)
-            upstream_job.add_downstream_jobs(self.name)
+            upstream_job.add_downstream_jobs({self.name: condition})
 
         # add the job in all triggers
         for trigger_name in triggers:
@@ -1087,7 +1120,7 @@ class Trigger(SchedulerObject):
 
         self.db._check_if_jobs_exist(job_names)
 
-        self._add_values(key="jobs", new_values=job_names)
+        self._add_values_to_list(key="jobs", new_values=job_names)
 
     def register(self):
 
