@@ -834,7 +834,6 @@ class BaseDriver(ABC):
 
     def _dict_to_arrow(self, _dict):
         self.logger.debug("Generating PyArrow table...")
-
         self._fix_types()
 
         columns = self.get_fields(aliased=True)
