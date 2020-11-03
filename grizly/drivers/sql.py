@@ -1,14 +1,14 @@
-from copy import deepcopy
-from functools import partial
 import json
 import os
 import re
+import warnings
+from copy import deepcopy
+from functools import partial
 from typing import Literal
 
 import deprecation
 import sqlparse
 
-from ..sources.filesystem.old_s3 import S3
 from ..sources.rdbms.rdbms_factory import RDBMS
 from ..store import Store
 from ..types import Redshift, Source
@@ -235,9 +235,10 @@ class SQLDriver(BaseDriver):
             for val in col_value:
                 val = str(val)
                 if not re.match("^[a-zA-Z0-9_]*$", val):
-                    self.logger.warning(
+                    warnings.warn(
                         f"Value '{val}' contains special characters. You may consider"
-                        " cleaning your columns first with QFrame.assign method before pivoting."
+                        " cleaning your columns first with QFrame.assign method before pivoting.",
+                        UserWarning,
                     )
                 col_name.append(val)
             col_name = "_".join(col_name)
@@ -309,9 +310,10 @@ class SQLDriver(BaseDriver):
         sqldb = kwargs.get("sqldb")
         if sqldb:
             rdbms = sqldb
-            self.logger.warning(
+            warnings.warn(
                 "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
                 " Please use rdbms parameter instead.",
+                DeprecationWarning,
             )
 
         rdbms = rdbms or (
@@ -747,9 +749,10 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
 
     out_qf.logger.info("Data joined successfully.")
     if not unique_col:
-        out_qf.logger.warning(
+        warnings.warn(
             "Please remove or rename duplicated columns."
-            "Use your_qframe.show_duplicated_columns() to check duplicates."
+            "Use your_qframe.show_duplicated_columns() to check duplicates.",
+            UserWarning
         )
     return out_qf
 
