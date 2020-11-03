@@ -15,10 +15,10 @@ dsn = get_path("Chinook.sqlite", from_where="here")
 orders = {
     "select": {
         "fields": {
-            "Order": {"type": "dim", "as": "Bookings"},
-            "Part": {"type": "dim", "as": "Part1"},
-            "Customer": {"type": "dim", "as": "Customer"},
-            "Value": {"type": "num"},
+            "Order": {"dtype": "VARCHAR(500)", "as": "Bookings"},
+            "Part": {"dtype": "VARCHAR(500)", "as": "Part1"},
+            "Customer": {"dtype": "VARCHAR(500)", "as": "Customer"},
+            "Value": {"dtype": "FLOAT(53)"},
         },
         "table": "Orders",
     }
@@ -76,7 +76,7 @@ def test_from_json_s3():
         json_path="s3://acoe-s3/test/test_from_json_s3.json",
         subquery="test_subquery",
     )
-    assert len(q.get_fields()) == 41
+    assert len(q.get_fields()) == 1
 
 
 def test_validation_data():
@@ -151,12 +151,12 @@ def test_distinct():
     assert sql[7:15].upper() == "DISTINCT"
 
 
-def test_query():
+def test_where():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
-    q.query("country!='France'")
-    q.query("country!='Italy'", if_exists="replace")
-    q.query("(Customer='Enel' or Customer='Agip')")
-    q.query("Value>1000", operator="or")
+    q.where("country!='France'")
+    q.where("country!='Italy'", if_exists="replace")
+    q.where("(Customer='Enel' or Customer='Agip')")
+    q.where("Value>1000", operator="or")
     testexpr = "country!='Italy' and (Customer='Enel' or Customer='Agip') or Value>1000"
     assert q.data["select"]["where"] == testexpr
 
@@ -183,9 +183,9 @@ def test_having_from_table():
 def test_assign():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
     value_x_two = "Value * 2"
-    q.assign(value_x_two=value_x_two, type="num")
-    q.assign(extract_date="format('yyyy-MM-dd', '2019-04-05 13:00:09')", custom_type="date")
-    q.assign(Value_div="Value/100", type="num", order_by="DESC")
+    q.assign(value_x_two=value_x_two, dtype="FLOAT(53)")
+    q.assign(extract_date="format('yyyy-MM-dd', '2019-04-05 13:00:09')", dtype="date")
+    q.assign(Value_div="Value/100", dtype="FLOAT(53)", order_by="DESC")
     assert q.data["select"]["fields"]["value_x_two"]["expression"] == "Value * 2"
     assert q.data["select"]["fields"]["Value_div"] == {
         "dtype": "FLOAT(53)",
@@ -362,10 +362,10 @@ def test_not_selected_fields():
         store={
             "select": {
                 "fields": {
-                    "InvoiceLineId": {"type": "dim"},
-                    "InvoiceId": {"type": "dim", "select": 0},
-                    "TrackId": {"type": "dim", "select": 0},
-                    "UnitPrice": {"type": "num"},
+                    "InvoiceLineId": {"dtype": "VARCHAR(500)"},
+                    "InvoiceId": {"dtype": "VARCHAR(500)", "select": 0},
+                    "TrackId": {"dtype": "VARCHAR(500)", "select": 0},
+                    "UnitPrice": {"dtype": "FLOAT(53)"},
                 },
                 "table": "InvoiceLine",
             }
@@ -405,7 +405,7 @@ def test_not_selected_fields():
 
 def test_get_sql():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
-    q.assign(New_case="CASE WHEN Bookings = 100 THEN 1 ELSE 0 END", type="num")
+    q.assign(New_case="CASE WHEN Bookings = 100 THEN 1 ELSE 0 END", dtype="FLOAT(53)")
     q.limit(5)
     q.groupby(q.data["select"]["fields"])["Value"].agg("sum")
     testsql = """SELECT "Order" AS "Bookings",
@@ -436,17 +436,17 @@ def test_to_csv():
         store={
             "select": {
                 "fields": {
-                    "InvoiceLineId": {"type": "dim"},
-                    "InvoiceId": {"type": "dim"},
-                    "TrackId": {"type": "dim"},
-                    "UnitPrice": {"type": "num"},
-                    "Quantity": {"type": "num", "select": 0},
+                    "InvoiceLineId": {"dtype": "VARCHAR(500)"},
+                    "InvoiceId": {"dtype": "VARCHAR(500)"},
+                    "TrackId": {"dtype": "VARCHAR(500)"},
+                    "UnitPrice": {"dtype": "FLOAT(53)"},
+                    "Quantity": {"dtype": "FLOAT(53)", "select": 0},
                 },
                 "table": "InvoiceLine",
             }
         },
     )
-    q.assign(UnitPriceFlag="CASE WHEN UnitPrice>1 THEN 1 ELSE 0 END", type="dim")
+    q.assign(UnitPriceFlag="CASE WHEN UnitPrice>1 THEN 1 ELSE 0 END", dtype="VARCHAR(500)")
     q.rename({"TrackId": "Track"})
 
     csv_path = os.path.join(os.getcwd(), "invoice_items_test.csv")
@@ -465,18 +465,18 @@ def test_to_df():
     data = {
         "select": {
             "fields": {
-                "InvoiceLineId": {"type": "dim"},
-                "InvoiceId": {"type": "dim"},
-                "TrackId": {"type": "dim"},
-                "UnitPrice": {"type": "num"},
-                "Quantity": {"type": "num"},
+                "InvoiceLineId": {"dtype": "VARCHAR(500)"},
+                "InvoiceId": {"dtype": "VARCHAR(500)"},
+                "TrackId": {"dtype": "VARCHAR(500)"},
+                "UnitPrice": {"dtype": "FLOAT(53)"},
+                "Quantity": {"dtype": "FLOAT(53)"},
             },
             "table": "InvoiceLine",
         }
     }
 
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=data)
-    q.assign(sales="Quantity*UnitPrice", type="num")
+    q.assign(sales="Quantity*UnitPrice", dtype="FLOAT(53)")
     q.groupby(["TrackId"])["Quantity"].agg("sum")
     df_from_qf = q.to_df()
 
@@ -516,7 +516,7 @@ def test_to_crosstab():
 
 playlists = {
     "select": {
-        "fields": {"PlaylistId": {"type": "dim"}, "Name": {"type": "dim"}},
+        "fields": {"PlaylistId": {"dtype": "VARCHAR(500)"}, "Name": {"dtype": "VARCHAR(500)"}},
         "table": "Playlist",
     }
 }
@@ -524,7 +524,7 @@ playlists = {
 
 playlist_track = {
     "select": {
-        "fields": {"PlaylistId": {"type": "dim"}, "TrackId": {"type": "dim"}},
+        "fields": {"PlaylistId": {"dtype": "VARCHAR(500)"}, "TrackId": {"dtype": "VARCHAR(500)"}},
         "table": "PlaylistTrack",
     }
 }
@@ -533,15 +533,15 @@ playlist_track = {
 tracks = {
     "select": {
         "fields": {
-            "TrackId": {"type": "dim"},
-            "Name": {"type": "dim"},
-            "AlbumId": {"type": "dim"},
-            "MediaTypeId": {"type": "dim"},
-            "GenreId": {"type": "dim"},
-            "Composer": {"type": "dim"},
-            "Milliseconds": {"type": "num"},
-            "Bytes": {"type": "num"},
-            "UnitPrice": {"type": "num"},
+            "TrackId": {"dtype": "VARCHAR(500)"},
+            "Name": {"dtype": "VARCHAR(500)"},
+            "AlbumId": {"dtype": "VARCHAR(500)"},
+            "MediaTypeId": {"dtype": "VARCHAR(500)"},
+            "GenreId": {"dtype": "VARCHAR(500)"},
+            "Composer": {"dtype": "VARCHAR(500)"},
+            "Milliseconds": {"dtype": "FLOAT(53)"},
+            "Bytes": {"dtype": "FLOAT(53)"},
+            "UnitPrice": {"dtype": "FLOAT(53)"},
         },
         "table": "Track",
     }
@@ -553,12 +553,16 @@ def test_copy():
 
     qf_copy = qf.copy()
     assert (
-        qf_copy.data == qf.data and qf_copy.get_sql() == qf.get_sql() and qf_copy.sqldb == qf.sqldb
+        qf_copy.data == qf.data
+        and qf_copy.get_sql() == qf.get_sql()
+        and qf_copy.source == qf.source
     )
 
     qf_copy.remove("TrackId").get_sql()
     assert (
-        qf_copy.data != qf.data and qf_copy.get_sql() != qf.get_sql() and qf_copy.sqldb == qf.sqldb
+        qf_copy.data != qf.data
+        and qf_copy.get_sql() != qf.get_sql()
+        and qf_copy.source == qf.source
     )
 
 
@@ -577,7 +581,7 @@ def test_join_1():
     )
     joined_df = joined_qf.to_df()
 
-    con = playlist_track_qf.sqldb.get_connection()
+    con = playlist_track_qf.source.get_connection()
 
     playlist_track_qf.get_sql()
     pl_track_df = read_sql(sql=playlist_track_qf.get_sql(), con=con)
@@ -592,12 +596,13 @@ def test_join_1():
     # using grizly
     tracks_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=deepcopy(tracks))
 
-    joined_qf = join(
-        qframes=[playlist_track_qf, playlists_qf, tracks_qf],
-        join_type=["left join", "left join"],
-        on=["sq1.PlaylistId=sq2.PlaylistId", "sq1.TrackId=sq3.TrackId"],
-        unique_col=False,
-    )
+    with pytest.warns(UserWarning):
+        joined_qf = join(
+            qframes=[playlist_track_qf, playlists_qf, tracks_qf],
+            join_type=["left join", "left join"],
+            on=["sq1.PlaylistId=sq2.PlaylistId", "sq1.TrackId=sq3.TrackId"],
+            unique_col=False,
+        )
 
     assert joined_qf.get_fields(aliased=True) == [
         "PlaylistId",
@@ -851,12 +856,13 @@ def test_from_table_rds():
 def test_pivot_rds():
     qf = QFrame(dsn="redshift_acoe", table="table_tutorial", schema="grizly")
 
-    with pytest.raises(ValueError, match=f"'my_value' not found in fields."):
+    with pytest.raises(ValueError, match="'my_value' not found in fields."):
         qf.pivot(rows=["col1"], columns=["col2", "col3"], values="my_value")
 
     # sorted
     qf1 = qf.copy()
-    qf1.pivot(rows=["col1"], columns=["col2", "col3"], values="col4", prefix="p_", sort=True)
+    with pytest.warns(UserWarning):
+        qf1.pivot(rows=["col1"], columns=["col2", "col3"], values="col4", prefix="p_", sort=True)
 
     sql = """SELECT sq."col1" AS "col1",
                 sum(CASE
@@ -897,28 +903,31 @@ def test_join_pivot_sqlite():
     joined_qf = joined_qf.window(offset=3500, limit=100, order_by=["PlaylistId", "TrackId"])
 
     qf1 = joined_qf.copy()
-    qf1.pivot(
-        rows=["GenreId", "Composer"],
-        columns=["Name", "PlaylistId"],
-        values="UnitPrice",
-        aggtype="sum",
-    )
+    with pytest.warns(UserWarning):
+        qf1.pivot(
+            rows=["GenreId", "Composer"],
+            columns=["Name", "PlaylistId"],
+            values="UnitPrice",
+            aggtype="sum",
+        )
 
     qf2 = joined_qf.copy()
-    qf2.pivot(
-        rows=["sq3.GenreId", "sq3.Composer"],
-        columns=["sq2.Name", "sq1.PlaylistId"],
-        values="sq3.UnitPrice",
-        aggtype="sum",
-    )
+    with pytest.warns(UserWarning):
+        qf2.pivot(
+            rows=["sq3.GenreId", "sq3.Composer"],
+            columns=["sq2.Name", "sq1.PlaylistId"],
+            values="sq3.UnitPrice",
+            aggtype="sum",
+        )
 
     qf3 = joined_qf.copy()
-    qf3.pivot(
-        rows=["sq3.GenreId", "Composer"],
-        columns=["Name", "sq1.PlaylistId"],
-        values="UnitPrice",
-        aggtype="sum",
-    )
+    with pytest.warns(UserWarning):
+        qf3.pivot(
+            rows=["sq3.GenreId", "Composer"],
+            columns=["Name", "sq1.PlaylistId"],
+            values="UnitPrice",
+            aggtype="sum",
+        )
 
     assert clean_testexpr(qf1.get_sql()) == clean_testexpr(qf2.get_sql())
     assert clean_testexpr(qf2.get_sql()) == clean_testexpr(qf3.get_sql())
