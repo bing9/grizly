@@ -22,17 +22,29 @@ deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="
 
 class EmailAccount:
     @deprecated_params(params_mapping={"email_address": "address", "email_password": "password"})
-    def __init__(self, address=None, password=None, alias=None, proxy=None, **kwargs):
+    def __init__(
+        self,
+        address=None,
+        password=None,
+        alias=None,
+        proxy=None,
+        retry_policy=FaultTolerance,
+        max_wait=60,
+        **kwargs,
+    ):
         config = grizly_config.get_service("email")
         self.logger = logging.getLogger(__name__)
         self.address = address or os.getenv("GRIZLY_EMAIL_ADDRESS") or config.get("address")
         self.password = password or os.getenv("GRIZLY_EMAIL_PASSWORD") or config.get("password")
         self.alias = alias
         self.credentials = Credentials(self.address, self.password)
+        self.retry_policy = (
+            retry_policy(max_wait) if retry_policy == FaultTolerance else retry_policy()
+        )
         self.config = Configuration(
             server="smtp.office365.com",
             credentials=self.credentials,
-            retry_policy=FaultTolerance(max_wait=2 * 60),
+            retry_policy=self.retry_policy,
         )
         self.proxy = (
             proxy
