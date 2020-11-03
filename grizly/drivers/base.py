@@ -367,7 +367,7 @@ class BaseDriver(ABC):
                CASE
                    WHEN sales>0 THEN 1
                    ELSE 0
-               END AS "sales_Positive"
+               END AS "sales_positive"
         FROM grizly.sales
         """
         custom_type = kwargs.get("custom_type")
