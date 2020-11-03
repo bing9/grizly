@@ -13,7 +13,7 @@ COPY . .
 RUN export https_proxy=${HTTPS_PROXY} && \
     pip install --upgrade pip && \
     python setup.py clean --all && \
-    python setup.py install && \
+    pip install -e . --user && \
     pip install -r requirements.txt && \
     pip install -r requirements-dev.txt && \
     rm -rf /grizly
