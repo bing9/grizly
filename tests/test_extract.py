@@ -1,11 +1,11 @@
 import logging
 import os
+from time import sleep
 
 import pytest
-
 from grizly.config import config
 from grizly.drivers.frames_factory import QFrame
-from grizly.scheduling.registry import SchedulerDB
+from grizly.scheduling.registry import Job, SchedulerDB
 from grizly.tools.extract import Extract
 
 """NOTE:
@@ -21,7 +21,7 @@ denodo_dsn = "DenodoODBC"
 sfdc_dsn = "sfdc"
 output_dsn = "redshift_acoe"
 scheduler_address = "dask_scheduler:8786"
-db = SchedulerDB(redis_host="pytest_redis")
+registry = SchedulerDB(redis_host="pytest_redis")
 
 s3_bucket = config.get_service("s3").get("bucket")
 
@@ -41,20 +41,20 @@ def simple_extract():
         qf=qf,
         output_dsn=output_dsn,
         scheduler_address=scheduler_address,
+        if_exists="replace",
     )
     return simple_extract
 
 
 @pytest.fixture(scope="session")
 def denodo_extract():
-    qf = QFrame(dsn=denodo_dsn, logger=logger).from_json(f"s3://{s3_bucket}/test/qframe_store.json")
-    qf.limit(1000)
+    qf = QFrame(dsn=denodo_dsn, logger=logger).from_json(
+        f"s3://{s3_bucket}/test/denodo_extract_store.json"
+    )
     denodo_extract = Extract(
         name="Denodo Extract Test",
         qf=qf,
-        store_path=f"s3://{s3_bucket}/test/store.json",
         store_backend="s3",
-        output_dsn=output_dsn,
         scheduler_address=scheduler_address,
         if_exists="replace",
     )
@@ -67,7 +67,11 @@ def sfdc_extract():
     qf = QFrame(dsn=sfdc_dsn, table=table, columns=["Id", "Name"], logger=logger)
     qf.limit(1000)
     sfdc_extract = Extract(
-        name="SFDC Extract Test", qf=qf, output_dsn=output_dsn, scheduler_address=scheduler_address,
+        name="SFDC Extract Test",
+        qf=qf,
+        output_dsn=output_dsn,
+        scheduler_address=scheduler_address,
+        if_exists="replace",
     )
     return sfdc_extract
 
@@ -89,9 +93,26 @@ def extract(simple_extract, denodo_extract, sfdc_extract, request):
 #         extract._get_client("123:4")
 
 
-def test_e2e(simple_extract):
-    result = simple_extract.submit(db=db, scheduler_address=scheduler_address, if_exists="replace")
-    logger.warning(result)
+def test_simple_extract_e2e(simple_extract):
+    # TODO
+    result = simple_extract.submit(registry=registry)
+    assert result is True
+
+    spectrum_table = QFrame(dsn=output_dsn, schema="acoe_spectrum", table="simple_extract_test")
+    assert spectrum_table.nrows > 0
+
+
+def test_denodo_extract_e2e(denodo_extract):
+    partition_jobs_result = denodo_extract.submit(registry=registry)
+    assert partition_jobs_result is True
+    sleep(5)
+    extract_job_result = Job("Denodo Extract Test", db=registry).last_run.status
+    while not extract_job_result == "success":
+        sleep(0.1)
+        extract_job_result = Job("Denodo Extract Test", db=registry).last_run.status
+
+    spectrum_table = QFrame(dsn=output_dsn, schema="acoe_spectrum", table="simple_extract_test")
+    assert spectrum_table.nrows > 0
 
 
 # def test_get_existing_partitions(extract_fixture):
