@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from functools import wraps
 from time import time
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, List, Literal, Optional, Union, Dict
 
 import dask
 from croniter import croniter
@@ -26,6 +26,8 @@ from ..config import Config
 from ..exceptions import JobAlreadyRunningError, JobNotFoundError, JobRunNotFoundError
 from ..utils.functions import dict_diff
 from ..store import Store
+
+SubmitCondition = Literal["success", "fail", "result_change"]
 
 
 def _check_if_exists(raise_error=True):
@@ -109,9 +111,9 @@ class SchedulerDB:
         name: str,
         tasks: List[Delayed],
         owner: Optional[str] = None,
-        crons: Union[List[str], str] = [],
-        upstream: Union[List[str], str] = [],
-        triggers: Union[List[str], str] = [],
+        crons: Union[List[str], str] = None,
+        upstream: Dict[str, SubmitCondition] = None,
+        triggers: Union[List[str], str] = None,
         if_exists: Literal["fail", "replace"] = "fail",
         *args,
         **kwargs,
@@ -214,7 +216,7 @@ class SchedulerObject(ABC):
 
     @property
     def created_at(self) -> datetime:
-        return self._deserialize(self.con.hget(self.hash_name, "created_at"), type="datetime")
+        return self._get("created_at", _type="datetime")
 
     @property
     def exists(self):
@@ -246,13 +248,13 @@ class SchedulerObject(ABC):
             key = key.decode()
             if key == "tasks":
                 try:
-                    deserialized_data[key] = self._deserialize(value, type="dask")
+                    deserialized_data[key] = self._deserialize(value, _type="dask")
                 except:
                     self.logger.warning("Tasks could not be deserialized")
                     deserialized_data[key] = []
             else:
                 try:
-                    deserialized_data[key] = self._deserialize(value, type="datetime")
+                    deserialized_data[key] = self._deserialize(value, _type="datetime")
                 except (TypeError, ValueError):
                     deserialized_data[key] = self._deserialize(value)
 
@@ -269,18 +271,24 @@ class SchedulerObject(ABC):
         return json.dumps(value)
 
     @staticmethod
-    def _deserialize(value: Any, type: Optional[Literal["datetime", "dask"]] = None,) -> Any:
+    def _deserialize(value: Any, _type: Optional[Literal["datetime", "dask"]] = None,) -> Any:
         if value is None:
             return None
         else:
             value = json.loads(value)
             if value is not None:
-                if type == "datetime":
+                if _type == "datetime":
                     value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f%z")
-                elif type == "dask" and value != []:
+                elif _type == "dask" and value != []:
                     value = dask_deserialize(*eval(value))
 
             return value
+
+    def _get(self, key: str, _type: Optional[Literal["datetime", "dask"]] = None,) -> Any:
+        raw_value = self.con.hget(self.hash_name, key)
+        deserialized_value = self._deserialize(value=raw_value, _type=_type)
+        self.logger.debug(f"{self} : {key} : {deserialized_value}")
+        return deserialized_value
 
     def _add_values_to_list(self, key: str, new_values: Union[List[str], str]):
         if isinstance(new_values, str):
@@ -290,7 +298,7 @@ class SchedulerObject(ABC):
         new_values = list(set(new_values))
 
         # load existing values
-        out_values = self._deserialize(self.con.hget(name=self.hash_name, key=key))
+        out_values = self._get(key=key)
         added_values = []
 
         # append existing values
@@ -309,8 +317,36 @@ class SchedulerObject(ABC):
             )
         return added_values
 
-    def _update_dict_values(self, key: str, new: Dict[str, str]):
+    def _get_dict_data_diff(self, key: str, new: Dict[str, str]) -> Dict[str, str]:
+        """Filter out unchaged key/values pairs between redis data in 'key' and data 'data'
+
+        Parameters
+        ----------
+        key : str
+            Redis key
+        new : Dict[str, str]
+            Dictionary containing key/value pairs to be compared with redis 'key'
         """
+
+        # load existing data
+        existing = self._get(key=key)
+
+        # filter out unchanged key/value pairs
+        changed = dict_diff(existing, new, by="any")
+        if not changed:
+            self.logger.warning(f"No values to be changed in {self}.{key}")
+            return {}
+
+        not_changed = dict_diff(changed, new)
+
+        if not_changed:
+            self.logger.warning(f"{list(not_changed.keys())} remained unchanged in {self}.{key}")
+
+        return changed
+
+    def _update_dict_values(self, key: str, new: Dict[str, str]):
+        """Update redis 'key' with 'new' data
+
         Parameters
         ----------
         key : str
@@ -318,30 +354,20 @@ class SchedulerObject(ABC):
         new : Dict[str, str]
             Dictionary containing key/value pairs to be added/updated in 'key'
         """
-        # TODO: split get_to_be_updated and update
+        if new:
+            # load existing data
+            existing = self._get(key=key)
 
-        # load existing data
-        existing = self._deserialize(self.con.hget(name=self.hash_name, key=key))
+            out = {**existing, **new}
 
-        # filter out unchanged key/value pairs
-        to_update = dict_diff(existing, new, by="all")
-        if not to_update:
-            self.logger.warning("No values to update")
-            return {}
-
-        not_updated = dict_diff(to_update, new)
-        self.logger.warning(f"[{not_updated.keys()}] was not updated in {self}.{key}")
-
-        out = {**existing, **new}
-
-        # update Redis
-        self.logger.info(f"Updating {to_update.keys()} in {self}.{key}...")
-        self.con.hset(
-            name=self.hash_name, key=key, value=self._serialize(out),
-        )
-        return out
+            # update Redis
+            self.logger.info(f"Updating {list(new.keys())} in {self}.{key}...")
+            self.con.hset(
+                name=self.hash_name, key=key, value=self._serialize(out),
+            )
 
     def _remove_values(self, key: str, values: Union[List[str], str]):
+        # TODO: NEEDS TO BE REFOCTORED - split to getter and setter methods for dict and list
         if isinstance(values, str):
             values = [values]
 
@@ -349,22 +375,25 @@ class SchedulerObject(ABC):
         values = list(set(values))
 
         # load existing values
-        out_values = self._deserialize(self.con.hget(name=self.hash_name, key=key))
+        existing = self._get(key=key)
         removed_values = []
 
         # remove values
         for value in values:
             try:
-                out_values.remove(value)
+                if isinstance(existing, list):
+                    existing.remove(value)
+                else:
+                    del existing[value]
                 removed_values.append(value)
-            except ValueError:
+            except (ValueError, KeyError):
                 self.logger.warning(f"Value '{value}' was not found in {self}.{key}")
 
         # update Redis
         if removed_values:
             self.logger.info(f"Removing {removed_values} from {self}.{key}...")
             self.con.hset(
-                name=self.hash_name, key=key, value=self._serialize(out_values),
+                name=self.hash_name, key=key, value=self._serialize(existing),
             )
         return removed_values
 
@@ -408,7 +437,7 @@ class JobRun(SchedulerObject):
 
     @property
     def duration(self) -> int:
-        return self._deserialize(self.con.hget(self.hash_name, "duration"))
+        return self._get("duration")
 
     @duration.setter
     @_check_if_exists()
@@ -419,7 +448,7 @@ class JobRun(SchedulerObject):
 
     @property
     def error(self) -> str:
-        return self._deserialize(self.con.hget(self.hash_name, "error"))
+        return self._get("error")
 
     @error.setter
     @_check_if_exists()
@@ -430,7 +459,7 @@ class JobRun(SchedulerObject):
 
     @property
     def finished_at(self) -> datetime:
-        return self._deserialize(self.con.hget(self.hash_name, "finished_at"), type="datetime")
+        return self._get("finished_at", _type="datetime")
 
     @finished_at.setter
     @_check_if_exists()
@@ -441,7 +470,7 @@ class JobRun(SchedulerObject):
 
     @property
     def name(self) -> str:
-        return self._deserialize(self.con.hget(self.hash_name, "name"))
+        return self._get("name")
 
     @name.setter
     @_check_if_exists()
@@ -452,7 +481,7 @@ class JobRun(SchedulerObject):
 
     @property
     def result(self) -> List[Any]:
-        return self._deserialize(self.con.hget(self.hash_name, "result"))
+        return self._get("result")
 
     @result.setter
     @_check_if_exists()
@@ -463,7 +492,7 @@ class JobRun(SchedulerObject):
 
     @property
     def status(self) -> Literal["fail", "running", "success", None]:
-        return self._deserialize(self.con.hget(self.hash_name, "status"))
+        return self._get("status")
 
     @status.setter
     @_check_if_exists()
@@ -515,9 +544,8 @@ class Job(SchedulerObject):
 
     @property
     def crons(self) -> List[str]:
-        """Get Job's cron strings
-        """
-        return self._deserialize(self.con.hget(self.hash_name, "crons"))
+        """Job's cron strings"""
+        return self._get("crons")
 
     @crons.setter
     @_check_if_exists()
@@ -541,36 +569,32 @@ class Job(SchedulerObject):
 
     @property
     def description(self) -> str:
-        return self._deserialize(self.con.hget(self.hash_name, "description"))
+        return self._get("description")
 
     @description.setter
     @_check_if_exists()
     def description(self, description: str):
-        """Get Job's description
-        """
+        """Job's description"""
         self.con.hset(
             self.hash_name, "description", self._serialize(description),
         )
 
     @property
     def graph(self) -> Delayed:
-        """Get Job's graph
-        """
+        """Job's dask graph"""
         return dask.delayed()(self.tasks, name=self.name + "_graph")
 
     @property
     def last_run(self) -> Optional[JobRun]:
-        """Get Job's last run (JobRun object)
-        """
+        """Job's last run (JobRun object)"""
         _id = self._deserialize(self.con.get(f"{JobRun.prefix}{self.name}:id"))
         if _id:
             return JobRun(job_name=self.name, id=_id, logger=self.logger, db=self.db)
 
     @property
     def owner(self) -> str:
-        """Get Job's owner
-        """
-        return self._deserialize(self.con.hget(self.hash_name, "owner"))
+        """Job's owner"""
+        return self._get("owner")
 
     @owner.setter
     @_check_if_exists()
@@ -581,14 +605,13 @@ class Job(SchedulerObject):
 
     @property
     def runs(self) -> List[JobRun]:
-        """Get list of historical Job's runs
-        """
+        """List of historical Job's runs"""
         return self.db.get_job_runs(job_name=self.name)
 
     @property
     def tasks(self) -> List[Delayed]:
-        """Get list of Job's tasks"""
-        return self._deserialize(self.con.hget(self.hash_name, "tasks"), type="dask")
+        """List of Job's tasks"""
+        return self._get("tasks", _type="dask")
 
     @tasks.setter
     @_check_if_exists()
@@ -599,9 +622,8 @@ class Job(SchedulerObject):
 
     @property
     def timeout(self) -> int:
-        """Get Job's timeout
-        """
-        return self._deserialize(self.con.hget(self.hash_name, "timeout"))
+        """Time after which job should stop running"""
+        return self._get("timeout")
 
     @timeout.setter
     @_check_if_exists()
@@ -614,7 +636,7 @@ class Job(SchedulerObject):
 
     @property
     def _result_ttl(self) -> int:
-        return self._deserialize(self.con.hget(self.hash_name, "_result_ttl"))
+        return self._get("_result_ttl")
 
     @_result_ttl.setter
     def _result_ttl(self, _result_ttl: int):
@@ -624,7 +646,7 @@ class Job(SchedulerObject):
 
     @property
     def _rq_job_ids(self) -> List[str]:
-        return self._deserialize(self.con.hget(self.hash_name, "_rq_job_ids"))
+        return self._get("_rq_job_ids")
 
     @_rq_job_ids.setter
     def _rq_job_ids(self, _rq_job_ids: List[str]):
@@ -635,9 +657,8 @@ class Job(SchedulerObject):
     # TRIGGERS
     @property
     def triggers(self) -> List["Trigger"]:
-        """Get list of Job's triggers
-        """
-        trigger_names = self._deserialize(self.con.hget(self.hash_name, "triggers"))
+        """List of Job's triggers"""
+        trigger_names = self._get("triggers")
         triggers = [
             Trigger(name=trigger_name, logger=self.logger, db=self.db)
             for trigger_name in trigger_names
@@ -665,7 +686,7 @@ class Job(SchedulerObject):
         )
 
     def add_triggers(self, trigger_names: Union[List[str], str]):
-        """Add triggers to the Job
+        """Add triggers to the Job.
 
         Parameters
         ----------
@@ -680,7 +701,7 @@ class Job(SchedulerObject):
                 trigger.add_jobs(self.name)
 
     def remove_triggers(self, trigger_names: Union[List[str], str]):
-        """Remove triggers from the Job
+        """Remove triggers from the Job.
 
         Parameters
         ----------
@@ -700,10 +721,15 @@ class Job(SchedulerObject):
     # DOWNSTREAM/UPSTREAM
 
     @property
-    def downstream(self) -> List["Job"]:
-        """Get list of downstream jobs
-        """
-        downstream_job_names = self._deserialize(self.con.hget(self.hash_name, "downstream"))
+    def downstream(self) -> Dict[str, SubmitCondition]:
+        """Dictionary where keys are downstream jobs and values are conditions on
+        which upstream job should submit downstream jobs"""
+        return self._get("downstream")
+
+    @property
+    def downstream_jobs(self) -> List["Job"]:
+        """List of downstream jobs"""
+        downstream_job_names = list(self.downstream.keys())
         downstream_jobs = [
             Job(job_name, db=self.db, logger=self.logger) for job_name in downstream_job_names
         ]
@@ -711,49 +737,42 @@ class Job(SchedulerObject):
 
     @downstream.setter
     @_check_if_exists()
-    def downstream(self, new_job_names: Union[List[str], str]):
-        """
-        Overwrite the list of downstream jobs
-        """
-        self.db._check_if_jobs_exist(new_job_names)
-        if isinstance(new_job_names, str):
-            new_job_names = [new_job_names]
-        elif new_job_names is None:
-            new_job_names = []
-        # 1. Remove from downstream jobs of all the jobs on the previous
-        #    upstream jobs list
-        old_downstream_jobs = self.downstream
+    def downstream(self, jobs_with_conditions: Dict[str, SubmitCondition]):
+        """Overwrite the dictionary of downstream jobs/submit conditions"""
+        jobs_with_conditions = jobs_with_conditions or dict()
+        self.db._check_if_jobs_exist(list(jobs_with_conditions.keys()))
+        # 1. Remove current job from previous downstream jobs
+        old_downstream_jobs = self.downstream_jobs
         for downstream_job in old_downstream_jobs:
             downstream_job.remove_upstream_jobs(self.name)
-        # 2. Add as a downstream job to the jobs in new_job_names
-        for new_downstream_job_name in new_job_names:
+        # 2. Update new downstream jobs
+        for new_downstream_job_name, condition in jobs_with_conditions.items():
             new_downstream_job = Job(new_downstream_job_name, db=self.db, logger=self.logger)
-            new_downstream_job.add_upstream_jobs(self.name)
-        # 3. Update upstream jobs with the new job
+            new_downstream_job.update_upstream_jobs({self.name: condition})
+        # 3. Update current job
         self.con.hset(
-            self.hash_name, "downstream", self._serialize(new_job_names),
+            self.hash_name, "downstream", self._serialize(jobs_with_conditions),
         )
 
     @_check_if_exists()
-    def add_downstream_jobs(self, jobs_with_conditions: Dict[str, str]):
-        """Add downstream jobs
+    def update_downstream_jobs(self, jobs_with_conditions: Dict[str, SubmitCondition]):
+        """Update downstream jobs.
 
-        Parameters
-        ----------
-        jobs_with_conditions : str or list
-            Name or list of names of downstream jobs to add
+        jobs_with_conditions : Dict[str, SubmitCondition]
+            Dictionary where keys are names of downstream jobs to be updated and values
+            are conditions on which upstream job should submit downstream jobs
         """
-        self.db._check_if_jobs_exist(jobs_with_conditions.keys())
+        self.db._check_if_jobs_exist(list(jobs_with_conditions.keys()))
 
-        # add the job as an upstream of the specified jobs
-        added_downstream = self._add_values_to_list(
-            key="downstream", new_values=jobs_with_conditions
-        )
+        # update current job
+        changed_downstream = self._get_dict_data_diff(key="downstream", new=jobs_with_conditions)
+        self._update_dict_values(key="downstream", new=changed_downstream)
 
-        for job_name, condition in added_downstream.items():
+        # update downstream jobs
+        for job_name, condition in changed_downstream.items():
             downstream_job = Job(name=job_name, logger=self.logger, db=self.db)
-            if self not in downstream_job.upstream_jobs:
-                downstream_job.add_upstream_jobs({self.name: condition})
+            if downstream_job.upstream.get(self.name) != condition:
+                downstream_job.update_upstream_jobs({self.name: condition})
 
     @_check_if_exists()
     def remove_downstream_jobs(self, job_names: Union[str, List[str]]):
@@ -770,14 +789,20 @@ class Job(SchedulerObject):
         # remove the job as an upstream of the specified jobs
         for job_name in removed_job_names:
             downstream_job = Job(job_name, db=self.db, logger=self.logger)
-            if self in downstream_job.upstream:
+            if self.name in downstream_job.upstream:
                 downstream_job.remove_upstream_jobs(self.name)
 
     @property
-    def upstream(self) -> List["Job"]:
-        """Get list of upstream jobs
-        """
-        upstream_job_names = self._deserialize(self.con.hget(self.hash_name, "upstream"))
+    def upstream(self) -> Dict[str, SubmitCondition]:
+        """Dictionary where keys are upstream jobs and values are conditions on
+        which upstream jobs should submit downstream job"""
+        jobs_with_conditions = self._get("upstream")
+        return jobs_with_conditions
+
+    @property
+    def upstream_jobs(self) -> List["Job"]:
+        """List of upstream jobs"""
+        upstream_job_names = list(self.upstream.keys())
         upstream_jobs = [
             Job(job_name, db=self.db, logger=self.logger) for job_name in upstream_job_names
         ]
@@ -785,46 +810,45 @@ class Job(SchedulerObject):
 
     @upstream.setter
     @_check_if_exists()
-    def upstream(self, new_job_names: Union[List[str], str]):
-        """Overwrite the list of upstream jobs
-        """
-        self.db._check_if_jobs_exist(new_job_names)
-        if isinstance(new_job_names, str):
-            new_job_names = [new_job_names]
-        elif new_job_names is None:
-            new_job_names = []
+    def upstream(self, jobs_with_conditions: Dict[str, SubmitCondition]):
+        """Overwrite the dictionary of upstream jobs/submit conditions"""
+        jobs_with_conditions = jobs_with_conditions or dict()
+        self.db._check_if_jobs_exist(list(jobs_with_conditions.keys()))
         # 1. Remove from downstream jobs of all the jobs on the previous
         #    upstream jobs list
-        old_upstream_jobs = self.upstream
+        old_upstream_jobs = self.upstream_jobs
         for upstream_job in old_upstream_jobs:
             upstream_job.remove_downstream_jobs(self.name)
-        # 2. Add as a downstream job to the jobs in new_job_names
-        for new_upstream_job_name in new_job_names:
+        # 2. Update upstream jobs
+        for new_upstream_job_name, condition in jobs_with_conditions.items():
             new_upstream_job = Job(new_upstream_job_name, db=self.db, logger=self.logger)
-            new_upstream_job.add_downstream_jobs(self.name)
+            new_upstream_job.update_downstream_jobs({self.name: condition})
         # 3. Update upstream jobs with the new job
         self.con.hset(
-            self.hash_name, "upstream", self._serialize(new_job_names),
+            self.hash_name, "upstream", self._serialize(jobs_with_conditions),
         )
 
     @_check_if_exists()
-    def add_upstream_jobs(self, job_names: Union[List[str], str]):
-        """Add upstream jobs
+    def update_upstream_jobs(self, jobs_with_conditions: Dict[str, SubmitCondition]):
+        """Update upstream jobs
 
         Parameters
         ----------
-        job_names : str or list
-            Name or list of names of upstream jobs to add
+        jobs_with_conditions : Dict[str, SubmitCondition]
+            Dictionary where keys are names of upstream jobs to be updated and values
+            are conditions on which upstream jobs should submit downstream job
         """
-        self.db._check_if_jobs_exist(job_names)
+        self.db._check_if_jobs_exist(list(jobs_with_conditions.keys()))
 
-        added_job_names = self._add_values_to_list(key="upstream", new_values=job_names)
+        # update current job
+        changed_upstream = self._get_dict_data_diff(key="upstream", new=jobs_with_conditions)
+        self._update_dict_values(key="upstream", new=changed_upstream)
 
-        # add the job as a downstream of the specified jobs
-        for job_name in added_job_names:
+        # update upstream jobs
+        for job_name, condition in changed_upstream.items():
             upstream_job = Job(name=job_name, logger=self.logger, db=self.db)
-            if self not in upstream_job.downstream:
-                upstream_job.add_downstream_jobs(self.name)
+            if upstream_job.downstream.get(self.name) != condition:
+                upstream_job.update_downstream_jobs({self.name: condition})
 
     @_check_if_exists()
     def remove_upstream_jobs(self, job_names: Union[str, List[str]]):
@@ -841,7 +865,7 @@ class Job(SchedulerObject):
         # remove the job from the downstream jobs of the specified jobs
         for job_name in removed_job_names:
             upstream_job = Job(job_name, db=self.db, logger=self.logger)
-            if self in upstream_job.downstream:
+            if self.name in upstream_job.downstream:
                 upstream_job.remove_downstream_jobs(self.name)
 
     # DOWNSTREAM/UPSTREAM END
@@ -861,7 +885,7 @@ class Job(SchedulerObject):
         description: Optional[str] = None,
         timeout: int = 3600,
         crons: Union[List[str], str] = None,
-        upstream: Dict[str, str] = None,
+        upstream: Dict[str, SubmitCondition] = None,
         triggers: Union[List[str], str] = None,
         if_exists: Literal["fail", "replace"] = "fail",
         *args,
@@ -881,16 +905,19 @@ class Job(SchedulerObject):
 
         # VALIDATIONS
         # cron
+        crons = crons or []
         if isinstance(crons, str):
             crons = [crons]
         for cron in crons:
             if not croniter.is_valid(cron):
                 raise ValueError(f"Invalid cron string {cron}")
         # upstream
+        upstream = upstream or dict()
         if self.name in upstream:
             raise ValueError("Job cannot be its own upstream job !!!")
-        self.db._check_if_jobs_exist(upstream.keys())
+        self.db._check_if_jobs_exist(list(upstream.keys()))
         # triggers
+        triggers = triggers or []
         if isinstance(triggers, str):
             triggers = [triggers]
 
@@ -898,10 +925,10 @@ class Job(SchedulerObject):
             "owner": self._serialize(owner),
             "description": self._serialize(description),
             "timeout": self._serialize(timeout),
-            "crons": self._serialize(crons or []),
-            "upstream": self._serialize(upstream or dict()),
+            "crons": self._serialize(crons),
+            "upstream": self._serialize(upstream),
             "downstream": self._serialize(dict()),
-            "triggers": self._serialize(triggers or dict()),
+            "triggers": self._serialize(triggers),
             "tasks": self._serialize(tasks),
             "args": self._serialize(args),
             "kwargs": self._serialize(kwargs),
@@ -920,7 +947,7 @@ class Job(SchedulerObject):
         # add the job as downstream in all upstream jobs
         for upstream_job_name, condition in upstream.items():
             upstream_job = Job(name=upstream_job_name, logger=self.logger, db=self.db)
-            upstream_job.add_downstream_jobs({self.name: condition})
+            upstream_job.update_downstream_jobs({self.name: condition})
 
         # add the job in all triggers
         for trigger_name in triggers:
@@ -946,11 +973,11 @@ class Job(SchedulerObject):
         self._rq_job_ids = []
 
         # remove job from downstream in all upstream jobs
-        for upstream_job in self.upstream:
+        for upstream_job in self.upstream_jobs:
             upstream_job.remove_downstream_jobs(self.name)
 
         # remove job from upstream in all downstream jobs
-        for downstream_job in self.downstream:
+        for downstream_job in self.downstream_jobs:
             downstream_job.remove_upstream_jobs(self.name)
 
         # remove job from all triggers
@@ -1003,27 +1030,67 @@ class Job(SchedulerObject):
             result = self.graph.compute()
             job_run.status = "success"
             job_run.result = result
-            # self.__notify_listeners_on_change()
         except Exception:
             result = [None]
             job_run.status = "fail"
             job_run.result = result
             _, exc_value, _ = sys.exc_info()
             job_run.error = str(exc_value)
-        finally:
-            self.logger.info(f"Job {self} finished with status {job_run.status}")
-            end = time()
-            job_run.finished_at = datetime.now(timezone.utc)
-            job_run.duration = int(end - start)
 
-        if self.downstream and job_run.status == "success":
-            # self.__evaluate_downstream_condition()
-            self.__submit_downstream_jobs()
+        self.logger.info(f"Job {self} finished with status {job_run.status}")
+        end = time()
+        job_run.finished_at = datetime.now(timezone.utc)
+        job_run.duration = int(end - start)
+
+        conditions_flags = self.__check_conditions(job_run)
+
+        for condition, flag in conditions_flags.items():
+            if flag:
+                self.__submit_downstream_jobs(condition=condition)
 
         if to_dask:
             client.close()
 
         return result
+
+    def __check_conditions(self, job_run: JobRun) -> Dict[SubmitCondition, bool]:
+        # result_change
+        # if it was the first run then result_change is True
+        if job_run._id == 1:
+            result_change_flag = True
+        else:
+            prev_run = self.runs[-2]
+            result_change_flag = prev_run.result != job_run.result
+
+        conditions_flags = {
+            "success": job_run.status == "success",
+            "fail": job_run.status == "fail",
+            "result_change": result_change_flag,
+        }
+
+        return conditions_flags
+
+    def __submit_downstream_jobs(self, condition: SubmitCondition):
+        jobs = [
+            Job(job_name) for job_name, job_cond in self.downstream.items() if job_cond == condition
+        ]
+        if jobs:
+            self.logger.info(
+                f"Enqueueing {self} downstream jobs with submit condition {condition}..."
+            )
+            queue = Queue(
+                SchedulerDB.submit_queue_name, connection=self.con, default_timeout=self.timeout
+            )
+            for job in jobs:
+                # TODO: should read downstream *args ad **kwargs from registry
+                rq_job = queue.enqueue(
+                    job.submit, result_ttl=job._result_ttl, job_timeout=self.timeout
+                )
+                job._rq_job_ids = list(set(job._rq_job_ids) | {rq_job.id})
+                self.logger.debug(f"{job} has been added to rq scheduler with id {rq_job.id}")
+                self.logger.info(f"{job} has been enqueued")
+        else:
+            self.logger.debug(f"No {self} downstream jobs with condition '{condition}' found")
 
     @_check_if_exists()
     def visualize(self, **kwargs):
@@ -1069,18 +1136,6 @@ class Job(SchedulerObject):
 
             self.logger.debug(f"{self} has been removed from the rq scheduler")
 
-    def __submit_downstream_jobs(self):
-        self.logger.info(f"Enqueueing {self}.downstream...")
-        queue = Queue(
-            SchedulerDB.submit_queue_name, connection=self.con, default_timeout=self.timeout
-        )
-        for job in self.downstream:
-            # TODO: should read downstream *args ad **kwargs from registry
-            rq_job = queue.enqueue(job.submit, result_ttl=job._result_ttl, job_timeout=self.timeout)
-            job._rq_job_ids = list(set(job._rq_job_ids) | {rq_job.id})
-            self.logger.debug(f"{job} has been added to rq scheduler with id {rq_job.id}")
-            self.logger.info(f"{job} has been enqueued")
-
 
 class Trigger(SchedulerObject):
     prefix = "grizly:registry:triggers:"
@@ -1090,7 +1145,7 @@ class Trigger(SchedulerObject):
 
     @property
     def is_triggered(self) -> bool:
-        return self._deserialize(self.con.hget(self.hash_name, "is_triggered"))
+        return self._get("is_triggered")
 
     @is_triggered.setter
     @_check_if_exists()
@@ -1101,7 +1156,7 @@ class Trigger(SchedulerObject):
 
     @property
     def jobs(self) -> List[Optional["Job"]]:
-        job_names = self._deserialize(self.con.hget(self.hash_name, "jobs"))
+        job_names = self._get("jobs")
         return [Job(name=job, logger=self.logger, db=self.db) for job in job_names]
 
     # @property
@@ -1149,12 +1204,3 @@ class Trigger(SchedulerObject):
         self.con.delete(self.hash_name)
 
         self.logger.info(f"{self} successfully removed from registry")
-
-
-# class Listener(Trigger):
-#     prefix = "grizly:registry:listeners:"
-
-#     @property
-#     def listened_jobs(self) -> List[Optional["Job"]]:
-#         job_names = self._deserialize(self.con.hget(self.hash_name, "listened_jobs"))
-#         return [Job(name=job, logger=self.logger, db=self.db) for job in job_names]
