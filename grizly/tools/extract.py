@@ -45,6 +45,7 @@ class BaseExtract:
         self.qf = qf
         self.output_table_type = output_table_type
         self.s3_root_url = s3_root_url or f"s3://{self.bucket}/extracts/{self.name_snake_case}/"
+        self.s3_staging_url = os.path.join(self.s3_root_url, "data", "staging")
         self.output_external_table = output_external_table or self.name_snake_case
         self.output_external_schema = output_external_schema or os.getenv(
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
@@ -88,17 +89,16 @@ class BaseExtract:
                 return file_name
 
             s3 = s3fs.S3FileSystem()
-            s3_staging_key = os.path.join(self.s3_root_url, "data", "staging")
-            self.logger.info(f"Uploading {file_name} to {s3_staging_key}...")
+            self.logger.info(f"Uploading {file_name} to {self.s3_staging_url}...")
             pq.write_to_dataset(
                 arrow_table,
-                root_path=s3_staging_key,
+                root_path=self.s3_staging_url,
                 filesystem=s3,
                 use_dictionary=True,
                 compression="snappy",
                 partition_filename_cb=give_name,
             )
-            self.logger.info(f"Successfully uploaded {file_name} to {s3_staging_key}")
+            self.logger.info(f"Successfully uploaded {file_name} to {self.s3_staging_url}")
 
         _arrow_to_s3(arrow_table)
 
@@ -107,14 +107,18 @@ class BaseExtract:
         self.qf.to_parquet(path)
 
     @dask.delayed
+    def wipe_staging(self):
+        s3 = s3fs.S3FileSystem()
+        s3.rm(self.s3_staging_url, recursive=True)
+
+    @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
-        s3_staging_key = os.path.join(self.s3_root_url, "data", "staging")
         # recreate the table even if if_exists is "append", because we append parquet files
         self.qf.create_external_table(
             schema=self.output_external_schema,
             table=self.output_external_table,
             dsn=self.output_dsn,
-            s3_url=s3_staging_key,
+            s3_url=self.s3_staging_url,
             if_exists=self.table_if_exists,
         )
 
@@ -196,6 +200,11 @@ class SFDCExtract(BaseExtract):
     response data, and grouping them into bigger chunks of eg. 50 URLs (with the typical SFDC
     limit per URL being 250-500 rows). For example, a 125k row table could be split into 10
     parallel branches, each worker being responsible for processing a chunk containing 12.5k rows.
+
+    Note that partitions are not guaranteed to match, so instead of just overwriting, like in
+    DenodoExtract, we remove all files before loading the new ones. This is because
+    Spectrum reads all files in the S3 folder into the table, so if we had files with
+    overlapping content, it would load the duplicated rows.
     """
 
     def generate_tasks(self) -> List[Delayed]:
@@ -206,13 +215,15 @@ class SFDCExtract(BaseExtract):
         client = self._get_client()
         chunks = client.compute(url_chunks).result()
 
-        batch_no = 1
+        wipe_staging = self.wipe_staging() if self.if_exists == "replace" else None
+
         s3_uploads = []
+        batch_no = 1
         for url_chunk in chunks:
             first_url_pos = url_chunk[0].split("-")[1]
             last_url_pos = url_chunk[-1].split("-")[1]
             file_name = f"{first_url_pos}-{last_url_pos}.parquet"
-            arrow_table = self.urls_to_arrow(url_chunk, batch_no=batch_no)
+            arrow_table = self.urls_to_arrow(url_chunk, batch_no=batch_no, upstream=wipe_staging)
             to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
             s3_uploads.append(to_s3)
             batch_no += 1
@@ -239,7 +250,9 @@ class SFDCExtract(BaseExtract):
         return chunker(iterable, size=chunksize)
 
     @dask.delayed
-    def urls_to_arrow(self, urls: List[str], batch_no: int) -> pa.Table:
+    def urls_to_arrow(
+        self, urls: List[str], batch_no: int, upstream: dask.delayed = None
+    ) -> pa.Table:
         self.logger.info(f"Converting batch no. {batch_no} into a pyarrow table...")
         start = datetime.datetime.now()
         records = []
@@ -281,7 +294,7 @@ class DenodoExtract(BaseExtract):
         self.store = store or self.load_store()
         self._load_attrs_from_store(self.store)
 
-    def _get_default_store_path(self):
+    def _get_default_store_path(self) -> str:
         if self.store_backend == "local":
             path = os.path.join(WORKING_DIR, "store.json")
         elif self.store_backend == "s3":
@@ -372,7 +385,7 @@ class DenodoExtract(BaseExtract):
 
         self.logger.info("Starting the extract process...")
 
-        s3 = S3(url=os.path.join(self.s3_root_url, "data", "staging"))
+        s3 = S3(url=self.s3_staging_url)
         existing_partitions = []
         for file_name in s3.list():
             extension = file_name.split(".")[-1]
@@ -501,9 +514,7 @@ class DenodoExtract(BaseExtract):
             file_name = f"{partition}.parquet"
             where = f"{partition_cols}='{partition_concatenated}'"
             processed_qf = self.filter_qf(query=where)
-            s3 = self.to_parquet(
-                processed_qf, os.path.join(self.s3_root_url, "data", "staging", file_name)
-            )
+            s3 = self.to_parquet(processed_qf, os.path.join(self.s3_staging_url, file_name))
             uploads.append(s3)
 
         external_table = self.create_external_table(upstream=uploads)
