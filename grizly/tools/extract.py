@@ -67,13 +67,8 @@ class BaseExtract:
         mapping = {"skip": "skip", "append": "drop", "replace": "drop"}
         return mapping[if_exists]
 
-    def _get_client(self, scheduler_address: str = None):
-        if not scheduler_address:
-            scheduler_address = self.scheduler_address
-
-        client = Client(scheduler_address)
-        self.logger.debug("Client retrived")
-        return client
+    def _get_client(self):
+        return Client(self.scheduler_address)
 
     @dask.delayed
     def to_arrow(self):
@@ -139,7 +134,7 @@ class BaseExtract:
 
     def register(
         self,
-        db: Optional[SchedulerDB] = None,
+        registry: Optional[SchedulerDB] = None,
         redis_host: Optional[str] = None,
         redis_port: Optional[int] = None,
         **kwargs,
@@ -152,14 +147,16 @@ class BaseExtract:
 
         Examples
         ----------
-        db_dev = SchedulerDB(dev_scheduler_addr)
-        Extract().register(db=db_dev, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
+        dev_registry = SchedulerDB(dev_scheduler_addr)
+        Extract().register(registry=dev_registry, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
         """
-        db = db or SchedulerDB(logger=self.logger, redis_host=redis_host, redis_port=redis_port)
-        self.extract_job = Job(self.name, logger=self.logger, db=db)
+        registry = registry or SchedulerDB(
+            logger=self.logger, redis_host=redis_host, redis_port=redis_port
+        )
+        self.extract_job = Job(self.name, logger=self.logger, db=registry)
         self.extract_job.register(tasks=self.generate_tasks(), **kwargs)
 
-    def submit(self, db, if_exists=None, **kwargs):
+    def submit(self, registry, **kwargs):
         """Submit the extract job
 
         Parameters
@@ -167,8 +164,8 @@ class BaseExtract:
         kwargs: arguments to pass to Job.register() and Job.submit()
 
         """
-        self.register(db=db, if_exists=if_exists)
-        self.extract_job.submit(**kwargs)
+        self.register(registry=registry, if_exists=self.if_exists)
+        self.extract_job.submit(scheduler_address=self.scheduler_address, **kwargs)
 
 
 class SimpleExtract(BaseExtract):
@@ -454,7 +451,6 @@ class DenodoExtract(BaseExtract):
 
     def generate_tasks(
         self,
-        scheduler_address: str = None,
         refresh_partitions_list: bool = True,
         download_if_older_than: int = 0,
         cache_distinct_values: bool = True,
@@ -483,7 +479,7 @@ class DenodoExtract(BaseExtract):
             )
 
         # compute partitions on the cluster
-        client = self._get_client(scheduler_address)
+        client = self._get_client()
         partitions = []
         try:
             partitions = client.compute(partitions_to_download).result()
@@ -529,7 +525,7 @@ class DenodoExtract(BaseExtract):
             final_task = external_table
         self.extract_tasks = [final_task]
 
-    def register(self, db=None, crons=None, **kwargs):
+    def register(self, registry=None, crons=None, **kwargs):
         """Submit the partitions and/or extract job
 
         Parameters
@@ -538,12 +534,12 @@ class DenodoExtract(BaseExtract):
 
         Examples
         ----------
-        db_dev = SchedulerDB(dev_scheduler_addr)
-        Extract().register(db=db_dev, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
+        dev_registry = SchedulerDB(dev_scheduler_addr)
+        Extract().register(registry=dev_registry, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
         """
         partitions_job_name = self.name + " - partitions"
-        self.partitions_job = Job(partitions_job_name, logger=self.logger, db=db)
-        self.extract_job = Job(self.name, logger=self.logger, db=db)
+        self.partitions_job = Job(partitions_job_name, logger=self.logger, db=registry)
+        self.extract_job = Job(self.name, logger=self.logger, db=registry)
         self.generate_tasks()  # calculate partition tasks
         self.partitions_job.register(tasks=self.partition_tasks, crons=crons or [], **kwargs)
         self.extract_job.register(tasks=self.extract_tasks, upstream=partitions_job_name, **kwargs)
@@ -560,8 +556,7 @@ class DenodoExtract(BaseExtract):
         """
         self.register(**kwargs)
         self.partitions_job.submit(
-            client=kwargs.get("client"),
-            scheduler_address=kwargs.get("scheduler_address"),
+            scheduler_address=self.scheduler_address,
             priority=kwargs.get("priority"),
             to_dask=kwargs.get("to_dask"),
         )
