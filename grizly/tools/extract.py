@@ -64,7 +64,7 @@ class BaseExtract:
     @staticmethod
     def _map_if_exists(if_exists):
         """ Map data-related if_exists to table-related commands """
-        mapping = {"skip": "skip", "append": "drop", "replace": "drop"}
+        mapping = {"skip": "skip", "append": "skip", "replace": "drop"}
         return mapping[if_exists]
 
     def _get_client(self):
@@ -99,6 +99,7 @@ class BaseExtract:
 
     @dask.delayed
     def to_s3(self, path):
+        self.logger.info(f"Downloading data to {path}...")
         self.qf.to_parquet(path)
 
     @dask.delayed
@@ -108,7 +109,6 @@ class BaseExtract:
 
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
-        # recreate the table even if if_exists is "append", because we append parquet files
         self.qf.create_external_table(
             schema=self.output_external_schema,
             table=self.output_external_table,
@@ -166,6 +166,7 @@ class BaseExtract:
         """
         self.register(registry=registry, if_exists=self.if_exists)
         self.extract_job.submit(scheduler_address=self.scheduler_address, **kwargs)
+        return True
 
 
 class SimpleExtract(BaseExtract):
@@ -279,16 +280,18 @@ class SFDCExtract(BaseExtract):
 class DenodoExtract(BaseExtract):
     def __init__(
         self,
+        name,
+        qf,
         *args,
         store_backend: str = "local",
         store_path: str = None,
         store: dict = None,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(name, qf, *args, **kwargs)
         self.store_backend = store_backend.lower()
         self.store_path = store_path or self._get_default_store_path()
-        self.store = store or self.load_store()
+        self.store = store or qf.store["extract"]  # TODO: add store validation
         self._load_attrs_from_store(self.store)
 
     def _get_default_store_path(self) -> str:
@@ -317,21 +320,6 @@ class DenodoExtract(BaseExtract):
         self.output_table_prod = store["output"].get("table") or self.name_snake_case
         self.output_table_type = "base" if store["output"].get("table") else "external"
 
-    def load_store(self):
-        """Load store from backend into memory"""
-        if self.store_backend == "local":
-            with open(self.store_path) as f:
-                store = json.load(f)
-        elif self.store_backend == "s3":
-            s3 = S3(url=self.store_path)
-            store = s3.to_serializable()
-        else:
-            raise NotImplementedError
-
-        self._validate_store(store)
-
-        return store
-
     @dask.delayed
     def get_distinct_values(self):
         def _validate_columns(columns: Union[str, List[str]], existing_columns: List[str]):
@@ -358,7 +346,7 @@ class DenodoExtract(BaseExtract):
             partitions_qf = (
                 self.qf.copy()
                 .from_table(table=table, schema=schema, columns=columns)
-                .query(where)
+                .where(where)
                 .groupby()
             )
         except KeyError:
@@ -545,7 +533,7 @@ class DenodoExtract(BaseExtract):
         self.extract_job.register(tasks=self.extract_tasks, upstream=partitions_job_name, **kwargs)
 
     def submit(
-        self, **kwargs,
+        self, registry, **kwargs,
     ):
         """Submit the extract job
 
@@ -554,12 +542,13 @@ class DenodoExtract(BaseExtract):
         kwargs: arguments to pass to Job.register() and Job.submit()
 
         """
-        self.register(**kwargs)
+        self.register(registry=registry, if_exists=self.if_exists, **kwargs)
         self.partitions_job.submit(
             scheduler_address=self.scheduler_address,
             priority=kwargs.get("priority"),
             to_dask=kwargs.get("to_dask"),
         )
+        return True
 
     def validate(self):
         pass

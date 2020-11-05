@@ -1049,8 +1049,6 @@ class Job(SchedulerObject):
             if flag:
                 self.__submit_downstream_jobs(condition=condition)
 
-        client.close()
-
         return result
 
     def __check_conditions(self, job_run: JobRun) -> Dict[SubmitCondition, bool]:

@@ -81,7 +81,9 @@ def extract(simple_extract, denodo_extract, sfdc_extract, request):
     return eval(request.param)
 
 
-"""test functions"""
+#########
+# Tests #
+#########
 
 
 # def test_connection(extract):
@@ -93,38 +95,57 @@ def extract(simple_extract, denodo_extract, sfdc_extract, request):
 #         extract._get_client("123:4")
 
 
-def test_simple_extract_e2e(simple_extract):
-    # TODO
-    result = simple_extract.submit(registry=registry)
-    assert result is True
-
-    spectrum_table = QFrame(dsn=output_dsn, schema="acoe_spectrum", table="simple_extract_test")
-    assert spectrum_table.nrows > 0
-
-
-def test_denodo_extract_e2e(denodo_extract):
-    partition_jobs_result = denodo_extract.submit(registry=registry)
-    assert partition_jobs_result is True
-    sleep(5)
-    extract_job_result = Job("Denodo Extract Test", db=registry).last_run.status
-    while not extract_job_result == "success":
-        sleep(0.1)
-        extract_job_result = Job("Denodo Extract Test", db=registry).last_run.status
-
-    spectrum_table = QFrame(dsn=output_dsn, schema="acoe_spectrum", table="simple_extract_test")
-    assert spectrum_table.nrows > 0
-
-
-# def test_get_existing_partitions(extract_fixture):
+# def test_simple_extract_e2e(simple_extract):
 #     # TODO
-#     client_str = "dask_scheduler:8786"
-#     # extract_fixture.submit(client_str=client_str)
-#     pass
+#     result = simple_extract.submit(registry=registry)
+#     assert result is True
+
+#     spectrum_table = QFrame(dsn=output_dsn, schema="acoe_spectrum", table="simple_extract_test")
+#     assert spectrum_table.nrows > 0
 
 
-# def test_get_distinct_values():
-#     # TODO
-#     pass
+##########
+# Denodo #
+##########
+
+
+# def test_denodo_extract_e2e(denodo_extract):
+#     partition_jobs_result = denodo_extract.submit(registry=registry)
+#     assert partition_jobs_result is True
+#     extract_job_result = Job("Denodo Extract Test", db=registry).last_run.status
+#     while not extract_job_result == "success":
+#         sleep(0.1)
+#         extract_job_result = Job("Denodo Extract Test", db=registry).last_run.status
+
+#     spectrum_table = QFrame(dsn=output_dsn, schema="acoe_spectrum", table="simple_extract_test")
+#     assert spectrum_table.nrows > 0
+
+
+# def test_get_distinct_values(denodo_extract):
+#     values = denodo_extract.get_distinct_values().compute()
+#     assert values == [
+#         "Poland|Krakow",
+#         "Poland|Tarnow",
+#         "Poland|Nowy Sacz",
+#         "Poland|Zakopane",
+#         "Poland|Warszawa",
+#         "Poland|Plock",
+#         "Poland|Radom",
+#         "Poland|Sieradz",
+#         "USA|Los Angeles",
+#         "USA|San Francisco",
+#         "USA|San Jose",
+#         "USA|Miami",
+#         "USA|Tampa",
+#         "USA|Orlando",
+#     ]
+
+
+def test_get_existing_partitions(denodo_extract):
+    denodo_extract.submit(registry=registry)
+    # existing_partitions = denodo_extract.get_existing_partitions().compute()
+    # logger.info(existing_partitions)
+    pass
 
 
 # def test_get_partitions_to_download():
