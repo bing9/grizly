@@ -524,15 +524,11 @@ class JobRun(SchedulerObject):
 
 class Job(SchedulerObject):
     prefix = "grizly:registry:jobs:"
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.scheduler_address = os.getenv("GRIZLY_DASK_SCHEDULER_ADDRESS")
+    scheduler_address = None
 
     @_check_if_exists()
     def info(self):
-        """Print a concise summary of the Job
-        """
+        """Print a concise summary of the Job"""
         s = (
             f"name: {self.name}\n"
             f"owner: {self.owner}\n"
@@ -1022,8 +1018,10 @@ class Job(SchedulerObject):
 
         if to_dask:
             if client is None:
-                self.scheduler_address = self.scheduler_address or scheduler_address
-                client = Client(self.scheduler_address)
+                self.scheduler_address = scheduler_address or os.getenv(
+                    "GRIZLY_DASK_SCHEDULER_ADDRESS"
+                )
+                client = Client(scheduler_address)
             else:
                 self.scheduler_address = client.scheduler.address
 
