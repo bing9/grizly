@@ -1009,18 +1009,23 @@ class Job(SchedulerObject):
 
     @_check_if_exists()
     def submit(
-        self, client: Client = None, scheduler_address: str = None, priority: int = 1
+        self,
+        client: Client = None,
+        scheduler_address: str = None,
+        priority: int = 1,
+        to_dask: bool = True,
     ) -> Any:
 
         if self._is_running():
             msg = f"Job {self.name} is already running. Please use Job.stop() or Job.restart()"
             raise JobAlreadyRunningError(msg)
 
-        if client is None:
-            self.scheduler_address = self.scheduler_address or scheduler_address
-            client = Client(self.scheduler_address)
-        else:
-            self.scheduler_address = client.scheduler.address
+        if to_dask:
+            if client is None:
+                self.scheduler_address = self.scheduler_address or scheduler_address
+                client = Client(self.scheduler_address)
+            else:
+                self.scheduler_address = client.scheduler.address
 
         self.logger.info(f"Submitting job {self.name}...")
         job_run = JobRun(job_name=self.name, logger=self.logger, db=self.db)
@@ -1030,13 +1035,13 @@ class Job(SchedulerObject):
         try:
             result = self.graph.compute()
             job_run.status = "success"
-            job_run.result = result
         except Exception:
             result = [None]
             job_run.status = "fail"
-            job_run.result = result
             _, exc_value, _ = sys.exc_info()
             job_run.error = str(exc_value)
+
+        job_run.result = result
 
         self.logger.info(f"Job {self} finished with status {job_run.status}")
         end = time()
@@ -1048,6 +1053,9 @@ class Job(SchedulerObject):
         for condition, flag in conditions_flags.items():
             if flag:
                 self.__submit_downstream_jobs(condition=condition)
+
+        if to_dask:
+            client.close()
 
         return result
 
