@@ -252,6 +252,10 @@ def dict_diff(first: dict, second: dict, by: str = "keys") -> dict:
         diff = {k: second[k] for k in set(second) - set(first)}
     elif by == "values":
         diff = {k: second[k] for k, _ in set(second.items()) - set(first.items())}
+    elif by == "any":
+        keys_diff = {k: second[k] for k in set(second) - set(first)}
+        vals_diff = {k: second[k] for k, _ in set(second.items()) - set(first.items())}
+        diff = {**keys_diff, **vals_diff}
     else:
         raise NotImplementedError("Can only compare by keys or values.")
     return diff
