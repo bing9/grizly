@@ -34,23 +34,18 @@ class EmailAccount:
         **kwargs,
     ):
         self.logger = logger or logging.getLogger(__name__)
-        self.logger.info("Loading grizly configuration...")
         config = grizly_config.get_service("email")
-        self.logger.info(config)
         self.address = address or os.getenv("GRIZLY_EMAIL_ADDRESS") or config.get("address")
         self.password = password or os.getenv("GRIZLY_EMAIL_PASSWORD") or config.get("password")
+        if None in (self.address, self.password):
+            raise ValueError("Email address or password not found")
         self.alias = alias
-        self.logger.info("Loading credentials...")
-        self.logger.info(str(self.address + self.password))
         self.credentials = Credentials(self.address, self.password)
-        self.logger.info("Credentials loaded. Loading configuration...")
-        self.logger.info(str(self.credentials))
         self.config = Configuration(
             server="smtp.office365.com",
             credentials=self.credentials,
             retry_policy=FaultTolerance(),
         )
-        self.logger.info("Credentials loaded.")
         self.proxy = (
             proxy
             or os.getenv("GRIZLY_PROXY")
@@ -124,7 +119,6 @@ class Email:
             config = grizly_config.get_service("email")
         self.address = address or config.get("address") or os.getenv("GRIZLY_EMAIL_ADDRESS")
         self.password = password or config.get("password") or os.getenv("GRIZLY_EMAIL_PASSWORD")
-        self.logger.info("Successfully loaded configuration")
         self.attachment_paths = self.to_list(attachment_paths)
         self.attachments = self.get_attachments(self.attachment_paths)
         try:
@@ -135,7 +129,6 @@ class Email:
             )
         except:
             self.proxy = None
-        self.logger.info("Successfully loaded proxy")
 
     def to_list(self, maybe_list: Union[List[str], str]):
         if isinstance(maybe_list, str):
@@ -226,7 +219,6 @@ class Email:
         -------
         None
         """
-        self.logger.info("Sending an email...")
 
         BaseProtocol.HTTP_ADAPTER_CLS = (
             NoVerifyHTTPAdapter  # change this in the future to avoid warnings
@@ -247,10 +239,7 @@ class Email:
 
         address = self.address
         password = self.password
-        self.logger.info("Obtaining account...")
         account = EmailAccount(address, password, logger=self.logger).account
-
-        self.logger.info("Obtained the account")
 
         m = Message(
             account=account,
