@@ -329,12 +329,13 @@ def test_job_update_remove_downstream_jobs(job_with_cron):
     d_job.register(tasks=[], if_exists="replace")
 
     job_with_cron.update_downstream_jobs({d_job.name: "success"})
-    downstreams1 = job_with_cron.downstream_jobs
-    assert d_job in downstreams1
+    assert d_job in job_with_cron.downstream_jobs
 
-    job_with_cron.remove_downstream_jobs({d_job.name: "success"})
-    downstreams2 = job_with_cron.downstream_jobs
-    assert d_job not in downstreams2
+    job_with_cron.update_downstream_jobs({d_job.name: "fail"})
+    assert job_with_cron.downstream.get(d_job.name) == "fail"
+
+    job_with_cron.remove_downstream_jobs(d_job.name)
+    assert d_job not in job_with_cron.downstream_jobs
 
     d_job.unregister(remove_job_runs=True)
     assert not d_job.exists
@@ -349,12 +350,13 @@ def test_job_update_remove_upstream_jobs(job_with_cron):
     u_job.register(tasks=[], if_exists="replace")
 
     job_with_cron.update_upstream_jobs({u_job.name: "success"})
-    upstreams1 = job_with_cron.upstream_jobs
-    assert u_job in upstreams1
+    assert u_job in job_with_cron.upstream_jobs
 
-    job_with_cron.remove_upstream_jobs({u_job.name: "success"})
-    upstreams2 = job_with_cron.upstream_jobs
-    assert u_job not in upstreams2
+    job_with_cron.update_upstream_jobs({u_job.name: "result_change"})
+    assert job_with_cron.upstream.get(u_job.name) == "result_change"
+
+    job_with_cron.remove_upstream_jobs(u_job.name)
+    assert u_job not in job_with_cron.upstream_jobs
 
     u_job.unregister(remove_job_runs=True)
     assert not u_job.exists
