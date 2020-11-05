@@ -44,7 +44,9 @@ def job_with_cron():
 @pytest.fixture(scope="module")
 def job_with_upstream(job_with_cron):
     job_with_upstream = Job(name="job_with_upstream")
-    job_with_upstream.register(tasks=[sum_task], upstream=job_with_cron.name, if_exists="replace")
+    job_with_upstream.register(
+        tasks=[sum_task], upstream={job_with_cron.name: "success"}, if_exists="replace"
+    )
     yield job_with_upstream
     job_with_upstream.unregister(remove_job_runs=True)
 
@@ -211,6 +213,7 @@ def test_job_cron(job_with_cron):
     assert job_with_cron.crons == ["* * * * *"]
     assert len(job_with_cron._rq_job_ids) == 1
 
+
 @given(text())
 def test_job_description(job, description):
     assert job.description is None
@@ -278,35 +281,35 @@ def test_job_triggers(job_with_trigger, trigger):
 
 
 def test_job_downstream(job_with_cron, job_with_upstream):
-    assert job_with_cron.downstream == [job_with_upstream]
+    assert job_with_cron.downstream_jobs == [job_with_upstream]
 
     # trying to set not existing job as downstream should raise error
     with pytest.raises(JobNotFoundError):
-        job_with_cron.downstream = ["not_found_job"]
+        job_with_cron.downstream = {"not_found_job": "success"}
 
-    job_with_cron.downstream = []
-    assert job_with_cron.downstream == []
-    assert job_with_cron not in job_with_upstream.upstream
+    job_with_cron.downstream = {}
+    assert job_with_cron.downstream == {}
+    assert job_with_cron not in job_with_upstream.upstream_jobs
 
-    job_with_cron.downstream = [job_with_upstream.name]
-    assert job_with_cron.downstream == [job_with_upstream]
-    assert job_with_cron in job_with_upstream.upstream
+    job_with_cron.downstream = {job_with_upstream.name: "success"}
+    assert job_with_cron.downstream_jobs == [job_with_upstream]
+    assert job_with_cron in job_with_upstream.upstream_jobs
 
 
 def test_job_upstream(job_with_cron, job_with_upstream):
-    assert job_with_upstream.upstream == [job_with_cron]
+    assert job_with_upstream.upstream_jobs == [job_with_cron]
 
     # trying to set not existing job as upstream should raise error
     with pytest.raises(JobNotFoundError):
-        job_with_cron.upstream = ["not_found_job"]
+        job_with_cron.upstream = {"not_found_job": "success"}
 
-    job_with_upstream.upstream = []
-    assert job_with_upstream.upstream == []
-    assert job_with_upstream not in job_with_cron.downstream
+    job_with_upstream.upstream = {}
+    assert job_with_upstream.upstream == {}
+    assert job_with_upstream not in job_with_cron.downstream_jobs
 
-    job_with_upstream.upstream = [job_with_cron.name]
-    assert job_with_upstream.upstream == [job_with_cron]
-    assert job_with_upstream in job_with_cron.downstream
+    job_with_upstream.upstream = {job_with_cron.name: "success"}
+    assert job_with_upstream.upstream_jobs == [job_with_cron]
+    assert job_with_upstream in job_with_cron.downstream_jobs
 
 
 # Job METHODS
@@ -321,44 +324,46 @@ def test_job_add_remove_triggers(job_with_trigger):
     test_trigger.unregister()
 
 
-def test_job_add_remove_downstream_jobs(job_with_cron):
+def test_job_update_remove_downstream_jobs(job_with_cron):
     d_job = Job(name="d_job_name")
-    d_job.register(tasks=[])
+    d_job.register(tasks=[], if_exists="replace")
 
-    job_with_cron.add_downstream_jobs(d_job.name)
-    downstrams1 = job_with_cron.downstream
-    assert d_job in downstrams1
+    job_with_cron.update_downstream_jobs({d_job.name: "success"})
+    assert d_job in job_with_cron.downstream_jobs
+
+    job_with_cron.update_downstream_jobs({d_job.name: "fail"})
+    assert job_with_cron.downstream.get(d_job.name) == "fail"
 
     job_with_cron.remove_downstream_jobs(d_job.name)
-    downstrams2 = job_with_cron.downstream
-    assert d_job not in downstrams2
+    assert d_job not in job_with_cron.downstream_jobs
 
     d_job.unregister(remove_job_runs=True)
     assert not d_job.exists
 
     # trying to set not existing job as downstream should raise error
     with pytest.raises(JobNotFoundError):
-        job_with_cron.add_downstream_jobs("not_found_job")
+        job_with_cron.update_downstream_jobs({"not_found_job": "success"})
 
 
-def test_job_add_remove_upstream_jobs(job_with_cron):
+def test_job_update_remove_upstream_jobs(job_with_cron):
     u_job = Job(name="u_job_name")
-    u_job.register(tasks=[])
+    u_job.register(tasks=[], if_exists="replace")
 
-    job_with_cron.add_upstream_jobs(u_job.name)
-    upstreams1 = job_with_cron.upstream
-    assert u_job in upstreams1
+    job_with_cron.update_upstream_jobs({u_job.name: "success"})
+    assert u_job in job_with_cron.upstream_jobs
+
+    job_with_cron.update_upstream_jobs({u_job.name: "result_change"})
+    assert job_with_cron.upstream.get(u_job.name) == "result_change"
 
     job_with_cron.remove_upstream_jobs(u_job.name)
-    upstreams2 = job_with_cron.upstream
-    assert u_job not in upstreams2
+    assert u_job not in job_with_cron.upstream_jobs
 
     u_job.unregister(remove_job_runs=True)
     assert not u_job.exists
 
     # trying to set not existing job as upstream should raise error
     with pytest.raises(JobNotFoundError):
-        job_with_cron.add_upstream_jobs("not_found_job")
+        job_with_cron.update_upstream_jobs({"not_found_job": "success"})
 
 
 def test_job_cancel():
