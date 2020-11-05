@@ -525,6 +525,10 @@ class JobRun(SchedulerObject):
 class Job(SchedulerObject):
     prefix = "grizly:registry:jobs:"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.scheduler_address = os.getenv("GRIZLY_DASK_SCHEDULER_ADDRESS")
+
     @_check_if_exists()
     def info(self):
         """Print a concise summary of the Job
@@ -1005,21 +1009,18 @@ class Job(SchedulerObject):
 
     @_check_if_exists()
     def submit(
-        self, client: Client = None, scheduler_address: str = None, priority: int = 1, to_dask=True,
+        self, client: Client = None, scheduler_address: str = None, priority: int = 1
     ) -> Any:
 
         if self._is_running():
             msg = f"Job {self.name} is already running. Please use Job.stop() or Job.restart()"
             raise JobAlreadyRunningError(msg)
 
-        if to_dask:
-            if client is None:
-                self.scheduler_address = scheduler_address or os.getenv(
-                    "GRIZLY_DASK_SCHEDULER_ADDRESS"
-                )
-                client = Client(self.scheduler_address)
-            else:
-                self.scheduler_address = client.scheduler.address
+        if client is None:
+            self.scheduler_address = self.scheduler_address or scheduler_address
+            client = Client(self.scheduler_address)
+        else:
+            self.scheduler_address = client.scheduler.address
 
         self.logger.info(f"Submitting job {self.name}...")
         job_run = JobRun(job_name=self.name, logger=self.logger, db=self.db)
@@ -1048,8 +1049,7 @@ class Job(SchedulerObject):
             if flag:
                 self.__submit_downstream_jobs(condition=condition)
 
-        if to_dask:
-            client.close()
+        client.close()
 
         return result
 
@@ -1084,7 +1084,10 @@ class Job(SchedulerObject):
             for job in jobs:
                 # TODO: should read downstream *args ad **kwargs from registry
                 rq_job = queue.enqueue(
-                    job.submit, result_ttl=job._result_ttl, job_timeout=self.timeout
+                    job.submit,
+                    scheduler_address=self.scheduler_address,
+                    result_ttl=job._result_ttl,
+                    job_timeout=self.timeout,
                 )
                 job._rq_job_ids = list(set(job._rq_job_ids) | {rq_job.id})
                 self.logger.debug(f"{job} has been added to rq scheduler with id {rq_job.id}")
