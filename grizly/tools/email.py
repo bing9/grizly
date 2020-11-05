@@ -36,10 +36,12 @@ class EmailAccount:
         self.logger = logger or logging.getLogger(__name__)
         self.logger.info("Loading grizly configuration...")
         config = grizly_config.get_service("email")
+        self.logger.info(config)
         self.address = address or os.getenv("GRIZLY_EMAIL_ADDRESS") or config.get("address")
         self.password = password or os.getenv("GRIZLY_EMAIL_PASSWORD") or config.get("password")
         self.alias = alias
         self.logger.info("Loading credentials...")
+        self.logger.info(str(self.address + self.password))
         self.credentials = Credentials(self.address, self.password)
         self.logger.info("Credentials loaded. Loading configuration...")
         self.logger.info(str(self.credentials))

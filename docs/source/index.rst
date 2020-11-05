@@ -14,8 +14,7 @@ Welcome to grizly's documentation!
    content/api_QFrame
    content/api_Email
    content/api_S3
-   content/api_Config
-   content/api_SQLDB
+   content/api_Sources
    content/api_Crosstab
    content/api_Job
 
