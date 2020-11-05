@@ -41,12 +41,12 @@ class EmailAccount:
         self.alias = alias
         self.logger.info("Loading credentials...")
         self.credentials = Credentials(self.address, self.password)
-        self.retry_policy = FaultTolerance()
         self.logger.info("Credentials loaded. Loading configuration...")
+        self.logger.info(str(self.credentials))
         self.config = Configuration(
             server="smtp.office365.com",
             credentials=self.credentials,
-            retry_policy=self.retry_policy,
+            retry_policy=FaultTolerance(),
         )
         self.logger.info("Credentials loaded.")
         self.proxy = (
