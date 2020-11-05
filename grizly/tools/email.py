@@ -246,7 +246,7 @@ class Email:
         address = self.address
         password = self.password
         self.logger.info("Obtaining account...")
-        account = EmailAccount(address, password).account
+        account = EmailAccount(address, password, logger=self.logger).account
 
         self.logger.info("Obtained the account")
 
