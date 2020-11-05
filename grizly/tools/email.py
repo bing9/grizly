@@ -30,22 +30,26 @@ class EmailAccount:
         proxy=None,
         retry_policy=FaultTolerance,
         max_wait=60,
+        logger=None,
         **kwargs,
     ):
         config = grizly_config.get_service("email")
-        self.logger = logging.getLogger(__name__)
+        self.logger = logger or logging.getLogger(__name__)
         self.address = address or os.getenv("GRIZLY_EMAIL_ADDRESS") or config.get("address")
         self.password = password or os.getenv("GRIZLY_EMAIL_PASSWORD") or config.get("password")
         self.alias = alias
+        self.logger.info("Loading credentials...")
         self.credentials = Credentials(self.address, self.password)
         self.retry_policy = (
             retry_policy(max_wait) if retry_policy == FaultTolerance else retry_policy()
         )
+        self.logger.info("Credentials loaded. Loading configuration...")
         self.config = Configuration(
             server="smtp.office365.com",
             credentials=self.credentials,
             retry_policy=self.retry_policy,
         )
+        self.logger.info("Credentials loaded.")
         self.proxy = (
             proxy
             or os.getenv("GRIZLY_PROXY")
@@ -242,6 +246,7 @@ class Email:
 
         address = self.address
         password = self.password
+        self.logger.info("Obtaining account...")
         account = EmailAccount(address, password).account
 
         self.logger.info("Obtained the account")
