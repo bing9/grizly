@@ -119,6 +119,7 @@ class Email:
             config = grizly_config.get_service("email")
         self.address = address or config.get("address") or os.getenv("GRIZLY_EMAIL_ADDRESS")
         self.password = password or config.get("password") or os.getenv("GRIZLY_EMAIL_PASSWORD")
+        self.logger.info("Successfully loaded configuration")
         self.attachment_paths = self.to_list(attachment_paths)
         self.attachments = self.get_attachments(self.attachment_paths)
         try:
@@ -129,6 +130,7 @@ class Email:
             )
         except:
             self.proxy = None
+        self.logger.info("Successfully loaded proxy")
 
     def to_list(self, maybe_list: Union[List[str], str]):
         if isinstance(maybe_list, str):
@@ -219,6 +221,7 @@ class Email:
         -------
         None
         """
+        self.logger.info("Sending an email...")
 
         BaseProtocol.HTTP_ADAPTER_CLS = (
             NoVerifyHTTPAdapter  # change this in the future to avoid warnings
@@ -240,6 +243,8 @@ class Email:
         address = self.address
         password = self.password
         account = EmailAccount(address, password).account
+
+        self.logger.info("Obtained the account")
 
         m = Message(
             account=account,
@@ -265,5 +270,7 @@ class Email:
             except:
                 self.logger.exception(f"Email not sent.")
                 raise
+
+        self.logger.info("Email sent.")
 
         return None
