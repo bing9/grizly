@@ -20,6 +20,7 @@ from ..sources.filesystem.old_s3 import S3
 from ..utils.functions import chunker
 
 WORKING_DIR = os.getcwd()
+s3 = s3fs.S3FileSystem()
 
 
 class BaseExtract:
@@ -71,6 +72,10 @@ class BaseExtract:
         return Client(self.scheduler_address)
 
     @dask.delayed
+    def begin_extract(self):
+        self.logger.info("Starting the extract process...")
+
+    @dask.delayed
     def to_arrow(self):
         self.logger.info("Writing data to arrow...")
         pa = self.qf.to_arrow()
@@ -83,7 +88,6 @@ class BaseExtract:
             def give_name(_):
                 return file_name
 
-            s3 = s3fs.S3FileSystem()
             self.logger.info(f"Uploading {file_name} to {self.s3_staging_url}...")
             pq.write_to_dataset(
                 arrow_table,
@@ -98,13 +102,12 @@ class BaseExtract:
         _arrow_to_s3(arrow_table)
 
     @dask.delayed
-    def to_s3(self, path):
+    def to_s3(self, path, upstream=None):
         self.logger.info(f"Downloading data to {path}...")
         self.qf.to_parquet(path)
 
     @dask.delayed
     def wipe_staging(self):
-        s3 = s3fs.S3FileSystem()
         try:
             s3.rm(self.s3_staging_url, recursive=True)
         except FileNotFoundError:
@@ -182,7 +185,9 @@ class SimpleExtract(BaseExtract):
     def generate_tasks(self):
         file_name = self.name_snake_case + ".parquet"
         path = os.path.join(self.s3_root_url, file_name)
-        s3 = self.to_s3(path)
+
+        start = self.begin_extract()
+        s3 = self.to_s3(path, upstream=start)
         external_table = self.create_external_table(upstream=s3)
         base_table = self.create_table(upstream=external_table)
 
@@ -215,7 +220,9 @@ class SFDCExtract(BaseExtract):
     def generate_tasks(self) -> List[Delayed]:
         self.logger.info("Generating tasks...")
 
-        urls = self.get_urls()
+        start = self.begin_extract()
+
+        urls = self.get_urls(upstream=start)
         url_chunks = self.chunk(urls, chunksize=50)
         client = self._get_client()
         chunks = client.compute(url_chunks).result()
@@ -246,7 +253,7 @@ class SFDCExtract(BaseExtract):
         return [final_task]
 
     @dask.delayed
-    def get_urls(self):
+    def get_urls(self, upstream=None):
         return self.qf.source._get_urls_from_response(query=self.qf.get_sql())
 
     @staticmethod
@@ -310,7 +317,7 @@ class DenodoExtract(BaseExtract):
         self.output_table_type = "base" if store["output"].get("table") else "external"
 
     @dask.delayed
-    def get_distinct_values(self):
+    def __get_source_partitions(self, upstream=None):
         def _validate_columns(columns: Union[str, List[str]], existing_columns: List[str]):
             """ Check whether columns exist within the table """
             if isinstance(columns, str):
@@ -318,13 +325,13 @@ class DenodoExtract(BaseExtract):
             for column in columns:
                 # column = column.replace("sq.", "")
                 if column not in existing_columns:
-                    raise ValueError(f"Driver does not contain {column}")
+                    raise ValueError(f"QFrame does not contain {column}")
 
         columns = self.partition_cols
         existing_columns = self.qf.get_fields(aliased=True)
         _validate_columns(columns, existing_columns)
 
-        self.logger.info(f"Obtaining the list of unique values in {columns}...")
+        self.logger.debug("Retrieving source partitions..")
 
         try:
             # faster method, but this will fail if user is working on multiple schemas/tables
@@ -344,50 +351,46 @@ class DenodoExtract(BaseExtract):
 
         records = partitions_qf.to_records()
         if isinstance(columns, list):
-            values = ["|".join(str(val) for val in row) for row in records]
+            source_partitions = ["|".join(str(val) for val in row) for row in records]
         else:
-            values = [row[0] for row in records]
+            source_partitions = [row[0] for row in records]
 
-        self.logger.info(f"Successfully obtained the list of unique values in {columns}")
-        self.logger.debug(f"Unique values in {columns}: {values}")
+        self.logger.debug("Successfully retrieved the list of source partitions")
+        self.logger.debug(f"Source partitions: \n{source_partitions}")
 
-        return values
+        return source_partitions
+
+    def _get_parquet_files(self, path: str = None) -> List[str]:
+        s3_filepaths = s3.ls(path)
+        return [os.path.basename(path) for path in s3_filepaths if path.endswith(".parquet")]
 
     @dask.delayed
-    def get_existing_partitions(self, upstream: Delayed = None):
+    def _get_existing_partitions(self, upstream: Delayed = None):
         """ Returns partitions already uploaded to S3 """
 
-        self.logger.info("Starting the extract process...")
+        self.logger.debug("Retrieving existing partitions..")
 
-        s3 = S3(url=self.s3_staging_url)
-        existing_partitions = []
-        for file_name in s3.list():
-            extension = file_name.split(".")[-1]
-            if extension == "parquet":
-                existing_partitions.append(file_name.replace(".parquet", ""))
+        parquet_files = self._get_parquet_files(self.s3_staging_url)
+        existing_partitions = [fname.replace(".parquet", "") for fname in parquet_files]
 
-        self.logger.info(f"Successfully obtained the list of existing partitions")
-        self.logger.debug(f"Existing partitions: {existing_partitions}")
+        self.logger.debug("Successfully retrieved the list of existing partitions")
+        self.logger.debug(f"Existing partitions: \n{existing_partitions}")
 
         return existing_partitions
 
     @dask.delayed
-    def get_partitions_to_download(
-        self, all_partitions, existing_partitions, upstream: Delayed = None
-    ):
-        self.logger.debug(f"All partitions: {all_partitions}")
-        self.logger.debug(f"Existing partitions: {existing_partitions}")
-        partitions_to_download = [
-            partition for partition in all_partitions if partition not in existing_partitions
-        ]
-        self.logger.debug(
-            f"Partitions to download: {len(partitions_to_download)}, {partitions_to_download}"
-        )
-        self.logger.info(f"Downloading {len(partitions_to_download)} partitions...")
-        return partitions_to_download
+    def _get_new_partitions(self, source_partitions, existing_partitions, upstream: Delayed = None):
+
+        self.logger.debug("Calculating new partitions..")
+
+        new_partitions = [p for p in source_partitions if p not in existing_partitions]
+
+        self.logger.debug(f"New partitions: \n{new_partitions}")
+
+        return new_partitions
 
     @dask.delayed
-    def to_backend(self, serializable: Any, file_name: str):
+    def _cache_partitions(self, serializable: Any, file_name: str = "partitions.json"):
         url = os.path.join(self.s3_root_url, file_name)
         s3 = S3(url=url)
 
@@ -396,14 +399,18 @@ class DenodoExtract(BaseExtract):
         s3.from_serializable(serializable)
 
     @dask.delayed
-    def get_cached_distinct_values(self, file_name: str):
+    def _get_cached_partitions(self, file_name: str):
         url = os.path.join(self.s3_root_url, file_name)
         s3 = S3(url=url)
 
-        self.logger.info("Retrieving cached partition values...")
+        self.logger.debug("Retrieving cached partitions...")
 
-        values = s3.to_serializable()
-        return values
+        cached_partitions = s3.to_serializable()
+
+        self.logger.debug("Successfully retrieved the list of cached partitions")
+        self.logger.debug(f"Cached partitions: \n{cached_partitions}")
+
+        return cached_partitions
 
     @dask.delayed
     def filter_qf(self, query: str):
@@ -414,71 +421,49 @@ class DenodoExtract(BaseExtract):
     def remove_table(self, schema, table):
         pass
 
-    @staticmethod
     @dask.delayed
-    def to_parquet(qf, path):
+    def to_parquet(self, qf, path):
         qf.to_parquet(path)
 
-    def generate_tasks(
-        self,
-        refresh_partitions_list: bool = True,
-        download_if_older_than: int = 0,
-        cache_distinct_values: bool = True,
-        **kwargs,
-    ):
-
-        if refresh_partitions_list:
-            all_partitions = self.get_distinct_values()
+    def _get_source_partitions(self, cache: str = "off", upstream=None) -> Delayed:
+        """Generate a task that retrieves the list of partitions from source data"""
+        if cache == "on":
+            partitions = self._get_cached_partitions(file_name="partitions.json")
         else:
-            all_partitions = self.get_cached_distinct_values(file_name="all_partitions.json")
+            partitions = self.__get_source_partitions()
+        return partitions
 
-        # by default, always cache the list of distinct values in backend for future use
-        if cache_distinct_values:
-            cache_distinct_values_in_backend = self.to_backend(
-                all_partitions, file_name="all_partitions.json"
-            )
+    def _get_partition_cols_expr(self):
+        if len(self.partition_cols) == 1:
+            expr = self.partition_cols[0]
         else:
-            cache_distinct_values_in_backend = None
+            partition_cols_casted = [f"CAST({col} AS VARCHAR)" for col in self.partition_cols]
+            expr = "CONCAT(" + ", ".join(partition_cols_casted) + ")"
+        return expr
+
+    def _generate_partition_task(self, cache: str = "off") -> List[Delayed]:
+
+        start = self.begin_extract()
+
+        source_partitions = self._get_source_partitions(cache=cache, upstream=start)
+        to_cache = self._cache_partitions(source_partitions) if cache == "on" else None
 
         if self.if_exists == "replace":
-            partitions_to_download = all_partitions
+            partitions_to_download = source_partitions
         else:
-            existing_partitions = self.get_existing_partitions()
-            partitions_to_download = self.get_partitions_to_download(
-                all_partitions, existing_partitions, upstream=cache_distinct_values_in_backend
+            existing_partitions = self._get_existing_partitions()
+            partitions_to_download = self._get_new_partitions(
+                source_partitions, existing_partitions, upstream=to_cache
             )
+        return partitions_to_download
 
-        # compute partitions on the cluster
-        client = self._get_client()
-        partitions = []
-        try:
-            partitions = client.compute(partitions_to_download).result()
-        except Exception:
-            self.logger.exception("Something went wrong")
-            raise
-        finally:
-            client.close()
-        if not partitions:
-            self.logger.warning("No partitions to download")
-        self.partition_tasks = [partitions_to_download]
-
-        if len(self.partition_cols) > 1:
-            partition_cols_casted = [
-                f"CAST({partition_col} AS VARCHAR)" for partition_col in self.partition_cols
-            ]
-            partition_cols = "CONCAT(" + ", ".join(partition_cols_casted) + ")"
-        else:
-            partition_cols = self.partition_cols[0]
-
-        if self.if_exists == "skip":
-            self.logger.info("Skipping...")
-            return
-
+    def _generate_extract_tasks(self, partitions) -> List[Delayed]:
+        partition_cols_expr = self._get_partition_cols_expr()
         uploads = []
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
             file_name = f"{partition}.parquet"
-            where = f"{partition_cols}='{partition_concatenated}'"
+            where = f"{partition_cols_expr}='{partition_concatenated}'"
             processed_qf = self.filter_qf(query=where)
             s3 = self.to_parquet(processed_qf, os.path.join(self.s3_staging_url, file_name))
             uploads.append(s3)
@@ -486,16 +471,43 @@ class DenodoExtract(BaseExtract):
         external_table = self.create_external_table(upstream=uploads)
         if self.output_table_type == "base":
             regular_table = self.create_table(upstream=external_table)
-            # remove Spectrum table to avoid duplication
-            # clear_spectrum = self.remove_table(
-            #     self.output_schema, self.output_table, upstream=regular_table
-            # )
             final_task = regular_table
         else:
             final_task = external_table
-        self.extract_tasks = [final_task]
 
-    def register(self, registry: SchedulerDB = None, crons=None, **kwargs):
+        return [final_task]
+
+    def generate_tasks(self, partitions_cache: str = "off", **kwargs,) -> List[List[Delayed]]:
+        """Generate partitioning and extraction tasks
+
+        Parameters
+        ----------
+        cache : bool, optional, by default True
+            Whether to use caching for partitions list. This can be useful if partitions don't
+            change often and the computation is expensive.
+        Returns
+        -------
+        List[List[Delayed]]
+            Two lists: one with tasks for generating the list of partitions and the other with
+            tasks for extracting these partitions into 'self.output_dsn'
+        """
+        partition_task = self._generate_partition_task(cache=partitions_cache)
+        # compute partitions on the cluster
+        client = self._get_client()
+        partitions = client.compute(partition_task).result()
+        client.close()
+        extract_tasks = self._generate_extract_tasks(partitions=partitions)
+
+        return extract_tasks
+
+    def register(
+        self,
+        registry: SchedulerDB = None,
+        crons: List[str] = None,
+        partitions_cache="off",
+        if_exists: str = "skip",
+        **kwargs,
+    ) -> bool:
         """Submit the partitions and/or extract job
 
         Parameters
@@ -505,25 +517,22 @@ class DenodoExtract(BaseExtract):
         Examples
         ----------
         dev_registry = SchedulerDB(dev_scheduler_addr)
-        Extract().register(registry=dev_registry, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
+        Extract().register(registry=dev_registry, crons=["0 12 * * MON"], if_exists="replace")
         """
-        partitions_job_name = self.name + " - partitions"
-        self.partitions_job = Job(partitions_job_name, logger=self.logger, db=registry)
-        self.generate_tasks()  # calculate partition tasks
-        self.partitions_job.register(tasks=self.partition_tasks, crons=crons or [], **kwargs)
+        tasks = self.generate_tasks(partitions_cache=partitions_cache)
 
         self.extract_job = Job(self.name, logger=self.logger, db=registry)
         self.extract_job.register(
-            tasks=self.extract_tasks, upstream={partitions_job_name: "success"}, **kwargs
+            tasks=tasks, crons=crons, if_exists=if_exists, **kwargs,
         )
+        return True
 
     def unregister(self, registry: SchedulerDB = None, remove_job_runs: bool = False) -> bool:
-        self.partitions_job.unregister(remove_job_runs=remove_job_runs)
         self.extract_job.unregister(remove_job_runs=remove_job_runs)
         return True
 
     def submit(
-        self, registry, **kwargs,
+        self, registry: SchedulerDB, reregister: bool = False, **kwargs,
     ):
         """Submit the extract job
 
@@ -532,8 +541,12 @@ class DenodoExtract(BaseExtract):
         kwargs: arguments to pass to Job.register() and Job.submit()
 
         """
-        self.register(registry=registry, if_exists=self.if_exists, **kwargs)
-        self.partitions_job.submit(
+        if reregister:
+            if_exists = "replace"
+        else:
+            if_exists = "skip"
+        self.register(registry=registry, if_exists=if_exists, **kwargs)
+        self.extract_job.submit(
             scheduler_address=self.scheduler_address, priority=kwargs.get("priority")
         )
         return True
