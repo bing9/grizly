@@ -105,7 +105,10 @@ class BaseExtract:
     @dask.delayed
     def wipe_staging(self):
         s3 = s3fs.S3FileSystem()
-        s3.rm(self.s3_staging_url, recursive=True)
+        try:
+            s3.rm(self.s3_staging_url, recursive=True)
+        except FileNotFoundError:
+            self.logger.debug(f"Couldn't wipe out {self.s3_staging_url} as it doesn't exist")
 
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
@@ -168,7 +171,7 @@ class BaseExtract:
         kwargs: arguments to pass to Job.register() and Job.submit()
 
         """
-        self.register(registry=registry, if_exists=self.if_exists)
+        self.register(registry=registry, if_exists="skip")
         self.extract_job.submit(scheduler_address=self.scheduler_address, **kwargs)
         return True
 
@@ -506,9 +509,10 @@ class DenodoExtract(BaseExtract):
         """
         partitions_job_name = self.name + " - partitions"
         self.partitions_job = Job(partitions_job_name, logger=self.logger, db=registry)
-        self.extract_job = Job(self.name, logger=self.logger, db=registry)
         self.generate_tasks()  # calculate partition tasks
         self.partitions_job.register(tasks=self.partition_tasks, crons=crons or [], **kwargs)
+
+        self.extract_job = Job(self.name, logger=self.logger, db=registry)
         self.extract_job.register(
             tasks=self.extract_tasks, upstream={partitions_job_name: "success"}, **kwargs
         )
@@ -530,9 +534,7 @@ class DenodoExtract(BaseExtract):
         """
         self.register(registry=registry, if_exists=self.if_exists, **kwargs)
         self.partitions_job.submit(
-            scheduler_address=self.scheduler_address,
-            priority=kwargs.get("priority"),
-            to_dask=kwargs.get("to_dask"),
+            scheduler_address=self.scheduler_address, priority=kwargs.get("priority")
         )
         return True
 
