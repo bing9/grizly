@@ -84,6 +84,10 @@ class SchedulerDB:
             redis_port or os.getenv("GRIZLY_REDIS_PORT") or self.config.get("redis_port") or 6379
         )
 
+    def __repr__(self):
+        class_name = self.__class__.__name__
+        return f"{class_name}(redis_host={self.redis_host}, redis_port={self.redis_port})"
+
     @property
     def con(self):
         return Redis(host=self.redis_host, port=self.redis_port, db=0)
@@ -287,7 +291,7 @@ class SchedulerObject(ABC):
     def _get(self, key: str, _type: Optional[Literal["datetime", "dask"]] = None,) -> Any:
         raw_value = self.con.hget(self.hash_name, key)
         deserialized_value = self._deserialize(value=raw_value, _type=_type)
-        self.logger.debug(f"{self} : {key} : {deserialized_value}")
+        self.logger.debug(f"{self.db} : {self} : {key} : {deserialized_value}")
         return deserialized_value
 
     def _add_values_to_list(self, key: str, new_values: Union[List[str], str]):
@@ -361,7 +365,7 @@ class SchedulerObject(ABC):
             out = {**existing, **new}
 
             # update Redis
-            self.logger.info(f"Updating {list(new.keys())} in {self}.{key}...")
+            self.logger.debug(f"Updating {list(new.keys())} in {self}.{key}...")
             self.con.hset(
                 name=self.hash_name, key=key, value=self._serialize(out),
             )
@@ -391,7 +395,7 @@ class SchedulerObject(ABC):
 
         # update Redis
         if removed_values:
-            self.logger.info(f"Removing {removed_values} from {self}.{key}...")
+            self.logger.debug(f"Removing {removed_values} from {self}.{key}...")
             self.con.hset(
                 name=self.hash_name, key=key, value=self._serialize(existing),
             )
@@ -887,7 +891,7 @@ class Job(SchedulerObject):
         crons: Union[List[str], str] = None,
         upstream: Dict[str, SubmitCondition] = None,
         triggers: Union[List[str], str] = None,
-        if_exists: Literal["fail", "replace"] = "fail",
+        if_exists: Literal["fail", "replace", "skip"] = "fail",
         *args,
         **kwargs,
     ) -> "Job":
@@ -898,7 +902,10 @@ class Job(SchedulerObject):
         Job
         """
         if self.exists:
-            if if_exists == "fail":
+            if if_exists == "skip":
+                self.logger.debug("Job already exists. Skipping...")
+                return self
+            elif if_exists == "fail":
                 raise ValueError(f"{self} already exists")
             else:
                 self.unregister(remove_job_runs=True)
@@ -956,7 +963,7 @@ class Job(SchedulerObject):
 
         self.con.set(f"{JobRun.prefix}{self.name}:id", "0")
 
-        self.logger.info(f"{self} successfully registered")
+        self.logger.info(f"Job {self.name} successfully registered")
         return self
 
     def unregister(self, remove_job_runs: bool = False) -> None:
@@ -990,11 +997,11 @@ class Job(SchedulerObject):
             # remove job runs
             for job_run in self.db.get_job_runs(job_name=self.name):
                 job_run.unregister()
-            self.logger.info(f"{self}'s runs have been removed from registry")
+            self.logger.debug(f"{self}'s runs have been removed from registry")
 
         self.con.delete(self.hash_name)
 
-        self.logger.info(f"{self} successfully removed from registry")
+        self.logger.info(f"Job {self.name} successfully removed from registry")
 
     def _is_running(self):
         if self.last_run and self.last_run.status == "running":
@@ -1041,7 +1048,7 @@ class Job(SchedulerObject):
 
         job_run.result = result
 
-        self.logger.info(f"Job {self} finished with status {job_run.status}")
+        self.logger.info(f"Job {self.name} finished with status {job_run.status}")
         end = time()
         job_run.finished_at = datetime.now(timezone.utc)
         job_run.duration = int(end - start)
@@ -1076,10 +1083,12 @@ class Job(SchedulerObject):
 
     def __submit_downstream_jobs(self, condition: SubmitCondition):
         jobs = [
-            Job(job_name) for job_name, job_cond in self.downstream.items() if job_cond == condition
+            Job(name, db=self.db, logger=self.logger)
+            for name, cond in self.downstream.items()
+            if cond == condition
         ]
         if jobs:
-            self.logger.info(
+            self.logger.debug(
                 f"Enqueueing {self} downstream jobs with submit condition {condition}..."
             )
             queue = Queue(
@@ -1095,11 +1104,11 @@ class Job(SchedulerObject):
                 )
                 # each Job can correspond to multiple rq-jobs,
                 # eg. a job with two different crons
-                existing_rq_job_ids = job._rq_job_ids
+                existing_rq_job_ids = job._rq_job_ids or []
                 new_rq_job_id = rq_job.id
                 job._rq_job_ids = existing_rq_job_ids + [new_rq_job_id]
                 self.logger.debug(f"{job} has been added to rq scheduler with id {new_rq_job_id}")
-                self.logger.info(f"{job} has been enqueued")
+                self.logger.info(f"Job {job.name} has been enqueued")
         else:
             self.logger.debug(f"No {self} downstream jobs with condition '{condition}' found")
 
