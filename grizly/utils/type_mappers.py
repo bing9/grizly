@@ -264,6 +264,28 @@ def sfdc_to_python(dtype):
     return _map_type(mapping, dtype, default=str)
 
 
+def denodo_to_python(dtype):
+    mapping = {
+        "VARCHAR": str,
+        "DOUBLE PRECISION": np.float64,
+        "DATETIME": datetime.datetime,
+        "FLOAT": np.float32,
+        "INTEGER": int,
+    }
+    return _map_type(mapping, dtype, default=pa.string(), method="intermediate")
+
+
+def denodo_to_pyarrow(dtype):
+    mapping = {
+        "VARCHAR": pa.string(),
+        "DOUBLE PRECISION": pa.float64(),
+        "DATETIME": pa.timestamp("ms", tz="utc"),
+        "FLOAT": pa.float32(),
+        "INTEGER": pa.int64(),
+    }
+    return _map_type(mapping, dtype, default=str)
+
+
 def postgresql_to_python(dtype):
     # TODO: fix below mapper
     mapping = {
