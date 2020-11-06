@@ -1,4 +1,5 @@
 from .base import RDBMSBase
+from ...utils.type_mappers import denodo_to_python, denodo_to_pyarrow
 from typing import List, Any
 
 
@@ -109,3 +110,14 @@ class Denodo(RDBMSBase):
                 col_names = [col for col in columns if col in col_names_and_types]
                 col_types = [col_names_and_types[col_name] for col_name in col_names]
             return col_names, col_types
+
+    @staticmethod
+    def map_types(types, to):
+        if to == "postgresql":
+            return types
+        if to == "python":
+            mapping_func = denodo_to_python
+        elif to == "pyarrow":
+            mapping_func = denodo_to_pyarrow
+        mapped = [mapping_func(t) for t in types]
+        return mapped
