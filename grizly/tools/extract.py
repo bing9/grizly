@@ -156,6 +156,10 @@ class BaseExtract:
         self.extract_job = Job(self.name, logger=self.logger, db=registry)
         self.extract_job.register(tasks=self.generate_tasks(), **kwargs)
 
+    def unregister(self, registry: SchedulerDB = None, remove_job_runs: bool = False) -> bool:
+        self.extract_job.unregister(remove_job_runs=remove_job_runs)
+        return True
+
     def submit(self, registry, **kwargs):
         """Submit the extract job
 
@@ -279,29 +283,11 @@ class SFDCExtract(BaseExtract):
 
 class DenodoExtract(BaseExtract):
     def __init__(
-        self,
-        name,
-        qf,
-        *args,
-        store_backend: str = "local",
-        store_path: str = None,
-        store: dict = None,
-        **kwargs,
+        self, name, qf, *args, **kwargs,
     ):
         super().__init__(name, qf, *args, **kwargs)
-        self.store_backend = store_backend.lower()
-        self.store_path = store_path or self._get_default_store_path()
-        self.store = store or qf.store["extract"]  # TODO: add store validation
+        self.store = qf.store["extract"]  # TODO: add store validation
         self._load_attrs_from_store(self.store)
-
-    def _get_default_store_path(self) -> str:
-        if self.store_backend == "local":
-            path = os.path.join(WORKING_DIR, "store.json")
-        elif self.store_backend == "s3":
-            path = os.path.join(self.s3_root_url, "store.json")
-        else:
-            raise NotImplementedError
-        return path
 
     def _validate_store(self, store):
         pass
@@ -398,29 +384,22 @@ class DenodoExtract(BaseExtract):
         return partitions_to_download
 
     @dask.delayed
-    def to_store_backend(self, serializable: Any, file_name: str):
-        if self.store_backend == "s3":
-            url = os.path.join(self.s3_root_url, file_name)
-            s3 = S3(url=url)
-            self.logger.info(f"Copying {file_name} from memory to {url}...")
-            s3.from_serializable(serializable)
-        elif self.store_backend == "local":
-            self.logger.info(f"Copying {file_name} from memory to {self.store_path}...")
-            with open(self.store_path, "w") as f:
-                json.dump(serializable, f)
-        else:
-            raise NotImplementedError
+    def to_backend(self, serializable: Any, file_name: str):
+        url = os.path.join(self.s3_root_url, file_name)
+        s3 = S3(url=url)
+
+        self.logger.info(f"Copying {file_name} from memory to {url}...")
+
+        s3.from_serializable(serializable)
 
     @dask.delayed
     def get_cached_distinct_values(self, file_name: str):
-        if self.store_backend == "s3":
-            s3 = S3(url=os.path.join(self.root_url, file_name))
-            values = s3.to_serializable()
-        elif self.store_backend == "local":
-            with open(self.store_path) as f:
-                values = json.load(f)
-        else:
-            raise NotImplementedError
+        url = os.path.join(self.s3_root_url, file_name)
+        s3 = S3(url=url)
+
+        self.logger.info("Retrieving cached partition values...")
+
+        values = s3.to_serializable()
         return values
 
     @dask.delayed
@@ -452,7 +431,7 @@ class DenodoExtract(BaseExtract):
 
         # by default, always cache the list of distinct values in backend for future use
         if cache_distinct_values:
-            cache_distinct_values_in_backend = self.to_store_backend(
+            cache_distinct_values_in_backend = self.to_backend(
                 all_partitions, file_name="all_partitions.json"
             )
         else:
@@ -513,7 +492,7 @@ class DenodoExtract(BaseExtract):
             final_task = external_table
         self.extract_tasks = [final_task]
 
-    def register(self, registry=None, crons=None, **kwargs):
+    def register(self, registry: SchedulerDB = None, crons=None, **kwargs):
         """Submit the partitions and/or extract job
 
         Parameters
@@ -530,7 +509,14 @@ class DenodoExtract(BaseExtract):
         self.extract_job = Job(self.name, logger=self.logger, db=registry)
         self.generate_tasks()  # calculate partition tasks
         self.partitions_job.register(tasks=self.partition_tasks, crons=crons or [], **kwargs)
-        self.extract_job.register(tasks=self.extract_tasks, upstream=partitions_job_name, **kwargs)
+        self.extract_job.register(
+            tasks=self.extract_tasks, upstream={partitions_job_name: "success"}, **kwargs
+        )
+
+    def unregister(self, registry: SchedulerDB = None, remove_job_runs: bool = False) -> bool:
+        self.partitions_job.unregister(remove_job_runs=remove_job_runs)
+        self.extract_job.unregister(remove_job_runs=remove_job_runs)
+        return True
 
     def submit(
         self, registry, **kwargs,
@@ -554,16 +540,16 @@ class DenodoExtract(BaseExtract):
         pass
 
 
-def Extract(qf, *args, **kwargs):
+def Extract(name, qf, *args, **kwargs):
 
     if "sqlite" in qf.source.dsn:
-        return SimpleExtract(qf=qf, *args, **kwargs)
+        return SimpleExtract(name, qf, *args, **kwargs)
 
     db = config.get_service("sources")[qf.source.dsn]["db"]
 
     if db == "sfdc":
-        return SFDCExtract(qf=qf, *args, **kwargs)
+        return SFDCExtract(name, qf, *args, **kwargs)
     elif db == "denodo":
-        return DenodoExtract(qf=qf, *args, **kwargs)
+        return DenodoExtract(name, qf, *args, **kwargs)
     else:
-        return SimpleExtract(qf=qf, *args, **kwargs)
+        return SimpleExtract(name, qf, *args, **kwargs)
