@@ -1093,8 +1093,12 @@ class Job(SchedulerObject):
                     result_ttl=job._result_ttl,
                     job_timeout=self.timeout,
                 )
-                job._rq_job_ids = list(set(job._rq_job_ids) | {rq_job.id})
-                self.logger.debug(f"{job} has been added to rq scheduler with id {rq_job.id}")
+                # each Job can correspond to multiple rq-jobs,
+                # eg. a job with two different crons
+                existing_rq_job_ids = job._rq_job_ids
+                new_rq_job_id = rq_job.id
+                job._rq_job_ids = existing_rq_job_ids + [new_rq_job_id]
+                self.logger.debug(f"{job} has been added to rq scheduler with id {new_rq_job_id}")
                 self.logger.info(f"{job} has been enqueued")
         else:
             self.logger.debug(f"No {self} downstream jobs with condition '{condition}' found")
