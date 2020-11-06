@@ -1,6 +1,5 @@
 import logging
 import os
-from time import sleep
 
 import pytest
 from grizly.config import config
@@ -25,7 +24,7 @@ registry = SchedulerDB(redis_host="pytest_redis")
 
 s3_bucket = config.get_service("s3").get("bucket")
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("distributed.worker").getChild("test")
 
 
 """fixtures"""
@@ -43,7 +42,8 @@ def simple_extract():
         scheduler_address=scheduler_address,
         if_exists="replace",
     )
-    return simple_extract
+    yield simple_extract
+    simple_extract.unregister(remove_job_runs=True)
 
 
 @pytest.fixture(scope="session")
@@ -52,13 +52,10 @@ def denodo_extract():
         f"s3://{s3_bucket}/test/denodo_extract_store.json"
     )
     denodo_extract = Extract(
-        name="Denodo Extract Test",
-        qf=qf,
-        store_backend="s3",
-        scheduler_address=scheduler_address,
-        if_exists="replace",
+        name="Denodo Extract Test", qf=qf, scheduler_address=scheduler_address, if_exists="replace",
     )
-    return denodo_extract
+    yield denodo_extract
+    denodo_extract.unregister(remove_job_runs=True)
 
 
 @pytest.fixture(scope="session")
@@ -73,12 +70,13 @@ def sfdc_extract():
         scheduler_address=scheduler_address,
         if_exists="replace",
     )
-    return sfdc_extract
+    yield sfdc_extract
+    sfdc_extract.unregister(remove_job_runs=True)
 
 
-@pytest.fixture(scope="session", params=["simple_extract", "denodo_extract", "sfdc_extract"])
-def extract(simple_extract, denodo_extract, sfdc_extract, request):
-    return eval(request.param)
+# @pytest.fixture(scope="session", params=["simple_extract", "denodo_extract", "sfdc_extract"])
+# def extract(simple_extract, denodo_extract, sfdc_extract, request):
+#     return eval(request.param)
 
 
 #########
@@ -109,16 +107,12 @@ def extract(simple_extract, denodo_extract, sfdc_extract, request):
 ##########
 
 
-# def test_denodo_extract_e2e(denodo_extract):
-#     partition_jobs_result = denodo_extract.submit(registry=registry)
-#     assert partition_jobs_result is True
-#     extract_job_result = Job("Denodo Extract Test", db=registry).last_run.status
-#     while not extract_job_result == "success":
-#         sleep(0.1)
-#         extract_job_result = Job("Denodo Extract Test", db=registry).last_run.status
-
-#     spectrum_table = QFrame(dsn=output_dsn, schema="acoe_spectrum", table="simple_extract_test")
-#     assert spectrum_table.nrows > 0
+def test_denodo_extract_e2e(denodo_extract):
+    result = denodo_extract.submit(registry=registry)  # reregister=True
+    assert result is True
+    assert Job("Denodo Extract Test", db=registry).last_run.status == "success"
+    spectrum_table = QFrame(dsn=output_dsn, schema="acoe_spectrum", table="denodo_extract_test")
+    assert spectrum_table.nrows > 0
 
 
 # def test_get_distinct_values(denodo_extract):
@@ -141,13 +135,20 @@ def extract(simple_extract, denodo_extract, sfdc_extract, request):
 #     ]
 
 
-def test_get_existing_partitions(denodo_extract):
-    denodo_extract.submit(registry=registry)
-    # existing_partitions = denodo_extract.get_existing_partitions().compute()
-    # logger.info(existing_partitions)
-    pass
+# def test_get_existing_partitions(denodo_extract):
+#     denodo_extract.submit(registry=registry)
+#     # existing_partitions = denodo_extract.get_existing_partitions().compute()
+#     # logger.info(existing_partitions)
+#     pass
 
 
 # def test_get_partitions_to_download():
-#     # TODO
+#     pass
+
+
+# # TODO
+# def test_if_exists_append():
+#     # - should not create an external table if it already exists
+#     # Denodo - should not remove files from s3_staging_url
+#     # SFDC - as per 0.4.0rc1, should remove all files from s3_staging_url
 #     pass
