@@ -177,6 +177,9 @@ class RDBMSBase(BaseSource):
     ):
         """Create a base table"""
         full_table_name = f"{schema}.{table}" if schema else table
+
+        self.logger.info(f"Creating table {full_table_name}...")
+
         sql = ""
         if if_exists == "drop":
             sql += f"DROP TABLE IF EXISTS {full_table_name};"
