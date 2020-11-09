@@ -420,7 +420,11 @@ class DenodoExtract(BaseExtract):
     @dask.delayed
     @retry(Exception, tries=5, delay=5)
     def to_parquet(self, qf, path):
-        qf.to_parquet(path)
+        # need to raise here as well for retries to work
+        try:
+            qf.to_parquet(path)
+        except Exception:
+            raise
 
     def _get_source_partitions(self, cache: str = "off", upstream=None) -> Delayed:
         """Generate a task that retrieves the list of partitions from source data"""
