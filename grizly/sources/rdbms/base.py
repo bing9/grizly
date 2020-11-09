@@ -453,6 +453,7 @@ class RDBMSBase(BaseSource):
             self.logger.debug(f"Successfully ran query\n {sql}")
         except:
             self.logger.exception(f"Error occurred during running query\n {sql}")
+            raise
         finally:
             con.close()
             self.logger.debug("Connection closed")
