@@ -381,7 +381,7 @@ class SQLDriver(BaseDriver):
             Name of SQL table
         schema: str
             Specify the schema
-        if_exists : {'fail', 'replace', 'append'}, optional
+        if_exists : {'fail', 'replace', 'append', 'drop'}, optional
             How to behave if the table already exists, by default 'fail'
 
             * fail: Raise a ValueError.
@@ -401,13 +401,15 @@ class SQLDriver(BaseDriver):
             table=table,
             schema=schema,
             char_size=char_size,
+            if_exists=if_exists,
         )
+        if_exists2 = "replace" if if_exists == "drop" else if_exists
         self.source.write_to(
             table=table,
             columns=self.get_fields(aliased=True),
             sql=self.get_sql(),
             schema=schema,
-            if_exists=if_exists,
+            if_exists=if_exists2,
         )
         return self
 
@@ -752,7 +754,7 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
         warnings.warn(
             "Please remove or rename duplicated columns."
             "Use your_qframe.show_duplicated_columns() to check duplicates.",
-            UserWarning
+            UserWarning,
         )
     return out_qf
 
