@@ -281,7 +281,7 @@ def denodo_to_pyarrow(dtype):
         "DOUBLE PRECISION": pa.float64(),
         "DATETIME": pa.timestamp("ms", tz="utc"),
         "FLOAT": pa.float32(),
-        "INTEGER": pa.int64(),
+        "INTEGER": pa.int32(),
     }
     return _map_type(mapping, dtype, default=str)
 
