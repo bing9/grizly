@@ -112,8 +112,12 @@ class BaseExtract:
 
     @dask.delayed
     def create_table(self, upstream: Delayed = None):
-        qf = QFrame(dsn=self.output_dsn, dialect="mysql", logger=self.logger).from_table(
-            schema=self.output_external_schema, table=self.output_external_table
+        qf = QFrame(
+            dsn=self.output_dsn,
+            dialect="mysql",
+            schema=self.output_external_schema,
+            table=self.output_external_table,
+            logger=self.logger,
         )
         qf.to_table(
             schema=self.output_schema_prod,
@@ -363,7 +367,7 @@ class DenodoExtract(BaseExtract):
         existing_partitions = [fname.replace(".parquet", "") for fname in parquet_files]
 
         self.logger.info(
-            f"Successfully retrieved the list of {len(existing_partitions)} existing partitions"
+            f"Successfully retrieved the list of {len(existing_partitions)} existing partition(s)"
         )
         self.logger.debug(f"Existing partitions: \n{existing_partitions}")
 
@@ -377,7 +381,7 @@ class DenodoExtract(BaseExtract):
         new_partitions = [p for p in source_partitions if p not in existing_partitions]
 
         self.logger.info(
-            f"Successfully calculated the list of {len(new_partitions)} new partitions"
+            f"Successfully calculated the list of {len(new_partitions)} new partition(s)"
         )
         self.logger.debug(f"New partitions: \n{new_partitions}")
 
@@ -402,7 +406,7 @@ class DenodoExtract(BaseExtract):
         cached_partitions = s3.to_serializable()
 
         self.logger.info(
-            f"Successfully retrieved the list of {len(cached_partitions)} cached partitions"
+            f"Successfully retrieved the list of {len(cached_partitions)} cached partition(s)"
         )
         self.logger.debug(f"Cached partitions: \n{cached_partitions}")
 
@@ -470,10 +474,12 @@ class DenodoExtract(BaseExtract):
             uploads.append(s3)
 
         external_table = self.create_external_table(upstream=uploads)
+
         if self.output_table_type == "base":
             regular_table = self.create_table(upstream=external_table)
             final_task = regular_table
         else:
+            # TODO: do not create this task if the table already exists and if_exists != 'replace'
             final_task = external_table
 
         return [final_task]
@@ -505,7 +511,7 @@ class DenodoExtract(BaseExtract):
         self,
         registry: SchedulerDB = None,
         crons: List[str] = None,
-        partitions_cache="off",
+        partitions_cache: str = "off",
         if_exists: str = "skip",
         **kwargs,
     ) -> bool:
