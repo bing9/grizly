@@ -1,6 +1,5 @@
 import datetime
 import gc
-import json
 import os
 from abc import abstractmethod
 from typing import Any, List, Optional, Union
@@ -17,7 +16,7 @@ from ..config import config
 from ..drivers.frames_factory import QFrame
 from ..scheduling.registry import Job, SchedulerDB
 from ..sources.filesystem.old_s3 import S3
-from ..utils.functions import chunker
+from ..utils.functions import chunker, retry
 
 WORKING_DIR = os.getcwd()
 s3 = s3fs.S3FileSystem()
@@ -76,13 +75,6 @@ class BaseExtract:
         self.logger.info("Starting the extract process...")
 
     @dask.delayed
-    def to_arrow(self):
-        self.logger.info("Writing data to arrow...")
-        pa = self.qf.to_arrow()
-        gc.collect()
-        return pa
-
-    @dask.delayed
     def arrow_to_s3(self, arrow_table: Table, file_name: str = None):
         def _arrow_to_s3(arrow_table):
             def give_name(_):
@@ -100,11 +92,6 @@ class BaseExtract:
             self.logger.info(f"Successfully uploaded {file_name} to {self.s3_staging_url}")
 
         _arrow_to_s3(arrow_table)
-
-    @dask.delayed
-    def to_s3(self, path, upstream=None):
-        self.logger.info(f"Downloading data to {path}...")
-        self.qf.to_parquet(path)
 
     @dask.delayed
     def wipe_staging(self):
@@ -187,7 +174,7 @@ class SimpleExtract(BaseExtract):
         path = os.path.join(self.s3_root_url, file_name)
 
         start = self.begin_extract()
-        s3 = self.to_s3(path, upstream=start)
+        s3 = self.to_parquet(qf=self.qf, path=path, upstream=start)
         external_table = self.create_external_table(upstream=s3)
         base_table = self.create_table(upstream=external_table)
 
@@ -355,7 +342,9 @@ class DenodoExtract(BaseExtract):
         else:
             source_partitions = [row[0] for row in records]
 
-        self.logger.debug("Successfully retrieved the list of source partitions")
+        self.logger.info(
+            f"Successfully retrieved the list of {len(source_partitions)} source partitions"
+        )
         self.logger.debug(f"Source partitions: \n{source_partitions}")
 
         return source_partitions
@@ -373,7 +362,9 @@ class DenodoExtract(BaseExtract):
         parquet_files = self._get_parquet_files(self.s3_staging_url)
         existing_partitions = [fname.replace(".parquet", "") for fname in parquet_files]
 
-        self.logger.debug("Successfully retrieved the list of existing partitions")
+        self.logger.info(
+            f"Successfully retrieved the list of {len(existing_partitions)} existing partitions"
+        )
         self.logger.debug(f"Existing partitions: \n{existing_partitions}")
 
         return existing_partitions
@@ -385,6 +376,9 @@ class DenodoExtract(BaseExtract):
 
         new_partitions = [p for p in source_partitions if p not in existing_partitions]
 
+        self.logger.info(
+            f"Successfully calculated the list of {len(new_partitions)} new partitions"
+        )
         self.logger.debug(f"New partitions: \n{new_partitions}")
 
         return new_partitions
@@ -407,7 +401,9 @@ class DenodoExtract(BaseExtract):
 
         cached_partitions = s3.to_serializable()
 
-        self.logger.debug("Successfully retrieved the list of cached partitions")
+        self.logger.info(
+            f"Successfully retrieved the list of {len(cached_partitions)} cached partitions"
+        )
         self.logger.debug(f"Cached partitions: \n{cached_partitions}")
 
         return cached_partitions
@@ -422,6 +418,7 @@ class DenodoExtract(BaseExtract):
         pass
 
     @dask.delayed
+    @retry(Exception, tries=5, delay=5)
     def to_parquet(self, qf, path):
         qf.to_parquet(path)
 
