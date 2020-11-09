@@ -122,7 +122,7 @@ class BaseExtract:
         qf.to_table(
             schema=self.output_schema_prod,
             table=self.output_table_prod,
-            if_exists="replace",  # always re-create from the external table
+            if_exists="drop",  # always re-create from the external table
         )
 
     @abstractmethod
