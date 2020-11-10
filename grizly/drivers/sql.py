@@ -31,7 +31,7 @@ class SQLDriver(BaseDriver):
     ):
         super().__init__(*args, **kwargs)
 
-        self.source = source or RDBMS(dsn=dsn, *args, **kwargs)
+        self.source = source or RDBMS(dsn=dsn, **kwargs)
 
         if self.store == Store() and table:
             self.store = self._load_store_from_table(schema=schema, table=table, columns=columns)
@@ -381,7 +381,7 @@ class SQLDriver(BaseDriver):
             Name of SQL table
         schema: str
             Specify the schema
-        if_exists : {'fail', 'replace', 'append', 'drop'}, optional
+        if_exists : {'fail', 'replace', 'append'}, optional
             How to behave if the table already exists, by default 'fail'
 
             * fail: Raise a ValueError.
@@ -401,15 +401,13 @@ class SQLDriver(BaseDriver):
             table=table,
             schema=schema,
             char_size=char_size,
-            if_exists=if_exists,
         )
-        if_exists2 = "replace" if if_exists == "drop" else if_exists
         self.source.write_to(
             table=table,
             columns=self.get_fields(aliased=True),
             sql=self.get_sql(),
             schema=schema,
-            if_exists=if_exists2,
+            if_exists=if_exists,
         )
         return self
 
