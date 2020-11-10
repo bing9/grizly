@@ -141,6 +141,17 @@ class BaseDriver(ABC):
         """List of QFrame's columns' data types."""
         return self.get_dtypes()
 
+    # @dtypes.setter
+    # def dtypes(self, new_dtypes):
+    #     store_fields = self.store["select"]["fields"]
+    #     if not len(new_dtypes) == len(store_fields):
+    #         msg = (
+    #             f"Dtypes for all fields must be provided. Got {len(new_dtypes)/len(store_fields)}."
+    #         )
+    #         raise ValueError(msg)
+    #     for field, new_dtype in zip(store_fields, new_dtypes):
+    #         field["dtype"] = new_dtype
+
     @property
     def types(self) -> List[str]:
         """Alias for QFrame.dtypes."""
