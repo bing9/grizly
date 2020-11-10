@@ -144,7 +144,7 @@ class Email:
         """ Get the content of a file in binary format """
 
         image_formats = ["png", "jpeg", "jpg", "gif", "psd", "tiff"]
-        doc_formats = ["pdf", "ppt", "pptx", "xls", "xlsx", "doc", "docx"]
+        doc_formats = ["pdf", "ppt", "pptx", "xls", "xlsx", "xlsm", "doc", "docx"]
         archive_formats = ["zip", "7z", "tar", "rar", "iso"]
         compression_formats = ["pkl", "gzip", "bz", "bz2"]
         binary_formats = image_formats + doc_formats + archive_formats + compression_formats
