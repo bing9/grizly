@@ -17,6 +17,7 @@ from ..drivers.frames_factory import QFrame
 from ..scheduling.registry import Job, SchedulerDB
 from ..sources.filesystem.old_s3 import S3
 from ..utils.functions import chunker, retry
+from ..utils.type_mappers import spectrum_to_redshift
 
 WORKING_DIR = os.getcwd()
 s3 = s3fs.S3FileSystem()
@@ -112,17 +113,27 @@ class BaseExtract:
 
     @dask.delayed
     def create_table(self, upstream: Delayed = None):
+        """Create and populate a table"""
         qf = QFrame(
             dsn=self.output_dsn,
-            dialect="mysql",
             schema=self.output_external_schema,
             table=self.output_external_table,
             logger=self.logger,
         )
-        qf.to_table(
+        mapped_types = [spectrum_to_redshift(dtype) for dtype in qf.dtypes]
+        qf.source.create_table(
             schema=self.output_schema_prod,
             table=self.output_table_prod,
+            columns=qf.get_fields(aliased=True),
+            types=mapped_types,
             if_exists="drop",  # always re-create from the external table
+        )
+        qf.source.write_to(
+            schema=self.output_schema_prod,
+            table=self.output_table_prod,
+            columns=qf.get_fields(aliased=True),
+            sql=qf.get_sql(),
+            if_exists="append",
         )
 
     @abstractmethod
@@ -300,12 +311,11 @@ class DenodoExtract(BaseExtract):
         self.output_external_schema = store["output"].get("external_schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
         )
+        self.output_external_table = store["output"].get("external_table") or self.name_snake_case
         self.output_schema_prod = store["output"].get("schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_SCHEMA"
         )
-        self.output_external_table = store["output"].get("external_table") or self.name_snake_case
         self.output_table_prod = store["output"].get("table") or self.name_snake_case
-        self.output_table_type = "base" if store["output"].get("table") else "external"
 
     @dask.delayed
     def __get_source_partitions(self, upstream=None):
