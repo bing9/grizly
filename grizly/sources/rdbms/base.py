@@ -129,8 +129,8 @@ class RDBMSBase(BaseSource):
     def create_table(
         self,
         table: str,
-        columns: list,
-        types: list,
+        columns: List[str],
+        types: List[str],
         schema: str = None,
         if_exists: Literal["fail", "skip", "drop"] = "skip",
         **kwargs,
@@ -173,11 +173,10 @@ class RDBMSBase(BaseSource):
         return self
 
     def _create_base_table(
-        self, table: str, columns: list, types: list, schema: str = None, if_exists: str = "skip"
+        self, table: str, columns: List[str], types: List[str], schema: str = None, if_exists: str = "skip"
     ):
         """Create a base table"""
         full_table_name = f"{schema}.{table}" if schema else table
-
         self.logger.info(f"Creating table {full_table_name}...")
 
         sql = ""
