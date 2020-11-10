@@ -2,15 +2,11 @@ import logging
 import os
 
 import pytest
+import s3fs
 from grizly.config import config
 from grizly.drivers.frames_factory import QFrame
 from grizly.scheduling.registry import Job, SchedulerDB
 from grizly.tools.extract import Extract
-
-"""NOTE:
-When experimental.py is changing, grizly needs to be re-installed
-on the 'tests_dask_worker_1' as well as on the 'pytest_grizly_notebook'
-(maybe also with 'dask_scheduler') to execute the pytest test correctly."""
 
 
 cwd = os.getcwd()
@@ -23,6 +19,7 @@ scheduler_address = "dask_scheduler:8786"
 registry = SchedulerDB(redis_host="pytest_redis")
 
 s3_bucket = config.get_service("s3").get("bucket")
+s3 = s3fs.S3FileSystem()
 
 logger = logging.getLogger("distributed.worker").getChild("test")
 
@@ -44,6 +41,7 @@ def simple_extract():
     )
     yield simple_extract
     simple_extract.unregister(remove_job_runs=True)
+    s3.rm(simple_extract.s3_root_url, recursive=True)
 
 
 @pytest.fixture(scope="session")
@@ -56,6 +54,7 @@ def denodo_extract():
     )
     yield denodo_extract
     denodo_extract.unregister(remove_job_runs=True)
+    s3.rm(denodo_extract.s3_root_url, recursive=True)
 
 
 @pytest.fixture(scope="session")
@@ -72,6 +71,7 @@ def sfdc_extract():
     )
     yield sfdc_extract
     sfdc_extract.unregister(remove_job_runs=True)
+    s3.rm(sfdc_extract.s3_root_url, recursive=True)
 
 
 # @pytest.fixture(scope="session", params=["simple_extract", "denodo_extract", "sfdc_extract"])
