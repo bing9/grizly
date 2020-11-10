@@ -4,6 +4,7 @@ SQLDriver
 
 .. currentmodule:: grizly.drivers.sql
 
+
 .. autoclass:: SQLDriver
    :members:
 
@@ -14,4 +15,4 @@ join
 
 union
 ~~~~~
-.. autofunction:: join
+.. autofunction:: union

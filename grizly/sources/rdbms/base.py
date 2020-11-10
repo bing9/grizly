@@ -88,7 +88,7 @@ class RDBMSBase(BaseSource):
     ):
         """Copies records from one table to another.
 
-        Paramaters
+        Parameters
         ----------
         if_exists : str, optional
             How to behave if the output table already exists.
@@ -173,7 +173,12 @@ class RDBMSBase(BaseSource):
         return self
 
     def _create_base_table(
-        self, table: str, columns: List[str], types: List[str], schema: str = None, if_exists: str = "skip"
+        self,
+        table: str,
+        columns: List[str],
+        types: List[str],
+        schema: str = None,
+        if_exists: str = "skip",
     ):
         """Create a base table"""
         full_table_name = f"{schema}.{table}" if schema else table

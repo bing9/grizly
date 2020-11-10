@@ -11,12 +11,10 @@ Welcome to grizly's documentation!
    :caption: Contents:
 
    content/tutorials
-   content/api_QFrame
-   content/api_Email
-   content/api_S3
-   content/api_Sources
-   content/api_Crosstab
-   content/api_Job
+   content/sources
+   content/drivers
+   content/tools
+   content/scheduling
 
 
 Indices and tables
