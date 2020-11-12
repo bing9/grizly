@@ -9,7 +9,7 @@ from .redshift import Redshift
 from .sqlite import SQLite
 from .mariadb import MariaDB
 from .sfdc import SFDB
-from .tableau import TableauDB
+from .tableau import Tableau
 
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
@@ -41,7 +41,7 @@ def RDBMS(dsn: str, dialect: str = None, db: str = None, **kwargs):
     elif db == "sfdc":
         return SFDB(dsn=dsn, **kwargs)
     elif db == "tableau":
-        return TableauDB(dsn=dsn, **kwargs)
+        return Tableau(dsn=dsn, **kwargs)
 
 
 def SQLDB(*args, **kwargs):

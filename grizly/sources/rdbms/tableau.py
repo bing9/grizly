@@ -1,5 +1,5 @@
 from .aurora import AuroraPostgreSQL
 
 
-class TableauDB(AuroraPostgreSQL):
+class Tableau(AuroraPostgreSQL):
     pass
