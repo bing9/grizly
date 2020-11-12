@@ -1,1 +1,1 @@
-docker-compose up -d
+docker-compose up -d --scale dask_worker=2

@@ -333,7 +333,7 @@ class SQLDriver(BaseDriver):
         schema="",
         char_size=500,
         dsn=None,
-        rdbms=None,
+        output_source: RDBMS = None,
         if_exists: Literal["fail", "skip", "drop"] = "skip",
         **kwargs,
     ):
@@ -354,19 +354,19 @@ class SQLDriver(BaseDriver):
         """
         sqldb = kwargs.get("sqldb")
         if sqldb:
-            rdbms = sqldb
+            output_source = sqldb
             warnings.warn(
                 "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
                 " Please use rdbms parameter instead.",
                 DeprecationWarning,
             )
 
-        rdbms = rdbms or (
+        output_source = output_source or (
             self.source if dsn is None else RDBMS(dsn=dsn, logger=self.logger, **kwargs)
         )
-        mapped_types = rdbms.map_types(self.get_dtypes(), to=rdbms.dialect)
+        mapped_types = output_source.map_types(self.get_dtypes(), to=output_source.dialect)
 
-        rdbms.create_table(
+        output_source.create_table(
             type="base_table",
             columns=self.get_fields(aliased=True),
             types=mapped_types,
@@ -377,7 +377,15 @@ class SQLDriver(BaseDriver):
         )
         return self
 
-    def create_external_table(self, table, schema=None, dsn=None, if_exists=None, **kwargs):
+    def create_external_table(
+        self,
+        table: str,
+        schema: str = None,
+        dsn: str = None,
+        output_source: RDBMS = None,
+        if_exists: str = None,
+        **kwargs,
+    ):
         """Creates a new empty QFrame table in database if the table doesn't exist.
 
         Parameters
@@ -391,20 +399,19 @@ class SQLDriver(BaseDriver):
         -------
         QFrame
         """
-        if dsn is None:
-            destination = self.source
-        else:
-            destination = RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+        output_source = output_source or (
+            self.source if dsn is None else RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+        )
 
-        if not isinstance2(destination, Redshift):
+        if not isinstance2(output_source, Redshift):
             raise NotImplementedError("Writing to external tables is only supported in Redshift")
 
         bucket = kwargs.get("bucket")
         s3_key = kwargs.get("s3_key")
         s3_url = kwargs.get("s3_url")
         columns = self.get_fields(aliased=True)
-        mapped_types = self.source.map_types(self.get_dtypes(), to=destination.dialect)
-        destination.create_table(
+        mapped_types = self.source.map_types(self.get_dtypes(), to=output_source.dialect)
+        output_source.create_table(
             table_type="external",
             columns=columns,
             types=mapped_types,

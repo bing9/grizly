@@ -20,8 +20,10 @@ services:
     environment:
       - HTTPS_PROXY=${PROXY}
       - GRIZLY_REDIS_HOST=pytest_redis
-      - GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA=${GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA}
+      - GRIZLY_EXTRACT_STAGING_SCHEMA=${GRIZLY_EXTRACT_STAGING_SCHEMA}
+      - GRIZLY_EXTRACT_PROD_SCHEMA=${GRIZLY_EXTRACT_PROD_SCHEMA}
       - GRIZLY_DASK_SCHEDULER_ADDRESS=dask_scheduler:8786
+      - DASK_SCHEDULER_ADDRESS=dask_scheduler:8786
     ports:
       - "1001:8888"
     volumes:
@@ -87,6 +89,8 @@ services:
     volumes:
       - ../..:/home/analyst
       - ../../.config/odbc.ini:/etc/odbc.ini
+    env_file:
+      - .env
     environment:
       - HTTPS_PROXY=${PROXY}
     depends_on:
