@@ -1,6 +1,6 @@
-=========
-TableauDB
-=========
+=======
+Tableau
+=======
 
-.. autoclass:: grizly.sources.rdbms.tableau.TableauDB
+.. autoclass:: grizly.sources.rdbms.tableau.Tableau
    :members:
