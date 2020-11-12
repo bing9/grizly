@@ -1,14 +1,28 @@
 from typing import List
 
 from ...utils.type_mappers import mysql_to_postgresql, mysql_to_pyarrow, mysql_to_python
-from .base import RDBMSBase
+from .base import RDBMSWriteBase
 
 
-class SQLite(RDBMSBase):
+class SQLite(RDBMSWriteBase):
+    """
+    Class that represents SQLite database.
+
+    https://www.sqlite.org/index.html
+
+    Examples
+    --------
+    >>> from pathlib import Path
+    >>> from grizly import Source
+    >>> dsn = Path.cwd().parent.joinpath("tests", "Chinook.sqlite")
+    >>> sql_source = Source(dsn=dsn, db="sqlite", dialect="mysql")
+    """
+
     dialect = "mysql"
 
     @property
     def con(self):
+        """Sqlite connection."""
         import sqlite3
 
         con = sqlite3.connect(database=self.dsn)
@@ -17,7 +31,7 @@ class SQLite(RDBMSBase):
     def get_columns(
         self, table: str, schema: str = None, column_types: bool = False, columns: list = None
     ):
-        """Get column names (and optionally types) from a SQLite table."""
+        """Get columns names (and optionally types) from a SQLite table."""
         con = self.get_connection()
         cursor = con.cursor()
         table_name = table if schema is None or schema == "" else f"{schema}.{table}"

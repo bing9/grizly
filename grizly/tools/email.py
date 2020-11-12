@@ -199,6 +199,7 @@ class Email:
 
         Examples
         --------
+        >>> from grizly import get_path, Email
         >>> attachment_path = get_path("grizly_dev", "tests", "output.txt")
         >>> email = Email(subject="Test", body="Testing body.", attachment_paths=attachment_path, config_key="standard")
         >>> to = "test@example.com"

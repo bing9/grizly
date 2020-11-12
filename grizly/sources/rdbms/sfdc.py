@@ -12,7 +12,7 @@ from ...config import Config
 from ...config import config as default_config
 from ...utils.functions import chunker, get_past_date
 from ...utils.type_mappers import sfdc_to_pyarrow, sfdc_to_python, sfdc_to_sqlalchemy
-from .base import BaseTable, RDBMSBase
+from .base import BaseTable, RDBMSReadBase
 
 
 class SFDCTable(BaseTable):
@@ -96,7 +96,18 @@ class SFDCTable(BaseTable):
         pass
 
 
-class SFDB(RDBMSBase):
+class SFDB(RDBMSReadBase):
+    """
+    Class that represents Salesforce database (ready only).
+
+    https://www.salesforce.com/
+
+    Examples
+    --------
+    >>> from grizly import Source
+    >>> sql_source = Source(dsn="sfdc")
+    """
+
     _context = ""
     _quote = ""
     _use_ordinal_position_notation = False
@@ -229,7 +240,6 @@ class SFDB(RDBMSBase):
 
     @property
     def tables(self):
-        """Alias for objects"""
         return self.objects
 
     @property
@@ -241,7 +251,7 @@ class SFDB(RDBMSBase):
         return SFDCTable(name=name, source=self)
 
     def table(self, name, schema=None):
-        """Alias for object"""
+        """Alias for object."""
         return self.object(name=name)
 
     @staticmethod
@@ -256,30 +266,3 @@ class SFDB(RDBMSBase):
             raise NotImplementedError
         mapped = [mapping_func(t) for t in types]
         return mapped
-
-    def copy_object(self):
-        raise NotImplementedError
-
-    def delete_object(self):
-        raise NotImplementedError
-
-    def create_object(self):
-        raise NotImplementedError
-
-    def copy_table(self, **kwargs):
-        raise NotSupportedError
-
-    def create_table(self, **kwargs):
-        raise NotSupportedError
-
-    def insert_into(self, **kwargs):
-        raise NotSupportedError
-
-    def delete_from(self, **kwargs):
-        raise NotSupportedError
-
-    def drop_table(self, **kwargs):
-        raise NotSupportedError
-
-    def write_to(self, **kwargs):
-        raise NotSupportedError

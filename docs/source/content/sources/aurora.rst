@@ -1,6 +1,6 @@
-================
-AuroraPostgreSQL
-================
+======
+Aurora
+======
 
-.. autoclass:: grizly.sources.rdbms.aurora.AuroraPostgreSQL
-   :members:
+.. toctree::
+   aurora/postgresql

@@ -19,28 +19,35 @@ deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", re
 
 
 class SQLDriver(BaseDriver):
-    """[summary]
+    """Class that builds select statement upon a table in relational database.
 
     Parameters
     ----------
     dsn : str, optional
-        [description], by default None
+        Datasource name that should be read from config, by default None
     schema : str, optional
-        [description], by default None
+        Schema name, by default None
     table : str, optional
-        [description], by default None
+        Table name, by default None
     columns : list, optional
-        [description], by default None
+        Columns that should be retrived, if None then all columns are retrived, by default None
     source : Source, optional
-        [description], by default None
+        Instead of dsn Source class can be specified, by default None
 
     Examples
     --------
+    >>> from grizly import QFrame
     >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
     >>> print(qf)
     SELECT "customer_id",
             "sales"
     FROM grizly.sales
+
+    See Also
+    --------
+    SQLDriver.from_dict
+    SQLDriver.from_json
+
     """
 
     def __init__(
@@ -97,6 +104,7 @@ class SQLDriver(BaseDriver):
 
         return Store(_dict)
 
+    # TODO: probably from_table method should be deprecated
     def from_table(
         self,
         table: str,
@@ -119,17 +127,6 @@ class SQLDriver(BaseDriver):
             Path to output json file, by default None
         subquery : str, optional
             Name of the query in json file. If this name already exists it will be overwritten, by default None
-
-        Examples
-        --------
-        >>> qf = QFrame(dsn="redshift_acoe")
-        >>> qf = qf.from_table(table="table_tutorial", schema="grizly")
-        >>> print(qf)
-        SELECT "col1",
-               "col2",
-               "col3",
-               "col4"
-        FROM grizly.table_tutorial
         """
         self.store = self._load_store_from_table(table=table, schema=schema, columns=columns)
 
@@ -171,7 +168,6 @@ class SQLDriver(BaseDriver):
 
         Examples
         --------
-        >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
         >>> qf = qf.rename({"customer_id": "Id"})
         >>> print(qf)
         SELECT "customer_id" AS "Id",
@@ -314,7 +310,6 @@ class SQLDriver(BaseDriver):
 
         Examples
         --------
-        >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
         >>> print(qf.get_sql())
         SELECT "customer_id",
                "sales"
@@ -466,6 +461,7 @@ class SQLDriver(BaseDriver):
 
         Examples
         --------
+        >>> from grizly import QFrame
         >>> qf = QFrame(dsn="redshift_acoe", table="table_tutorial", schema="grizly")
         >>> qf.orderby("col1").to_records()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
@@ -721,6 +717,7 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
 
     Examples
     --------
+    >>> from grizly import get_path, QFrame
     >>> dsn = get_path("grizly_dev", "tests", "Chinook.sqlite")
     >>> playlist_track_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql", table="PlaylistTrack", columns=["PlaylistId", "TrackId"])
     >>> print(playlist_track_qf)
@@ -824,7 +821,6 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     Examples
     --------
-    >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
     >>> qf1 = qf.copy()
     >>> qf2 = qf.copy()
     >>> qf3 = qf.copy()

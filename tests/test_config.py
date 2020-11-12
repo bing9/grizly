@@ -1,11 +1,13 @@
 from ..grizly.config import Config
 import os
 from pathlib import Path
+from copy import deepcopy
 
 
 def test_from_json():
     json_path = str(Path.cwd().parent.joinpath("tutorials", "resources", "config.json"))
 
+    old_data = deepcopy(Config.data)
     Config.data = {}
     Config().from_json(json_path=json_path)
 
@@ -40,6 +42,8 @@ def test_from_json():
     }
 
     assert Config.data == data
+
+    Config.data = old_data
 
 
 def test_env():

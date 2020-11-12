@@ -1,15 +1,15 @@
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Literal, Union, List, Any
+from typing import Literal, Union, List, Any, Tuple
 
 import deprecation
 
-from ..base import BaseSource
+from ..base import BaseReadSource, BaseWriteSource
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
 
 
-class RDBMSBase(BaseSource):
+class RDBMSReadBase(BaseReadSource):
     _context = ""
     _quote = '"'
     _use_ordinal_position_notation = True
@@ -27,20 +27,13 @@ class RDBMSBase(BaseSource):
     def __eq__(self, other):
         return self.dsn == other.dsn
 
-    def copy_object(self, **kwargs):
-        return self.copy_table(**kwargs)
-
-    def delete_object(self, **kwargs):
-        return self.drop_table(**kwargs)
-
-    def create_object(self, **kwargs):
-        return self.create_table(**kwargs)
-
     def object(self, name):
+        """*[Not implemented yet]*"""
         pass
 
     @property
     def con(self):
+        """Pyodbc connection."""
         import pyodbc
 
         try:
@@ -52,12 +45,11 @@ class RDBMSBase(BaseSource):
         return con
 
     def get_connection(self, autocommit=False):
-        """Return pyodbc connection
+        """Return connection.
 
         Examples
         --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> con = sqldb.get_connection()
+        >>> con = sql_source.get_connection()
         >>> con.execute("SELECT * FROM grizly.table_tutorial ORDER BY 1").fetchall()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
         >>> con.close()
@@ -65,12 +57,11 @@ class RDBMSBase(BaseSource):
         return self.con
 
     def check_if_exists(self, table: str, schema: str = None, column: str = None):
-        """Check if a table exists
+        """Check if a table exists.
 
         Examples
         --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb.check_if_exists(table="table_tutorial", schema="grizly")
+        >>> sql_source.check_if_exists(table="table_tutorial", schema="grizly")
         True
         """
         columns = [column] if column else None
@@ -78,234 +69,10 @@ class RDBMSBase(BaseSource):
 
         return exists
 
-    def copy_table(
-        self,
-        in_table: str,
-        out_table: str,
-        in_schema: str = None,
-        out_schema: str = None,
-        if_exists="fail",
-    ):
-        """Copies records from one table to another.
-
-        Parameters
-        ----------
-        if_exists : str, optional
-            How to behave if the output table already exists.
-
-            * fail: Raise a ValueError
-            * drop: Drop table
-
-        Examples
-        --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb = sqldb.copy_table(
-        ...    in_table="table_tutorial",
-        ...    in_schema="grizly",
-        ...    out_table="test_k",
-        ...    out_schema="sandbox",
-        ...    if_exists="drop",
-        ... )
-        >>> con = sqldb.get_connection()
-        >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
-        [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
-        >>> con.close()
-        """
-        in_table_full_name = f"{in_schema}.{in_table}" if in_schema else in_table
-        out_table_full_name = f"{out_schema}.{out_table}" if out_schema else out_table
-
-        sql = ""
-        if if_exists == "drop":
-            sql += f"DROP TABLE IF EXISTS {out_table_full_name};"
-
-        sql += f"""
-                CREATE TABLE {out_table_full_name} AS
-                SELECT * FROM {in_table_full_name}; commit;
-                """
-        self._run_query(sql)
-
-        return self
-
-    def create_table(
-        self,
-        table: str,
-        columns: List[str],
-        types: List[str],
-        schema: str = None,
-        if_exists: Literal["fail", "skip", "drop"] = "skip",
-        **kwargs,
-    ):
-        """Creates a new table.
-
-        Parameters
-        ----------
-        table : str
-            Table name
-        columns : list
-            Column names
-        types : list
-            Column types
-        schema : str, optional
-            Schema name
-        if_exists : {'fail', 'skip', 'drop'}, optional
-            How to behave if the table already exists, by default 'skip'
-
-            * fail: Raise a ValueError
-            * drop: Drop table before creating new one
-
-        Examples
-        --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb = sqldb.create_table(
-        ...     table="test_k",
-        ...     columns=["col1", "col2"],
-        ...     types=["varchar(100)", "int"],
-        ...     schema="sandbox",
-        ... )
-        >>> sqldb.check_if_exists(table="test_k", schema="sandbox")
-        True
-        """
-
-        self._create_base_table(
-            table=table, columns=columns, types=types, schema=schema, if_exists=if_exists
-        )
-
-        return self
-
-    def _create_base_table(
-        self,
-        table: str,
-        columns: List[str],
-        types: List[str],
-        schema: str = None,
-        if_exists: str = "skip",
-    ):
-        """Create a base table"""
-        full_table_name = f"{schema}.{table}" if schema else table
-        self.logger.info(f"Creating table {full_table_name}...")
-
-        sql = ""
-        if if_exists == "drop":
-            sql += f"DROP TABLE IF EXISTS {full_table_name};"
-
-        sql += "CREATE TABLE"
-        if if_exists == "skip":
-            sql += " IF NOT EXISTS"
-
-        col_tuples = []
-
-        for col, _type in zip(columns, types):
-            column = col + " " + _type
-            col_tuples.append(column)
-
-        columns_str = ", ".join(col_tuples)
-        sql += f" {full_table_name} ({columns_str}); commit;"
-        self._run_query(sql)
-        self.logger.info(f"Table {full_table_name} has been successfully created.")
-
-        return self
-
-    def insert_into(self, table: str, sql: str, columns: list = None, schema: str = None):
-        """Inserts records into table.
-
-        Examples
-        --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb = sqldb.create_table(table="test_k", columns=["col1", "col2"], types=["varchar", "int"], schema="sandbox")
-        >>> sqldb = sqldb.insert_into(table="test_k", columns=["col1"], sql="SELECT col1 from grizly.table_tutorial", schema="sandbox")
-        >>> con = sqldb.get_connection()
-        >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
-        [('item1', None), ('item2', None)]
-        >>> con.close()
-
-        """
-        full_table_name = f"{schema}.{table}" if schema else table
-        if columns:
-            columns = ", ".join(columns)
-            sql = f"INSERT INTO {full_table_name} ({columns}) {sql}; commit;"
-        else:
-            sql = f"INSERT INTO {full_table_name} ({sql}); commit;"
-        self.logger.info(f"Inserting records into table {full_table_name}...")
-        self._run_query(sql)
-
-        return self
-
-    def delete_from(self, table: str, schema: str = None, where: str = None):
-        """Removes records from Redshift table which satisfy where.
-
-        Examples
-        --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb = sqldb.delete_from(table="test_k", schema="sandbox", where="col2 is NULL")
-        """
-
-        full_table_name = f"{schema}.{table}" if schema else table
-        sql = f"DELETE FROM {full_table_name}"
-        if where is not None:
-            sql += f" WHERE {where} "
-        sql += "; commit;"
-        self.logger.info(f"Deleting records from table {full_table_name} {where}...")
-        self._run_query(sql)
-
-        return self
-
-    def drop_table(self, table: str, schema: str = None):
-        """Drop table
-
-        Examples
-        --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb = sqldb.drop_table(table="test_k", schema="sandbox")
-        >>> sqldb.check_if_exists(table="test_k", schema="sandbox")
-        False
-        """
-
-        full_table_name = f"{schema}.{table}" if schema else table
-        sql = f"DROP TABLE IF EXISTS {full_table_name};"
-        self.logger.info(f"Dropping table {full_table_name}...")
-        self._run_query(sql, autocommit=True)
-
-        return self
-
-    def write_to(self, table: str, columns: list, sql: str, schema: str = None, if_exists="fail"):
-        """Performs DELETE FROM (if table exists) and INSERT INTO queries in Redshift directly.
-
-        Parameters
-        ----------
-        if_exists : {'fail', 'replace', 'append'}, optional
-            How to behave if the table already exists, by default 'fail'
-
-            * fail: Raise a ValueError
-            * replace: Clean table before inserting new values
-            * append: Insert new values to the existing table
-
-        Examples
-        --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb = sqldb.write_to(table="test_k", columns=["col1"], sql="SELECT col1 from grizly.table_tutorial", schema="sandbox", if_exists="replace")
-        >>> con = sqldb.get_connection()
-        >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
-        [('item1', None), ('item2', None)]
-        >>> con.close()
-        """
-
-        full_table_name = schema + "." + table if schema else table
-        if if_exists == "replace":
-            self.delete_from(table=table, schema=schema)
-            self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
-            self.logger.info(f"Data has been successfully inserted into {full_table_name}")
-        elif if_exists == "fail":
-            raise ValueError(
-                f"Table {full_table_name} already exists and if_exists is set to 'fail'"
-            )
-        elif if_exists == "append":
-            self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
-            self.logger.info(f"Data has been appended to {full_table_name}")
-
-        return self
-
-    def get_tables(self, schema=None, base_table=True, view=True):
-        """Retrieves list of (schema, table) tuples
+    def get_tables(
+        self, schema: str = None, base_table: bool = True, view: bool = True
+    ) -> List[Tuple[str, str]]:
+        """Retrieve list of (schema, table) tuples.
 
         Parameters
         ----------
@@ -314,9 +81,8 @@ class RDBMSBase(BaseSource):
 
         Examples
         --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb.get_tables(schema="grizly")
-        [('grizly', 'track'), ('grizly', 'table_tutorial')]
+        >>> sql_source.get_tables(schema="grizly")
+        [('grizly', 'track'), ('grizly', 'table_tutorial'), ('grizly', 'sales')]
         """
         output = []
         if base_table:
@@ -333,6 +99,7 @@ class RDBMSBase(BaseSource):
 
     @property
     def tables(self):
+        """Alias for objects."""
         return self.objects
 
     def _get_views(self, schema: str = None):
@@ -364,7 +131,7 @@ class RDBMSBase(BaseSource):
     def get_columns(
         self, table: str, schema: str = None, column_types: bool = False, columns: list = None
     ):
-        """Retrieves column names and optionally other table metadata
+        """Retrieve column names and optionally other table metadata.
 
         Parameters
         ----------
@@ -379,8 +146,7 @@ class RDBMSBase(BaseSource):
 
         Examples
         --------
-        >>> sqldb = SQLDB(dsn="redshift_acoe")
-        >>> sqldb.get_columns(table="table_tutorial", schema="grizly", column_types=True)
+        >>> sql_source.get_columns(table="table_tutorial", schema="grizly", column_types=True)
         (['col1', 'col2', 'col3', 'col4'], ['character varying(500)', 'double precision', 'character varying(500)', 'double precision'])
         """
 
@@ -450,6 +216,7 @@ class RDBMSBase(BaseSource):
             raise
         finally:
             con.close()
+            self.logger.debug("Connection closed")
 
     def _fetch_records(self, sql: str):
         sql = self._add_context(sql)
@@ -475,7 +242,257 @@ class RDBMSBase(BaseSource):
 
     @staticmethod
     def map_types(types: Union[str, List[Any]], to: str = None):
+        """Map types from the source to other dialect.
+
+        Parameters
+        ----------
+        types : Union[str, List[Any]]
+            Source types
+        to : str, optional
+            Output dialect, by default None
+        """
         raise NotImplementedError
+
+
+class RDBMSWriteBase(BaseWriteSource, RDBMSReadBase):
+    def copy_object(self, **kwargs):
+        return self.copy_table(**kwargs)
+
+    def delete_object(self, **kwargs):
+        return self.drop_table(**kwargs)
+
+    def create_object(self, **kwargs):
+        return self.create_table(**kwargs)
+
+    def copy_table(
+        self,
+        in_table: str,
+        out_table: str,
+        in_schema: str = None,
+        out_schema: str = None,
+        if_exists="fail",
+    ):
+        """Copy records from one table to another.
+
+        Parameters
+        ----------
+        if_exists : str, optional
+            How to behave if the output table already exists.
+
+            * fail: Raise a ValueError
+            * drop: Drop table
+
+        Examples
+        --------
+        >>> sql_source = sql_source.copy_table(
+        ...    in_table="table_tutorial",
+        ...    in_schema="grizly",
+        ...    out_table="test_k",
+        ...    out_schema="sandbox",
+        ...    if_exists="drop",
+        ... )
+        >>> con = sql_source.get_connection()
+        >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
+        [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
+        >>> con.close()
+        """
+        in_table_full_name = f"{in_schema}.{in_table}" if in_schema else in_table
+        out_table_full_name = f"{out_schema}.{out_table}" if out_schema else out_table
+
+        sql = ""
+        if if_exists == "drop":
+            sql += f"DROP TABLE IF EXISTS {out_table_full_name};"
+
+        sql += f"""
+                CREATE TABLE {out_table_full_name} AS
+                SELECT * FROM {in_table_full_name}; commit;
+                """
+        self._run_query(sql)
+
+        return self
+
+    def create_table(
+        self,
+        table: str,
+        columns: List[str],
+        types: List[str],
+        schema: str = None,
+        if_exists: Literal["fail", "skip", "drop"] = "skip",
+        **kwargs,
+    ):
+        """Create a new table.
+
+        Parameters
+        ----------
+        table : str
+            Table name
+        columns : list
+            Column names
+        types : list
+            Column types
+        schema : str, optional
+            Schema name
+        if_exists : {'fail', 'skip', 'drop'}, optional
+            How to behave if the table already exists, by default 'skip'
+
+            * fail: Raise a ValueError
+            * drop: Drop table before creating new one
+
+        Examples
+        --------
+        >>> sql_source = sql_source.create_table(
+        ...     table="test_k",
+        ...     columns=["col1", "col2"],
+        ...     types=["varchar(100)", "int"],
+        ...     schema="sandbox",
+        ... )
+        >>> sql_source.check_if_exists(table="test_k", schema="sandbox")
+        True
+        """
+
+        self._create_base_table(
+            table=table, columns=columns, types=types, schema=schema, if_exists=if_exists
+        )
+
+        return self
+
+    def _create_base_table(
+        self,
+        table: str,
+        columns: List[str],
+        types: List[str],
+        schema: str = None,
+        if_exists: str = "skip",
+    ):
+        """Create a base table"""
+        full_table_name = f"{schema}.{table}" if schema else table
+        self.logger.info(f"Creating table {full_table_name}...")
+
+        sql = ""
+        if if_exists == "drop":
+            sql += f"DROP TABLE IF EXISTS {full_table_name};"
+
+        sql += "CREATE TABLE"
+        if if_exists == "skip":
+            sql += " IF NOT EXISTS"
+
+        col_tuples = []
+
+        for col, _type in zip(columns, types):
+            column = col + " " + _type
+            col_tuples.append(column)
+
+        columns_str = ", ".join(col_tuples)
+        sql += f" {full_table_name} ({columns_str}); commit;"
+        self._run_query(sql)
+        self.logger.info(f"Table {full_table_name} has been successfully created.")
+
+        return self
+
+    def insert_into(self, table: str, sql: str, columns: list = None, schema: str = None):
+        """Insert records into table.
+
+        Examples
+        --------
+        >>> sql_source = sql_source.create_table(table="test_k",
+        ...                                      schema="sandbox",
+        ...                                      columns=["col1", "col2"],
+        ...                                      types=["varchar", "int"], )
+        >>> sql_source = sql_source.insert_into(table="test_k",
+        ...                                     columns=["col1"],
+        ...                                     sql="SELECT col1 from grizly.table_tutorial",
+        ...                                     schema="sandbox")
+        >>> con = sql_source.get_connection()
+        >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
+        [('item1', None), ('item2', None)]
+        >>> con.close()
+
+        """
+        full_table_name = f"{schema}.{table}" if schema else table
+        if columns:
+            columns = ", ".join(columns)
+            sql = f"INSERT INTO {full_table_name} ({columns}) {sql}; commit;"
+        else:
+            sql = f"INSERT INTO {full_table_name} ({sql}); commit;"
+        self.logger.info(f"Inserting records into table {full_table_name}...")
+        self._run_query(sql)
+
+        return self
+
+    def delete_from(self, table: str, schema: str = None, where: str = None):
+        """Remove records from table that satisfy where.
+
+        Examples
+        --------
+        >>> sql_source = sql_source.delete_from(table="test_k", schema="sandbox", where="col2 is NULL")
+        """
+
+        full_table_name = f"{schema}.{table}" if schema else table
+        sql = f"DELETE FROM {full_table_name}"
+        if where is not None:
+            sql += f" WHERE {where} "
+        sql += "; commit;"
+        self.logger.info(f"Deleting records from table {full_table_name} {where}...")
+        self._run_query(sql)
+
+        return self
+
+    def drop_table(self, table: str, schema: str = None):
+        """Drop table.
+
+        Examples
+        --------
+        >>> sql_source = sql_source.drop_table(table="test_k", schema="sandbox")
+        >>> sql_source.check_if_exists(table="test_k", schema="sandbox")
+        False
+        """
+
+        full_table_name = f"{schema}.{table}" if schema else table
+        sql = f"DROP TABLE IF EXISTS {full_table_name};"
+        self.logger.info(f"Dropping table {full_table_name}...")
+        self._run_query(sql, autocommit=True)
+
+        return self
+
+    def write_to(self, table: str, columns: list, sql: str, schema: str = None, if_exists="fail"):
+        """Perform DELETE FROM (if table exists) and INSERT INTO queries on specified table.
+
+        Parameters
+        ----------
+        if_exists : {'fail', 'replace', 'append'}, optional
+            How to behave if the table already exists, by default 'fail'
+
+            * fail: Raise a ValueError
+            * replace: Clean table before inserting new values
+            * append: Insert new values to the existing table
+
+        Examples
+        --------
+        >>> sql_source = sql_source.write_to(table="test_k",
+        ...                                  columns=["col1"],
+        ...                                  sql="SELECT col1 from grizly.table_tutorial",
+        ...                                  schema="sandbox",
+        ...                                  if_exists="replace")
+        >>> con = sql_source.get_connection()
+        >>> con.execute("SELECT * FROM sandbox.test_k ORDER BY 1").fetchall()
+        [('item1', None), ('item2', None)]
+        >>> con.close()
+        """
+
+        full_table_name = schema + "." + table if schema else table
+        if if_exists == "replace":
+            self.delete_from(table=table, schema=schema)
+            self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
+            self.logger.info(f"Data has been successfully inserted into {full_table_name}")
+        elif if_exists == "fail":
+            raise ValueError(
+                f"Table {full_table_name} already exists and if_exists is set to 'fail'"
+            )
+        elif if_exists == "append":
+            self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
+            self.logger.info(f"Data has been appended to {full_table_name}")
+
+        return self
 
 
 class BaseTable(ABC):

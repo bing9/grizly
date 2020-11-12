@@ -1,10 +1,21 @@
 from typing import List
 
 from ...utils.type_mappers import mysql_to_postgresql, mysql_to_pyarrow, mysql_to_python
-from .base import RDBMSBase
+from .base import RDBMSWriteBase
 
 
-class MariaDB(RDBMSBase):
+class MariaDB(RDBMSWriteBase):
+    """
+    Class that represents MariaDB database.
+
+    https://mariadb.org/
+
+    Examples
+    --------
+    >>> from grizly import Source
+    >>> sql_source = Source(dsn="retool_dev_db")
+    """
+
     _quote = "`"
     dialect = "mysql"
 

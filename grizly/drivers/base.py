@@ -29,19 +29,14 @@ class BaseDriver(ABC):
     _allowed_group_by = _allowed_agg + ["GROUP"]
     _allowed_order_by = ["ASC", "DESC", ""]
 
-    @deprecated_params(params_mapping={"data": "store"})
+    @deprecated_params(params_mapping={"data": None})
     def __init__(
-        self,
-        store: Optional[Store] = None,
-        json_path: str = None,
-        subquery: str = None,
-        logger: logging.Logger = None,
-        **kwargs,
+        self, store: Optional[Store] = None, logger: logging.Logger = None, **kwargs,
     ):
         self.logger = logger or logging.getLogger(__name__)
         self.getfields = kwargs.get("getfields")
 
-        self.store = self._load_store(store=store, json_path=json_path, subquery=subquery,)
+        self.store = self._load_store(store=store)
 
     def _load_store(
         self, store: Store = None, json_path: str = None, subquery: str = None,
@@ -119,7 +114,7 @@ class BaseDriver(ABC):
         Examples
         --------
         >>> qf.ncols
-        3
+        2
         """
         ncols = len(self.get_fields())
         return ncols
@@ -471,6 +466,7 @@ class BaseDriver(ABC):
 
         Examples
         --------
+        >>> from grizly import QFrame
         >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="table_tutorial")
         >>> qf = qf.groupby(['col1', 'col2'])['col3', 'col4'].agg('sum')
         >>> print(qf)
@@ -499,6 +495,7 @@ class BaseDriver(ABC):
 
         Examples
         --------
+        >>> from grizly import QFrame
         >>> columns=["col1", "col2", "col3"]
         >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="table_tutorial", columns=columns)
         >>> qf = qf.groupby(['col1']).sum()
@@ -687,6 +684,7 @@ class BaseDriver(ABC):
 
         Examples
         --------
+        >>> from grizly import get_path, QFrame
         >>> dsn = get_path("grizly_dev", "tests", "Chinook.sqlite")
         >>> qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql", table="Playlist")
         >>> qframes = qf.cut(5, order_by="PlaylistId")

@@ -53,7 +53,7 @@ def clean_testexpr(testsql):
 def test_to_json_and_from_json1():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=customers)
     q.store.to_json("qframe_data.json")
-    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", json_path="qframe_data.json")
+    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(json_path="qframe_data.json")
     os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.store.to_dict() == customers
 
@@ -61,20 +61,16 @@ def test_to_json_and_from_json1():
 def test_to_json_and_from_json2():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=customers)
     q.store.to_json("qframe_data.json", subquery="alias")
-    q = QFrame(
-        dsn=dsn, db="sqlite", dialect="mysql", json_path="qframe_data.json", subquery="alias"
+    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
+        json_path="qframe_data.json", subquery="alias"
     )
     os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.store.to_dict() == customers
 
 
 def test_from_json_s3():
-    q = QFrame(
-        dsn=dsn,
-        db="sqlite",
-        dialect="mysql",
-        json_path="s3://acoe-s3/test/test_from_json_s3.json",
-        subquery="test_subquery",
+    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
+        json_path="s3://acoe-s3/test/test_from_json_s3.json", subquery="test_subquery",
     )
     assert len(q.get_fields()) == 1
 
@@ -111,7 +107,7 @@ def test_create_sql_blocks():
         "Customer",
         "Value",
     ]
-    assert q.create_sql_blocks().data["select"]["sql_blocks"] == q._build_column_strings()
+    assert q._create_sql_blocks().data["select"]["sql_blocks"] == q._build_column_strings()
 
 
 def test_rename():
@@ -223,7 +219,7 @@ def test_groupby_aliased():
 
 def test_groupby_all():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
-    q.groupby().create_sql_blocks()
+    q.groupby()._create_sql_blocks()
     fields_1 = q.data["select"]["sql_blocks"]["group_dimensions"]
     fields_2 = ["1", "2", "3", "4"]
     assert fields_1 == fields_2
@@ -818,13 +814,17 @@ def test_from_table_sqlite_json():
         json_path="test.json", subquery="q2"
     )
 
-    qf1 = QFrame(dsn=dsn, db="sqlite", dialect="mysql", json_path="test.json", subquery="q1")
+    qf1 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
+        json_path="test.json", subquery="q1"
+    )
     sql = """SELECT "PlaylistId",
                 "Name"
             FROM Playlist"""
     assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
 
-    qf2 = QFrame(dsn=dsn, db="sqlite", dialect="mysql", json_path="test.json", subquery="q2")
+    qf2 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
+        json_path="test.json", subquery="q2"
+    )
     sql = """SELECT "PlaylistId",
                 "TrackId"
             FROM PlaylistTrack"""

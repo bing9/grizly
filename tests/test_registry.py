@@ -4,12 +4,14 @@ from redis import Redis
 
 import dask
 from dask.delayed import Delayed
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis.strategies import integers, lists, text
 import pytest
 
 from ..grizly.exceptions import JobNotFoundError
 from ..grizly.scheduling.registry import Job, JobRun, SchedulerDB, Trigger
+
+settings(max_examples=10)
 
 
 @dask.delayed

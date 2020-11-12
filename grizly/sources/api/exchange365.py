@@ -6,11 +6,11 @@ import datetime
 import pytz
 
 from ...tools.email import EmailAccount
-from ..base import BaseSource
+from ..base import BaseReadSource
 from ...exceptions import MessageNotFound
 
 
-class Exchange365(BaseSource):
+class Exchange365(BaseReadSource):
     def __init__(
         self,
         address: str = None,

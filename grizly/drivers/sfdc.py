@@ -154,7 +154,6 @@ class SFDCDriver(SQLDriver):
 
         Examples
         --------
-        >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
         >>> qf = qf.groupby(['customer_id'])['sales'].agg('sum')
         >>> print(qf)
         SELECT "customer_id",
