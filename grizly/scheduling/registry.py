@@ -590,7 +590,12 @@ class Job(SchedulerObject):
 
     @property
     def last_run(self) -> Optional[JobRun]:
-        """Job's last run (JobRun object)"""
+        """Job's last run (JobRun object)
+        
+        Return
+        -------
+            JobRun
+        """
         _id = self._deserialize(self.con.get(f"{JobRun.prefix}{self.name}:id"))
         if _id:
             return JobRun(job_name=self.name, id=_id, logger=self.logger, db=self.db)

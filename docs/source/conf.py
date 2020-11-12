@@ -87,6 +87,7 @@ master_doc = "index"
 
 autosummary_generate = True
 autodoc_default_options = {"members": True, "inherited-members": True}
+numpydoc_attributes_as_param_list = False
 
 # spell checking
 spelling_lang = "en_US"
