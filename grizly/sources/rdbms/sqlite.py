@@ -67,3 +67,35 @@ class SQLite(RDBMSWriteBase):
             return [mysql_to_pyarrow(dtype) for dtype in dtypes]
         else:
             raise NotImplementedError
+
+
+    def _run_query(self, sql: str, autocommit: bool = False):
+        """Sqlite doesn't allow to run many queries at the same time and autocommits"""
+        sql = self._add_context(sql)
+        queries = self.__split_query(query=sql)
+        con = self.con
+        cursor = con.cursor()
+        for query in queries:
+            cursor.execute(query)
+        try:
+            con.commit()
+            self.logger.debug(f"Successfully ran query\n {sql}")
+        except:
+            self.logger.exception(f"Error occurred during running query\n {sql}")
+            raise
+        finally:
+            con.close()
+            self.logger.debug("Connection closed")
+
+    @staticmethod
+    def __split_query(query: str)-> List[str]:
+        queries = query.split(";")
+
+        # remove 'commit' and '' elements
+        cleaned_queries = []
+        for query in queries:
+            cleaned_query = query.replace(" ", "").lower()
+            if cleaned_query not in ("", "commit"):
+                cleaned_queries.append(query)
+
+        return cleaned_queries

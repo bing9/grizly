@@ -19,6 +19,7 @@ from ...utils.type_mappers import pyarrow_to_rds
 from ..rdbms.rdbms_factory import RDBMS
 from ...types import Redshift, AuroraPostgreSQL
 from ...utils.functions import isinstance2
+from ...config import config as grizly_config
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
@@ -1000,8 +1001,9 @@ class S3:
 
     @staticmethod
     def __set_proxy():
-        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
-        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
+        config = grizly_config.get_service("proxies")
+        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or config.get("https")
+        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or config.get("http")
         if https_proxy is not None and http_proxy is not None:
             os.environ["HTTPS_PROXY"] = https_proxy
             os.environ["HTTP_PROXY"] = http_proxy

@@ -28,12 +28,12 @@ def test_df_to_s3_and_s3_to_file():
 
 
 def test_can_upload():
-    s3 = S3(file_name="test_s3_2.csv", s3_key="bulk/tests/", min_time_window=3)
+    s3 = S3(file_name="test_s3_2.csv", s3_key="bulk/tests/", min_time_window=2)
     df = DataFrame({"col1": [1, 2], "col2": [3, 4]})
     s3.from_df(df)
 
     assert not s3._can_upload()
-    sleep(3)
+    sleep(2)
     assert s3._can_upload()
 
 

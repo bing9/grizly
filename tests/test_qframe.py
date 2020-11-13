@@ -6,11 +6,13 @@ from pandas import read_sql, read_csv, merge, concat
 from ..grizly.utils.functions import get_path
 
 from ..grizly.drivers.frames_factory import QFrame
+from ..grizly.sources.sources_factory import Source
 from ..grizly.drivers.sql import SQLDriver, union, join
 
 excel_path = get_path("tables.xlsx", from_where="here")
 engine_string = "sqlite:///" + get_path("Chinook.sqlite", from_where="here")
 dsn = get_path("Chinook.sqlite", from_where="here")
+sqlite = Source(dsn=dsn, db="sqlite", dialect="mysql")
 
 orders = {
     "select": {
@@ -993,3 +995,37 @@ def test_join_pivot_sqlite():
     # write_out(qf11.get_sql())
     assert clean_testexpr(qf11.get_sql()) == clean_testexpr(sql)
     assert not qf11.to_df().empty
+
+
+def test_to_table():
+    qf_in = QFrame(source=sqlite, table="Track")
+    qf_in.limit(10)
+
+    out_table = "test_to_table"
+
+    # if_exists PARAMETER
+    # -------------------
+    qf_in.to_table(table=out_table, if_exists="drop")
+
+    qf_out = QFrame(source=sqlite, table=out_table)
+    assert qf_out.nrows == 10
+
+    with pytest.raises(Exception):
+        qf_in.to_table(table=out_table)
+
+    qf_in.limit(5)
+    qf_in.to_table(table=out_table, if_exists="replace")
+    assert qf_out.nrows == 5
+
+    qf_in.limit(10)
+    qf_in.to_table(table=out_table, if_exists="append")
+    assert qf_out.nrows == 15
+
+    qf_in.rename({"Name": "name_2"})
+    qf_in.to_table(table=out_table, if_exists="drop")
+    qf_out = QFrame(source=sqlite, table=out_table)
+    assert qf_out.nrows == 10
+    assert "name_2" in qf_out.get_fields()
+
+    qf_out.source.drop_table(table=out_table)
+

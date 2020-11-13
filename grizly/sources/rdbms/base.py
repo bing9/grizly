@@ -335,8 +335,9 @@ class RDBMSWriteBase(BaseWriteSource, RDBMSReadBase):
         if_exists : {'fail', 'skip', 'drop'}, optional
             How to behave if the table already exists, by default 'skip'
 
-            * fail: Raise a ValueError
-            * drop: Drop table before creating new one
+            * skip: Leave old table.
+            * fail: Raise a ValueError.
+            * drop: Drop table before creating new one.
 
         Examples
         --------
@@ -428,11 +429,12 @@ class RDBMSWriteBase(BaseWriteSource, RDBMSReadBase):
         """
 
         full_table_name = f"{schema}.{table}" if schema else table
-        sql = f"DELETE FROM {full_table_name}"
         if where is not None:
-            sql += f" WHERE {where} "
-        sql += "; commit;"
-        self.logger.info(f"Deleting records from table {full_table_name} {where}...")
+            where_str = f" WHERE {where}"
+        else:
+            where_str = ""
+        sql = f"DELETE FROM {full_table_name}{where_str}; commit;"
+        self.logger.info(f"Deleting records from table {full_table_name}{where_str}...")
         self._run_query(sql)
 
         return self
@@ -454,15 +456,14 @@ class RDBMSWriteBase(BaseWriteSource, RDBMSReadBase):
 
         return self
 
-    def write_to(self, table: str, columns: list, sql: str, schema: str = None, if_exists="fail"):
-        """Perform DELETE FROM (if table exists) and INSERT INTO queries on specified table.
+    def write_to(self, table: str, columns: list, sql: str, schema: str = None, if_exists="append"):
+        """Write records to specified table.
 
         Parameters
         ----------
-        if_exists : {'fail', 'replace', 'append'}, optional
-            How to behave if the table already exists, by default 'fail'
+        if_exists : {'replace', 'append'}, optional
+            How to behave if the records already exists, by default 'append'
 
-            * fail: Raise a ValueError
             * replace: Clean table before inserting new values
             * append: Insert new values to the existing table
 
@@ -484,10 +485,6 @@ class RDBMSWriteBase(BaseWriteSource, RDBMSReadBase):
             self.delete_from(table=table, schema=schema)
             self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
             self.logger.info(f"Data has been successfully inserted into {full_table_name}")
-        elif if_exists == "fail":
-            raise ValueError(
-                f"Table {full_table_name} already exists and if_exists is set to 'fail'"
-            )
         elif if_exists == "append":
             self.insert_into(table=table, columns=columns, sql=sql, schema=schema)
             self.logger.info(f"Data has been appended to {full_table_name}")
