@@ -75,7 +75,8 @@ class BaseExtract:
         attr_val = (
             init_val
             # or self.store.get(attr)
-            # or config.get_service(attr) or os.getenv(attr_env)
+            # or config.get_service(attr)
+            or os.getenv(attr_env)
         )
         return attr_val
 
@@ -147,7 +148,6 @@ class BaseExtract:
 
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
-        self.logger.info(self.staging_schema)
         self.qf.create_external_table(
             schema=self.staging_schema,
             table=self.staging_table,
