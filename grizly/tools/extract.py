@@ -1,5 +1,6 @@
 import datetime
 import gc
+import logging
 import os
 from abc import abstractmethod
 from typing import Any, List, Optional, Union
@@ -16,6 +17,7 @@ from ..config import config
 from ..drivers.frames_factory import QFrame
 from ..scheduling.registry import Job, SchedulerDB
 from ..sources.filesystem.old_s3 import S3
+from ..sources.rdbms.rdbms_factory import RDBMS
 from ..utils.functions import chunker, retry
 from ..utils.type_mappers import spectrum_to_redshift
 
@@ -30,33 +32,75 @@ class BaseExtract:
 
     def __init__(
         self,
-        name: str,
-        qf,
-        s3_root_url: str = None,
-        output_external_table: str = None,
-        output_external_schema: str = None,
+        qf: QFrame,
+        name: str = None,
+        staging_schema: str = None,
+        staging_table: str = None,
+        prod_schema: str = None,
+        prod_table: str = None,
         output_dsn: str = None,
-        scheduler_address: str = None,
+        output_dialect: str = None,
+        output_db: str = None,
         output_table_type: str = "external",
+        s3_root_url: str = None,
+        s3_bucket: str = None,
+        dask_scheduler_address: str = None,
         if_exists: str = "append",
+        priority: int = 0,
     ):
-        self.bucket = config.get_service("s3")["bucket"]
-        self.name = name
-        self.name_snake_case = self._to_snake_case(name)
         self.qf = qf
-        self.output_table_type = output_table_type
-        self.s3_root_url = s3_root_url or f"s3://{self.bucket}/extracts/{self.name_snake_case}/"
-        self.s3_staging_url = os.path.join(self.s3_root_url, "data", "staging")
-        self.output_external_table = output_external_table or self.name_snake_case
-        self.output_external_schema = output_external_schema or os.getenv(
-            "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
-        )
+        self.name = name
+        self.staging_schema = staging_schema
+        self.staging_table = staging_table
+        self.prod_schema = prod_schema
+        self.prod_table = prod_table
         self.output_dsn = output_dsn
-        self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
+        self.output_dialect = output_dialect
+        self.output_db = output_db
+        self.s3_root_url = s3_root_url
+        self.s3_bucket = s3_bucket
+        self.dask_scheduler_address = dask_scheduler_address
+        self.output_table_type = output_table_type
         self.if_exists = if_exists
-        self.table_if_exists = self._map_if_exists(if_exists)
-        self.priority = 0
-        self.logger = self.qf.logger
+        self.priority = priority
+
+        self.store = self.qf.store.get("extract")
+        self._load_attrs()
+
+    def _get_attr_val(self, attr, init_val):
+        attr_env = f"GRIZLY_EXTRACT_{attr.upper()}"
+        # attr_val = (
+        #     init_val or self.store.get(attr) or config.get_service(attr) or os.getenv(attr_env)
+        # )
+        attr_val = (
+            init_val
+            # or self.store.get(attr)
+            # or config.get_service(attr) or os.getenv(attr_env)
+        )
+        return attr_val
+
+    def _load_attrs(self):
+        """Load attributes. Looking in init->store->config->env variables"""
+
+        attrs = {k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)}
+        for attr, value in attrs.items():
+            setattr(self, attr, self._get_attr_val(attr, init_val=value))
+
+        # use automated defaults
+        self.name_snake_case = self._to_snake_case(self.name)
+        self.staging_table = self.staging_table or self.name_snake_case
+        # TODO: remove -- should be read automatically above once the structure is improved
+        self.s3_bucket = self.s3_bucket or config.get_service("s3").get("bucket")
+        self.s3_root_url = (
+            self.s3_root_url or f"s3://{self.s3_bucket}/extracts/{self.name_snake_case}/"
+        )
+        self.output_source = RDBMS(
+            dsn=self.output_dsn, dialect=self.output_dialect, db=self.output_db
+        )  # TODO: change to Source()
+        self.s3_staging_url = os.path.join(self.s3_root_url, "data", "staging")
+        self.table_if_exists = self._map_if_exists(self.if_exists)
+        self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
+        self.qf.logger = self.logger
 
     @staticmethod
     def _to_snake_case(text):
@@ -69,7 +113,7 @@ class BaseExtract:
         return mapping[if_exists]
 
     def _get_client(self):
-        return Client(self.scheduler_address)
+        return Client(self.dask_scheduler_address)
 
     @dask.delayed
     def begin_extract(self):
@@ -103,10 +147,11 @@ class BaseExtract:
 
     @dask.delayed
     def create_external_table(self, upstream: Delayed = None):
+        self.logger.info(self.staging_schema)
         self.qf.create_external_table(
-            schema=self.output_external_schema,
-            table=self.output_external_table,
-            dsn=self.output_dsn,
+            schema=self.staging_schema,
+            table=self.staging_table,
+            output_source=self.output_source,
             s3_url=self.s3_staging_url,
             if_exists=self.table_if_exists,
         )
@@ -115,15 +160,15 @@ class BaseExtract:
     def create_table(self, upstream: Delayed = None):
         """Create and populate a table"""
         qf = QFrame(
-            dsn=self.output_dsn,
-            schema=self.output_external_schema,
-            table=self.output_external_table,
+            source=self.output_source,
+            schema=self.staging_schema,
+            table=self.staging_table,
             logger=self.logger,
         )
         mapped_types = [spectrum_to_redshift(dtype) for dtype in qf.dtypes]
         qf.source.create_table(
-            schema=self.output_schema_prod,
-            table=self.output_table_prod,
+            schema=self.prod_schema,
+            table=self.prod_table,
             columns=qf.get_fields(aliased=True),
             types=mapped_types,
             if_exists="drop",  # always re-create from the external table
@@ -168,7 +213,7 @@ class BaseExtract:
         self.extract_job.unregister(remove_job_runs=remove_job_runs)
         return True
 
-    def submit(self, registry, **kwargs):
+    def submit(self, registry, reregister: bool = False, **kwargs):
         """Submit the extract job
 
         Parameters
@@ -176,8 +221,9 @@ class BaseExtract:
         kwargs: arguments to pass to Job.register() and Job.submit()
 
         """
-        self.register(registry=registry, if_exists="skip")
-        self.extract_job.submit(scheduler_address=self.scheduler_address, **kwargs)
+        if_exists = "replace" if reregister else "skip"
+        self.register(registry=registry, if_exists=if_exists)
+        self.extract_job.submit(scheduler_address=self.dask_scheduler_address, **kwargs)
         return True
 
 
@@ -295,27 +341,14 @@ class SFDCExtract(BaseExtract):
 
 class DenodoExtract(BaseExtract):
     def __init__(
-        self, name, qf, *args, **kwargs,
+        self, qf, *args, **kwargs,
     ):
-        super().__init__(name, qf, *args, **kwargs)
+        super().__init__(qf, *args, **kwargs)
         self.store = qf.store["extract"]  # TODO: add store validation
-        self._load_attrs_from_store(self.store)
+        # self._load_attrs_from_store(self.store)
 
     def _validate_store(self, store):
         pass
-
-    def _load_attrs_from_store(self, store):
-        """Load values defined in store into attributes"""
-        self.partition_cols = store["partition_cols"]
-        self.output_dsn = store["output"].get("dsn") or self.qf.source.dsn
-        self.output_external_schema = store["output"].get("external_schema") or os.getenv(
-            "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
-        )
-        self.output_external_table = store["output"].get("external_table") or self.name_snake_case
-        self.output_schema_prod = store["output"].get("schema") or os.getenv(
-            "GRIZLY_EXTRACT_STAGING_SCHEMA"
-        )
-        self.output_table_prod = store["output"].get("table") or self.name_snake_case
 
     @dask.delayed
     def __get_source_partitions(self, upstream=None):
@@ -564,7 +597,7 @@ class DenodoExtract(BaseExtract):
             if_exists = "skip"
         self.register(registry=registry, if_exists=if_exists, **kwargs)
         self.extract_job.submit(
-            scheduler_address=self.scheduler_address, priority=kwargs.get("priority")
+            scheduler_address=self.dask_scheduler_address, priority=kwargs.get("priority")
         )
         return True
 
@@ -572,16 +605,16 @@ class DenodoExtract(BaseExtract):
         pass
 
 
-def Extract(name, qf, *args, **kwargs):
+def Extract(qf, *args, **kwargs):
 
     if "sqlite" in qf.source.dsn:
-        return SimpleExtract(name, qf, *args, **kwargs)
+        return SimpleExtract(qf, *args, **kwargs)
 
     db = config.get_service("sources")[qf.source.dsn]["db"]
 
     if db == "sfdc":
-        return SFDCExtract(name, qf, *args, **kwargs)
+        return SFDCExtract(qf, *args, **kwargs)
     elif db == "denodo":
-        return DenodoExtract(name, qf, *args, **kwargs)
+        return DenodoExtract(qf, *args, **kwargs)
     else:
-        return SimpleExtract(name, qf, *args, **kwargs)
+        return SimpleExtract(qf, *args, **kwargs)
