@@ -16,7 +16,7 @@ import pyarrow.parquet as pq
 
 from ...utils.functions import clean, clean_colnames, file_extension, get_path
 from ...utils.type_mappers import pyarrow_to_rds
-from ..rdbms.rdbms_factory import RDBMS
+from ..sources_factory import Source
 from ...types import Redshift, AuroraPostgreSQL
 from ...utils.functions import isinstance2
 from ...config import config as grizly_config
@@ -112,7 +112,7 @@ class S3:
 
     @property
     def url(self):
-        return f"s3://{self.bucket}/{self.s3_key}{self.file_name}"
+        return f"s3://{self.bucket}/{self.full_s3_key}"
 
     @property
     def file_ext(self):
@@ -135,6 +135,11 @@ class S3:
         config.read(get_path(".aws", "config"))
 
         return dict(config["default"]) or dict()
+
+    @property
+    def last_modified(self):
+        date = resource("s3").Object(self.bucket, self.full_s3_key).last_modified
+        return date
 
     def info(self):
         """Print a concise summary of a S3
@@ -507,7 +512,7 @@ class S3:
         table: str,
         schema: Optional[str] = None,
         dsn: Optional[str] = None,
-        rdbms: Optional[RDBMS] = None,
+        output_source: Optional[Redshift] = None,
         if_exists: Literal["fail", "skip", "replace", "drop"] = "fail",
         sep: str = "\t",
         types: Optional[dict] = None,
@@ -554,25 +559,25 @@ class S3:
 
         sqldb = kwargs.get("sqldb")
         if sqldb:
-            rdbms = sqldb
+            output_source = sqldb
             self.logger.warning(
                 "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                " Please use rdbms parameter instead.",
+                " Please use output_source parameter instead.",
             )
 
-        if dsn is None and rdbms is None:
+        if dsn is None and output_source is None:
             raise ValueError("Please specify dsn parameter")
         else:
-            rdbms = rdbms or RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+            output_source = output_source or Source(dsn=dsn, logger=self.logger, **kwargs)
 
-        if not isinstance2(rdbms, Redshift):
-            raise ValueError(f"Specified datasource '{rdbms.dsn}' is not a Redshift Database.")
+        if not isinstance2(output_source, Redshift):
+            raise ValueError(f"Specified datasource '{output_source.dsn}' is not a Redshift Database.")
 
         self.__validate_output_table(
-            table=table, schema=schema, rdbms=rdbms, if_exists=if_exists, sep=sep, types=types
+            table=table, schema=schema, output_source=output_source, if_exists=if_exists, sep=sep, types=types
         )
 
-        columns_output_table = rdbms.get_columns(table=table, schema=schema)
+        columns_output_table = output_source.get_columns(table=table, schema=schema)
 
         if column_order is None:
             if preserve_column_names:
@@ -652,7 +657,7 @@ class S3:
                 + sql[last_line_pos:]
             )
 
-        con = rdbms.get_connection()
+        con = output_source.get_connection()
         self.logger.info(f"Inserting '{self.file_name}' into {table_name}...")
         try:
             con.execute(sql)
@@ -675,7 +680,7 @@ class S3:
         table: str,
         schema: Optional[str] = None,
         dsn: Optional[str] = None,
-        rdbms: Optional[RDBMS] = None,
+        output_source: Optional[AuroraPostgreSQL] = None,
         if_exists: Literal["fail", "skip", "replace", "drop"] = "fail",
         sep: str = "\t",
         types: Optional[dict] = None,
@@ -722,28 +727,28 @@ class S3:
 
         sqldb = kwargs.get("sqldb")
         if sqldb:
-            rdbms = sqldb
+            output_source = sqldb
             self.logger.warning(
                 "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                " Please use rdbms parameter instead.",
+                " Please use output_source parameter instead.",
             )
 
-        if dsn is None and rdbms is None:
+        if dsn is None and output_source is None:
             raise ValueError("Please specify dsn parameter")
         else:
-            rdbms = rdbms or RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+            output_source = output_source or Source(dsn=dsn, logger=self.logger, **kwargs)
 
-        if not isinstance2(rdbms, AuroraPostgreSQL):
-            raise ValueError(f"Specified datasource '{rdbms.dsn}' is not an Aurora Database.")
+        if not isinstance2(output_source, AuroraPostgreSQL):
+            raise ValueError(f"Specified datasource '{output_source.dsn}' is not an Aurora Database.")
 
         self.__validate_output_table(
-            table=table, schema=schema, rdbms=rdbms, if_exists=if_exists, sep=sep, types=types
+            table=table, schema=schema, output_source=output_source, if_exists=if_exists, sep=sep, types=types
         )
 
-        con = rdbms.get_connection()
+        con = output_source.get_connection()
         con.execute("CREATE EXTENSION IF NOT EXISTS aws_s3 CASCADE; COMMIT;")
 
-        columns_output_table = rdbms.get_columns(table=table, schema=schema)
+        columns_output_table = output_source.get_columns(table=table, schema=schema)
 
         if column_order is None:
             column_order, _ = self._load_column_names(sep=sep)
@@ -839,7 +844,7 @@ class S3:
             return False
         return True
 
-    def _create_table_like_s3(self, table, schema, rdbms, types, sep):
+    def _create_table_like_s3(self, table, schema, output_source, types, sep):
         if self.file_ext == "csv":
             # TODO: this should write to df
             s3_client = resource("s3").meta.client
@@ -926,7 +931,7 @@ class S3:
         else:
             raise ValueError("Table cannot be created. File extension not supported.")
 
-        rdbms.create_table(table=table, schema=schema, columns=col_names, types=col_types)
+        output_source.create_table(table=table, schema=schema, columns=col_names, types=col_types)
 
     def _load_column_names(self, sep) -> Tuple[List, Union[bool, None]]:
         if self.file_ext == "csv":
@@ -984,19 +989,19 @@ class S3:
         buffer.close()
         return self
 
-    def __validate_output_table(self, table, schema, rdbms, if_exists, sep, types):
-        if rdbms.check_if_exists(table, schema):
+    def __validate_output_table(self, table, schema, output_source, if_exists, sep, types):
+        if output_source.check_if_exists(table, schema):
             if if_exists == "fail":
                 raise ValueError(f"Table {table} already exists")
             elif if_exists == "replace":
-                rdbms.delete_from(table=table, schema=schema)
+                output_source.delete_from(table=table, schema=schema)
             elif if_exists == "drop":
-                rdbms.drop_table(table=table, schema=schema)
+                output_source.drop_table(table=table, schema=schema)
             else:
                 pass
         else:
             self._create_table_like_s3(
-                table=table, schema=schema, sep=sep, rdbms=rdbms, types=types
+                table=table, schema=schema, sep=sep, output_source=output_source, types=types
             )
 
     @staticmethod

@@ -17,7 +17,7 @@ from ..config import config
 from ..drivers.frames_factory import QFrame
 from ..scheduling.registry import Job, SchedulerDB
 from ..sources.filesystem.old_s3 import S3
-from ..sources.rdbms.rdbms_factory import RDBMS
+from ..sources.sources_factory import Source
 from ..utils.functions import chunker, retry
 from ..utils.type_mappers import spectrum_to_redshift
 
@@ -40,7 +40,7 @@ class BaseExtract:
         prod_table: str = None,
         output_dsn: str = None,
         output_dialect: str = None,
-        output_db: str = None,
+        output_source_name: str = None,
         output_table_type: str = "external",
         s3_root_url: str = None,
         s3_bucket: str = None,
@@ -56,7 +56,7 @@ class BaseExtract:
         self.prod_table = prod_table
         self.output_dsn = output_dsn
         self.output_dialect = output_dialect
-        self.output_db = output_db
+        self.output_source_name = output_source_name
         self.s3_root_url = s3_root_url
         self.s3_bucket = s3_bucket
         self.dask_scheduler_address = dask_scheduler_address
@@ -95,9 +95,8 @@ class BaseExtract:
         self.s3_root_url = (
             self.s3_root_url or f"s3://{self.s3_bucket}/extracts/{self.name_snake_case}/"
         )
-        self.output_source = RDBMS(
-            dsn=self.output_dsn, dialect=self.output_dialect, db=self.output_db
-        )  # TODO: change to Source()
+        self.output_source = Source(
+            dsn=self.output_dsn, dialect=self.output_dialect, source=self.output_source_name)
         self.s3_staging_url = os.path.join(self.s3_root_url, "data", "staging")
         self.table_if_exists = self._map_if_exists(self.if_exists)
         self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)

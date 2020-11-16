@@ -1,19 +1,20 @@
+from copy import deepcopy
+from functools import partial
 import json
 import os
 import re
-import warnings
-from copy import deepcopy
-from functools import partial
 from typing import Literal
+import warnings
 
 import deprecation
 import sqlparse
 
-from ..sources.rdbms.rdbms_factory import RDBMS
+from .. import types
+from ..sources.sources_factory import Source
 from ..store import Store
 from ..types import Redshift, Source
-from ..utils.functions import isinstance2
 from ..utils.deprecation import deprecated_params
+from ..utils.functions import isinstance2
 from .base import BaseDriver
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.4.5")
@@ -62,7 +63,7 @@ class SQLDriver(BaseDriver):
     ):
         super().__init__(**kwargs)
 
-        self.source = source or RDBMS(dsn=dsn, **kwargs)
+        self.source = source or Source(dsn=dsn, **kwargs)
 
         if self.store == Store() and table:
             self.store = self._load_store_from_table(schema=schema, table=table, columns=columns)
@@ -334,7 +335,7 @@ class SQLDriver(BaseDriver):
         table:str,
         schema:str="",
         dsn:str=None,
-        output_source: RDBMS = None,
+        output_source: types.Source = None,
         if_exists: Literal["fail", "skip", "drop"] = "skip",
         **kwargs,
     ):
@@ -359,7 +360,7 @@ class SQLDriver(BaseDriver):
         """
 
         output_source = output_source or (
-            self.source if dsn is None else RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+            self.source if dsn is None else Source(dsn=dsn, logger=self.logger, **kwargs)
         )
         mapped_types = output_source.map_types(self.get_dtypes(), to=output_source.dialect)
 
@@ -378,7 +379,7 @@ class SQLDriver(BaseDriver):
         table: str,
         schema: str = None,
         dsn: str = None,
-        output_source: RDBMS = None,
+        output_source: types.Source = None,
         if_exists: str = None,
         **kwargs,
     ):
@@ -396,7 +397,7 @@ class SQLDriver(BaseDriver):
         QFrame
         """
         output_source = output_source or (
-            self.source if dsn is None else RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+            self.source if dsn is None else Source(dsn=dsn, logger=self.logger, **kwargs)
         )
 
         if not isinstance2(output_source, Redshift):
