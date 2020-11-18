@@ -14,6 +14,7 @@ from distributed import Client
 from pyarrow import Table
 
 from ..config import config
+from ..store import Store
 from ..drivers.frames_factory import QFrame
 from ..scheduling.registry import Job, SchedulerDB
 from ..sources.filesystem.old_s3 import S3
@@ -28,11 +29,12 @@ s3 = s3fs.S3FileSystem()
 class BaseExtract:
     """
     Common functions for all extracts. The logic for parallelization
-    must be defined in the subclass"""
+    must be defined in the subclass
+    """
 
     def __init__(
         self,
-        qf: QFrame,
+        qf: QFrame = None,
         name: str = None,
         staging_schema: str = None,
         staging_table: str = None,
@@ -47,6 +49,7 @@ class BaseExtract:
         dask_scheduler_address: str = None,
         if_exists: str = "append",
         priority: int = 0,
+        **kwargs,
     ):
         self.qf = qf
         self.name = name
@@ -64,8 +67,18 @@ class BaseExtract:
         self.if_exists = if_exists
         self.priority = priority
 
-        self.store = self.qf.store.get("extract")
         self._load_attrs()
+
+    @classmethod
+    def from_json(cls, path, key="extract"):
+        store = Store.from_json(json_path=path, subquery=key)
+        dsn = store.qframe.select.source.get("dsn")
+        name = store.get("name")
+        logger = logging.getLogger("distributed.worker").getChild(name)
+        qf = QFrame(dsn=dsn, logger=logger).from_dict(store.qframe)
+        extract_params = {key: val for key, val in store.items() if key != "qframe" and val != ""}
+
+        return cls(qf=qf, **extract_params)
 
     def _get_attr_val(self, attr, init_val):
         attr_env = f"GRIZLY_EXTRACT_{attr.upper()}"
@@ -78,6 +91,7 @@ class BaseExtract:
             # or config.get_service(attr)
             or os.getenv(attr_env)
         )
+        print(attr, attr_val)
         return attr_val
 
     def _load_attrs(self):
@@ -85,7 +99,8 @@ class BaseExtract:
 
         attrs = {k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)}
         for attr, value in attrs.items():
-            setattr(self, attr, self._get_attr_val(attr, init_val=value))
+            if attr != "qf":
+                setattr(self, attr, self._get_attr_val(attr, init_val=value))
 
         # use automated defaults
         self.name_snake_case = self._to_snake_case(self.name)
@@ -341,10 +356,11 @@ class SFDCExtract(BaseExtract):
 
 class DenodoExtract(BaseExtract):
     def __init__(
-        self, qf, *args, **kwargs,
+        self, qf, partition_cols, *args, **kwargs,
     ):
         super().__init__(qf, *args, **kwargs)
-        self.store = qf.store["extract"]  # TODO: add store validation
+        self.partition_cols = partition_cols
+        # self.store = qf.store["extract"]  # TODO: add store validation
         # self._load_attrs_from_store(self.store)
 
     def _validate_store(self, store):
@@ -605,16 +621,20 @@ class DenodoExtract(BaseExtract):
         pass
 
 
-def Extract(qf, *args, **kwargs):
+class Extract:
+    def from_json(self, store_path):
 
-    if "sqlite" in qf.source.dsn:
-        return SimpleExtract(qf, *args, **kwargs)
+        store = Store.from_json(store_path)
 
-    db = config.get_service("sources")[qf.source.dsn]["db"]
+        dsn = store.extract.qframe.select.source.get("dsn")
+        source_name = store.extract.qframe.select.source.get("source_name")
 
-    if db == "sfdc":
-        return SFDCExtract(qf, *args, **kwargs)
-    elif db == "denodo":
-        return DenodoExtract(qf, *args, **kwargs)
-    else:
-        return SimpleExtract(qf, *args, **kwargs)
+        if "sqlite" in dsn:
+            return SimpleExtract.from_json(store_path)
+
+        if source_name == "sfdc":
+            return SFDCExtract.from_json(store_path)
+        elif source_name == "denodo":
+            return DenodoExtract.from_json(store_path)
+        else:
+            return SimpleExtract.from_json(store_path)
