@@ -12,7 +12,7 @@ from ..grizly.drivers.sql import SQLDriver, union, join
 excel_path = get_path("tables.xlsx", from_where="here")
 engine_string = "sqlite:///" + get_path("Chinook.sqlite", from_where="here")
 dsn = get_path("Chinook.sqlite", from_where="here")
-sqlite = Source(dsn=dsn, source="sqlite", dialect="mysql")
+sqlite = Source(dsn=dsn, source_name="sqlite", dialect="mysql")
 
 orders = {
     "select": {
