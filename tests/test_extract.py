@@ -21,57 +21,68 @@ registry = SchedulerDB(redis_host="pytest_redis")
 s3_bucket = config.get_service("s3").get("bucket")
 s3 = s3fs.S3FileSystem()
 
-logger = logging.getLogger("distributed.worker").getChild("test")
+logger = logging.getLogger(__name__)
 
 
 """fixtures"""
 
 
-@pytest.fixture(scope="session")
-def simple_extract():
-    qf = QFrame(dsn=sqlite_dsn, db="sqlite", dialect="mysql", logger=logger).from_table(
-        table="Track"
+# @pytest.fixture(scope="session")
+# def simple_extract():
+#     qf = QFrame(dsn=sqlite_dsn, db="sqlite", dialect="mysql", logger=logger).from_table(
+#         table="Track"
+#     )
+#     simple_extract = Extract(
+#         qf=qf,
+#         name="Simple Extract Test",
+#         output_dsn=output_dsn,
+#         scheduler_address=scheduler_address,
+#         if_exists="replace",
+#     )
+#     yield simple_extract
+#     simple_extract.unregister(remove_job_runs=True)
+#     s3.rm(simple_extract.s3_root_url, recursive=True)
+
+
+def test_read_extract_store():
+    qf = QFrame(dsn="DenodoODBC", logger=logger).from_json(
+        f"s3://{s3_bucket}/test/denodo_extract_store.json"
     )
-    simple_extract = Extract(
-        name="Simple Extract Test",
-        qf=qf,
-        output_dsn=output_dsn,
-        scheduler_address=scheduler_address,
-        if_exists="replace",
-    )
-    yield simple_extract
-    simple_extract.unregister(remove_job_runs=True)
-    s3.rm(simple_extract.s3_root_url, recursive=True)
+    assert qf.extract_store is not None
 
 
 @pytest.fixture(scope="session")
 def denodo_extract():
-    qf = QFrame(dsn=denodo_dsn, logger=logger).from_json(
-        f"s3://{s3_bucket}/test/denodo_extract_store.json"
-    )
-    denodo_extract = Extract(
-        name="Denodo Extract Test", qf=qf, scheduler_address=scheduler_address, if_exists="replace",
-    )
+    denodo_extract = Extract().from_json(f"s3://{s3_bucket}/test/denodo_extract_store.json")
     yield denodo_extract
     denodo_extract.unregister(remove_job_runs=True)
     s3.rm(denodo_extract.s3_root_url, recursive=True)
+    # TODO: drop table as well
 
 
-@pytest.fixture(scope="session")
-def sfdc_extract():
-    table = "Account"
-    qf = QFrame(dsn=sfdc_dsn, table=table, columns=["Id", "Name"], logger=logger)
-    qf.limit(1000)
-    sfdc_extract = Extract(
-        name="SFDC Extract Test",
-        qf=qf,
-        output_dsn=output_dsn,
-        scheduler_address=scheduler_address,
-        if_exists="replace",
-    )
-    yield sfdc_extract
-    sfdc_extract.unregister(remove_job_runs=True)
-    s3.rm(sfdc_extract.s3_root_url, recursive=True)
+# @pytest.fixture(scope="session")
+# def sfdc_extract():
+#     sfdc_extract = Extract().from_json(f"s3://{s3_bucket}/test/sfdc_extract_store.json")
+#     yield sfdc_extract
+#     sfdc_extract.unregister(remove_job_runs=True)
+#     s3.rm(sfdc_extract.s3_root_url, recursive=True)
+
+
+# @pytest.fixture(scope="session")
+# def sfdc_extract():
+#     table = "Account"
+#     qf = QFrame(dsn=sfdc_dsn, table=table, columns=["Id", "Name"], logger=logger)
+#     qf.limit(1000)
+#     sfdc_extract = Extract(
+#         qf=qf,
+#         name="SFDC Extract Test",
+#         output_dsn=output_dsn,
+#         scheduler_address=scheduler_address,
+#         if_exists="replace",
+#     )
+#     yield sfdc_extract
+#     sfdc_extract.unregister(remove_job_runs=True)
+#     s3.rm(sfdc_extract.s3_root_url, recursive=True)
 
 
 # @pytest.fixture(scope="session", params=["simple_extract", "denodo_extract", "sfdc_extract"])
@@ -107,12 +118,12 @@ def sfdc_extract():
 ##########
 
 
-def test_denodo_extract_e2e(denodo_extract):
-    result = denodo_extract.submit(registry=registry)  # reregister=True
-    assert result is True
-    assert Job("Denodo Extract Test", db=registry).last_run.status == "success"
-    spectrum_table = QFrame(dsn=output_dsn, schema="acoe_spectrum", table="denodo_extract_test")
-    assert spectrum_table.nrows > 0
+# def test_denodo_extract_e2e(denodo_extract):
+#     result = denodo_extract.submit(registry=registry)  # reregister=True
+#     assert result is True
+#     assert Job("Denodo Extract Test", db=registry).last_run.status == "success"
+#     spectrum_table = QFrame(dsn=output_dsn, schema="acoe_spectrum", table="denodo_extract_test")
+#     assert spectrum_table.nrows > 0
 
 
 # def test_get_distinct_values(denodo_extract):
