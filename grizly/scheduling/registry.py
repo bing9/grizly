@@ -971,6 +971,7 @@ class Job(SchedulerObject):
         self.logger.info(f"Job {self.name} successfully registered")
         return self
 
+    @_check_if_exists()
     def unregister(self, remove_job_runs: bool = False) -> None:
         """Unregister existing job
 
