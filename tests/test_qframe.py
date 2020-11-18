@@ -78,11 +78,11 @@ def test_from_json_s3():
 
 
 def test_validation_data():
-    QFrame(dsn=dsn, db="sqlite", dialect="mysql").validate_data(orders)
+    QFrame(dsn=dsn, db="sqlite", dialect="mysql")._validate_store(orders)
 
     orders_c = deepcopy(orders)
     orders_c["select"]["fields"]["Customer"]["as"] = "ABC DEF"
-    data = QFrame(dsn=dsn, db="sqlite", dialect="mysql").validate_data(orders_c)
+    data = QFrame(dsn=dsn, db="sqlite", dialect="mysql")._validate_store(orders_c)
 
     assert data["select"]["fields"]["Customer"]["as"] == "ABC DEF"
 
