@@ -19,6 +19,7 @@ from .base import BaseDriver
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.4.5")
 deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="0.4.5")
 
+
 class SQLDriver(BaseDriver):
     """Class that builds select statement upon a table in relational database.
 
@@ -64,7 +65,7 @@ class SQLDriver(BaseDriver):
 
         self.source = source or RDBMS(dsn=dsn, **kwargs)
 
-        if self.store == Store() and table:
+        if not self.store and table:
             self.store = self._load_store_from_table(schema=schema, table=table, columns=columns)
 
     def __str__(self):
@@ -331,9 +332,9 @@ class SQLDriver(BaseDriver):
     @deprecated_params({"char_size": None, "sqldb": "output_source"})
     def create_table(
         self,
-        table:str,
-        schema:str="",
-        dsn:str=None,
+        table: str,
+        schema: str = "",
+        dsn: str = None,
         output_source: RDBMS = None,
         if_exists: Literal["fail", "skip", "drop"] = "skip",
         **kwargs,
@@ -457,7 +458,7 @@ class SQLDriver(BaseDriver):
             table=table,
             schema=schema,
             char_size=char_size,
-            if_exists=if_exists_create
+            if_exists=if_exists_create,
         )
         self.source.write_to(
             table=table,
@@ -489,18 +490,23 @@ class SQLDriver(BaseDriver):
 
         return records
 
-    def _validate_data(self, data):
-        data = super()._validate_data(data=data)
-        select_data = data["select"]
+    def _validate_store(self, store):
+
+        if not store:
+            return
+
+        store = super()._validate_store(store=store)
+
+        select_data = store["select"]
         if (
             "table" not in select_data
             and "join" not in select_data
             and "union" not in select_data
-            and "sq" not in data
+            and "sq" not in store
         ):
             raise AttributeError("Missing 'table' attribute.")
 
-        return data
+        return store
 
     @classmethod
     def _get_sql(cls, data, sqldb):
