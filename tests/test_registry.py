@@ -1,15 +1,17 @@
 from datetime import datetime
-
-from redis import Redis
+from random import random
 
 import dask
 from dask.delayed import Delayed
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis.strategies import integers, lists, text
 import pytest
+from redis import Redis
 
 from ..grizly.exceptions import JobNotFoundError
 from ..grizly.scheduling.registry import Job, JobRun, SchedulerDB, Trigger
+
+settings(max_examples=10)
 
 
 @dask.delayed
@@ -20,6 +22,10 @@ def failing_task():
 @dask.delayed
 def add(x, y):
     return x + y
+
+@dask.delayed
+def get_random_number():
+    return random()
 
 
 sum_task = add(1, 2)
@@ -32,6 +38,14 @@ def failing_job():
     yield failing_job
     failing_job.unregister(remove_job_runs=True)
 
+@pytest.fixture(scope="session")
+def job_with_random_result():
+    """This job will always return different result"""
+    job_with_random_result = Job(name="job_with_random_result")
+    job_with_random_result.register(tasks=[get_random_number()], if_exists="replace")
+    yield job_with_random_result
+    job_with_random_result.unregister(remove_job_runs=True)
+
 
 @pytest.fixture(scope="session")
 def job_with_cron():
@@ -42,11 +56,23 @@ def job_with_cron():
 
 
 @pytest.fixture(scope="module")
-def job_with_upstream(job_with_cron):
-    job_with_upstream = Job(name="job_with_upstream")
-    job_with_upstream.register(tasks=[sum_task], upstream=job_with_cron.name, if_exists="replace")
-    yield job_with_upstream
-    job_with_upstream.unregister(remove_job_runs=True)
+def job_with_upstream_success(job_with_cron):
+    job_with_upstream_success = Job(name="job_with_upstream_success")
+    job_with_upstream_success.register(
+        tasks=[sum_task], upstream={job_with_cron.name: "success"}, if_exists="replace"
+    )
+    yield job_with_upstream_success
+    job_with_upstream_success.unregister(remove_job_runs=True)
+
+
+@pytest.fixture(scope="module")
+def job_with_upstream_result_change(job_with_random_result):
+    job_with_upstream_result_change = Job(name="job_with_upstream_result_change")
+    job_with_upstream_result_change.register(
+        tasks=[sum_task], upstream={job_with_random_result.name: "result_change"}, if_exists="replace"
+    )
+    yield job_with_upstream_result_change
+    job_with_upstream_result_change.unregister(remove_job_runs=True)
 
 
 @pytest.fixture(scope="module")
@@ -57,8 +83,8 @@ def job_with_trigger(trigger):
     job_with_trigger.unregister(remove_job_runs=True)
 
 
-@pytest.fixture(scope="module", params=["job_with_cron", "job_with_upstream", "job_with_trigger"])
-def job(job_with_cron, job_with_upstream, job_with_trigger, request):
+@pytest.fixture(scope="module", params=["job_with_cron", "job_with_upstream_success", "job_with_trigger"])
+def job(job_with_cron, job_with_upstream_success, job_with_trigger, request):
     return eval(request.param)
 
 
@@ -211,6 +237,7 @@ def test_job_cron(job_with_cron):
     assert job_with_cron.crons == ["* * * * *"]
     assert len(job_with_cron._rq_job_ids) == 1
 
+
 @given(text())
 def test_job_description(job, description):
     assert job.description is None
@@ -277,36 +304,36 @@ def test_job_triggers(job_with_trigger, trigger):
     assert job_with_trigger in trigger.jobs
 
 
-def test_job_downstream(job_with_cron, job_with_upstream):
-    assert job_with_cron.downstream == [job_with_upstream]
+def test_job_downstream(job_with_cron, job_with_upstream_success):
+    assert job_with_cron.downstream_jobs == [job_with_upstream_success]
 
     # trying to set not existing job as downstream should raise error
     with pytest.raises(JobNotFoundError):
-        job_with_cron.downstream = ["not_found_job"]
+        job_with_cron.downstream = {"not_found_job": "success"}
 
-    job_with_cron.downstream = []
-    assert job_with_cron.downstream == []
-    assert job_with_cron not in job_with_upstream.upstream
+    job_with_cron.downstream = {}
+    assert job_with_cron.downstream == {}
+    assert job_with_cron not in job_with_upstream_success.upstream_jobs
 
-    job_with_cron.downstream = [job_with_upstream.name]
-    assert job_with_cron.downstream == [job_with_upstream]
-    assert job_with_cron in job_with_upstream.upstream
+    job_with_cron.downstream = {job_with_upstream_success.name: "success"}
+    assert job_with_cron.downstream_jobs == [job_with_upstream_success]
+    assert job_with_cron in job_with_upstream_success.upstream_jobs
 
 
-def test_job_upstream(job_with_cron, job_with_upstream):
-    assert job_with_upstream.upstream == [job_with_cron]
+def test_job_upstream(job_with_cron, job_with_upstream_success):
+    assert job_with_upstream_success.upstream_jobs == [job_with_cron]
 
     # trying to set not existing job as upstream should raise error
     with pytest.raises(JobNotFoundError):
-        job_with_cron.upstream = ["not_found_job"]
+        job_with_cron.upstream = {"not_found_job": "success"}
 
-    job_with_upstream.upstream = []
-    assert job_with_upstream.upstream == []
-    assert job_with_upstream not in job_with_cron.downstream
+    job_with_upstream_success.upstream = {}
+    assert job_with_upstream_success.upstream == {}
+    assert job_with_upstream_success not in job_with_cron.downstream_jobs
 
-    job_with_upstream.upstream = [job_with_cron.name]
-    assert job_with_upstream.upstream == [job_with_cron]
-    assert job_with_upstream in job_with_cron.downstream
+    job_with_upstream_success.upstream = {job_with_cron.name: "success"}
+    assert job_with_upstream_success.upstream_jobs == [job_with_cron]
+    assert job_with_upstream_success in job_with_cron.downstream_jobs
 
 
 # Job METHODS
@@ -321,44 +348,46 @@ def test_job_add_remove_triggers(job_with_trigger):
     test_trigger.unregister()
 
 
-def test_job_add_remove_downstream_jobs(job_with_cron):
+def test_job_update_remove_downstream_jobs(job_with_cron):
     d_job = Job(name="d_job_name")
-    d_job.register(tasks=[])
+    d_job.register(tasks=[], if_exists="replace")
 
-    job_with_cron.add_downstream_jobs(d_job.name)
-    downstrams1 = job_with_cron.downstream
-    assert d_job in downstrams1
+    job_with_cron.update_downstream_jobs({d_job.name: "success"})
+    assert d_job in job_with_cron.downstream_jobs
+
+    job_with_cron.update_downstream_jobs({d_job.name: "fail"})
+    assert job_with_cron.downstream.get(d_job.name) == "fail"
 
     job_with_cron.remove_downstream_jobs(d_job.name)
-    downstrams2 = job_with_cron.downstream
-    assert d_job not in downstrams2
+    assert d_job not in job_with_cron.downstream_jobs
 
     d_job.unregister(remove_job_runs=True)
     assert not d_job.exists
 
     # trying to set not existing job as downstream should raise error
     with pytest.raises(JobNotFoundError):
-        job_with_cron.add_downstream_jobs("not_found_job")
+        job_with_cron.update_downstream_jobs({"not_found_job": "success"})
 
 
-def test_job_add_remove_upstream_jobs(job_with_cron):
+def test_job_update_remove_upstream_jobs(job_with_cron):
     u_job = Job(name="u_job_name")
-    u_job.register(tasks=[])
+    u_job.register(tasks=[], if_exists="replace")
 
-    job_with_cron.add_upstream_jobs(u_job.name)
-    upstreams1 = job_with_cron.upstream
-    assert u_job in upstreams1
+    job_with_cron.update_upstream_jobs({u_job.name: "success"})
+    assert u_job in job_with_cron.upstream_jobs
+
+    job_with_cron.update_upstream_jobs({u_job.name: "result_change"})
+    assert job_with_cron.upstream.get(u_job.name) == "result_change"
 
     job_with_cron.remove_upstream_jobs(u_job.name)
-    upstreams2 = job_with_cron.upstream
-    assert u_job not in upstreams2
+    assert u_job not in job_with_cron.upstream_jobs
 
     u_job.unregister(remove_job_runs=True)
     assert not u_job.exists
 
     # trying to set not existing job as upstream should raise error
     with pytest.raises(JobNotFoundError):
-        job_with_cron.add_upstream_jobs("not_found_job")
+        job_with_cron.update_upstream_jobs({"not_found_job": "success"})
 
 
 def test_job_cancel():
@@ -390,6 +419,13 @@ def test_job_submit_fail(failing_job):
     # failing_job.info()
     assert failing_job.last_run.error == "Error"
     assert failing_job.last_run.status == "fail"
+
+def test_job_submit_result_change(job_with_random_result, job_with_upstream_result_change):
+    assert job_with_upstream_result_change.last_run is None
+    job_with_random_result.submit(to_dask=False)
+    import time
+    time.sleep(2)
+    assert job_with_upstream_result_change.last_run is not None
 
 
 def test_job_visualize(job_with_cron):

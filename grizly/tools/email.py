@@ -22,17 +22,21 @@ deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="
 
 class EmailAccount:
     @deprecated_params(params_mapping={"email_address": "address", "email_password": "password"})
-    def __init__(self, address=None, password=None, alias=None, proxy=None, **kwargs):
+    def __init__(
+        self, address=None, password=None, alias=None, proxy=None, logger=None, **kwargs,
+    ):
+        self.logger = logger or logging.getLogger(__name__)
         config = grizly_config.get_service("email")
-        self.logger = logging.getLogger(__name__)
         self.address = address or os.getenv("GRIZLY_EMAIL_ADDRESS") or config.get("address")
         self.password = password or os.getenv("GRIZLY_EMAIL_PASSWORD") or config.get("password")
+        if None in (self.address, self.password):
+            raise ValueError("Email address or password not found")
         self.alias = alias
         self.credentials = Credentials(self.address, self.password)
         self.config = Configuration(
             server="smtp.office365.com",
             credentials=self.credentials,
-            retry_policy=FaultTolerance(max_wait=2 * 60),
+            retry_policy=FaultTolerance(max_wait=60),
         )
         self.proxy = (
             proxy
@@ -103,8 +107,7 @@ class Email:
         self.subject = subject
         self.body = body if not is_html else HTMLBody(body)
         self.logger = logger or logging.getLogger(__name__)
-        if None in [address, password]:
-            config = grizly_config.get_service("email")
+        config = grizly_config.get_service("email")
         self.address = address or config.get("address") or os.getenv("GRIZLY_EMAIL_ADDRESS")
         self.password = password or config.get("password") or os.getenv("GRIZLY_EMAIL_PASSWORD")
         self.attachment_paths = self.to_list(attachment_paths)
@@ -196,6 +199,7 @@ class Email:
 
         Examples
         --------
+        >>> from grizly import get_path, Email
         >>> attachment_path = get_path("grizly_dev", "tests", "output.txt")
         >>> email = Email(subject="Test", body="Testing body.", attachment_paths=attachment_path, config_key="standard")
         >>> to = "test@example.com"
@@ -227,7 +231,7 @@ class Email:
 
         address = self.address
         password = self.password
-        account = EmailAccount(address, password).account
+        account = EmailAccount(address, password, logger=self.logger).account
 
         m = Message(
             account=account,
@@ -253,5 +257,7 @@ class Email:
             except:
                 self.logger.exception(f"Email not sent.")
                 raise
+
+        self.logger.info("Email sent.")
 
         return None

@@ -14,3 +14,9 @@ class JobAlreadyRunningError(Exception):
     """"Job is already running"""
 
     pass
+
+
+class MessageNotFound(Exception):
+    """Message not found"""
+
+    pass

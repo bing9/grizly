@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="grizly",
-    version="0.4.0-rc0",
+    version="0.4.0",
     author="Alessio Civitillo",
     description="Small package to build SQL with a Pandas api, generate workflows and more.",
     long_description=long_description,
@@ -17,6 +17,7 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    entry_points={"console_scripts": ["grizly=grizly.cli:cli"]},
+    entry_points={"console_scripts": ["grizly=grizly.cli:cli"
+                    , "git-s3=grizly.cli.git_s3:cli"]},
 )
 

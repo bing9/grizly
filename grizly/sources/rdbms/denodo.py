@@ -1,27 +1,24 @@
-from .base import RDBMSBase
+from .base import RDBMSReadBase
+from ...utils.type_mappers import denodo_to_python, denodo_to_pyarrow
 from typing import List, Any
 
 
-class Denodo(RDBMSBase):
+class Denodo(RDBMSReadBase):
+    """
+    Class that represents Denodo database (ready only).
+
+    https://www.denodo.com/en
+
+    Examples
+    --------
+    >>> from grizly import Source
+    >>> sql_source = Source(dsn="DenodoPROD")
+    """
+
     _context = (
         " CONTEXT('swap' = 'ON', 'swapsize' = '500', 'i18n' = 'us_est', "
         "'queryTimeout' = '9000000000', 'simplify' = 'on')"
     )
-
-    def insert_into(self, *args, **kwargs):
-        raise NotImplementedError("Unsupported database")
-
-    def delete_from(self, *args, **kwargs):
-        raise NotImplementedError("Unsupported database")
-
-    def drop_table(self, *args, **kwargs):
-        raise NotImplementedError("Unsupported database")
-
-    def copy_table(self, *args, **kwargs):
-        raise NotImplementedError("Unsupported database")
-
-    def write_to(self, *args, **kwargs):
-        raise NotImplementedError("Unsupported database")
 
     def _get_base_tables(self, schema: str = None):
         return []
@@ -47,7 +44,7 @@ class Denodo(RDBMSBase):
         columns: list = None,
         date_format: str = "DATE",
     ):
-        """Get column names (and optionally types) from Denodo view.
+        """Get columns names (and optionally types) from Denodo view.
 
         Parameters
         ----------
@@ -109,3 +106,14 @@ class Denodo(RDBMSBase):
                 col_names = [col for col in columns if col in col_names_and_types]
                 col_types = [col_names_and_types[col_name] for col_name in col_names]
             return col_names, col_types
+
+    @staticmethod
+    def map_types(types, to):
+        if to == "postgresql":
+            return types
+        if to == "python":
+            mapping_func = denodo_to_python
+        elif to == "pyarrow":
+            mapping_func = denodo_to_pyarrow
+        mapped = [mapping_func(t) for t in types]
+        return mapped

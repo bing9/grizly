@@ -16,9 +16,10 @@ import pyarrow.parquet as pq
 
 from ...utils.functions import clean, clean_colnames, file_extension, get_path
 from ...utils.type_mappers import pyarrow_to_rds
-from ..rdbms.rdbms_factory import RDBMS
+from ..sources_factory import Source
 from ...types import Redshift, AuroraPostgreSQL
 from ...utils.functions import isinstance2
+from ...config import config as grizly_config
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.3", removed_in="0.4")
 
@@ -73,7 +74,6 @@ class S3:
         self.id = next(self._ids)
 
         if url:
-            self.url = url
             _, _, self.bucket, *s3_key_list = url.split("/")[:-1]
             self.s3_key = "/".join(s3_key_list) + "/"
             self.file_name = url.split("/")[-1]
@@ -83,13 +83,9 @@ class S3:
             if not self.s3_key.endswith("/") and self.s3_key != "":
                 self.s3_key += "/"
             self.bucket = bucket or "acoe-s3"
-            self.url = f"s3://{self.bucket}/{self.s3_key}{self.file_name}"
 
-        self.file_ext = file_extension(self.file_name)
-        self.full_s3_key = self.s3_key + self.file_name
         self.file_dir = file_dir or get_path("s3_loads")
         os.makedirs(self.file_dir, exist_ok=True)
-        self.file_path = os.path.join(self.file_dir, self.file_name)
 
         self.min_time_window = min_time_window
         self.logger = logger or logging.getLogger(__name__)
@@ -105,6 +101,22 @@ class S3:
 
     def __repr__(self):
         return f"{self.__class__.__name__}(url='{self.url}')"
+
+    @property
+    def full_s3_key(self):
+        return self.s3_key + self.file_name
+
+    @property
+    def file_path(self):
+        return os.path.join(self.file_dir, self.file_name)
+
+    @property
+    def url(self):
+        return f"s3://{self.bucket}/{self.full_s3_key}"
+
+    @property
+    def file_ext(self):
+        return file_extension(self.file_name)
 
     @property
     def aws_credentials(self):
@@ -123,6 +135,11 @@ class S3:
         config.read(get_path(".aws", "config"))
 
         return dict(config["default"]) or dict()
+
+    @property
+    def last_modified(self):
+        date = resource("s3").Object(self.bucket, self.full_s3_key).last_modified
+        return date
 
     def info(self):
         """Print a concise summary of a S3
@@ -284,17 +301,20 @@ class S3:
             df = clean(df)
             df = clean_colnames(df)
 
-        output = os.path.join(self.file_dir, self.file_name) if to_file else StringIO()
         if self.file_ext == "csv":
+            output = self.file_path if to_file else StringIO()
             df.to_csv(output, index=index, sep=sep, **kwargs)
         elif self.file_ext == "xlsx":
+            output = self.file_path if to_file else BytesIO()
             df.to_excel(output, index=index, **kwargs)
         else:
+            output = self.file_path if to_file else StringIO()
             df.to_parquet(output, index=index, **kwargs)
+
         if to_file:
             return self.from_file(keep_file=kwargs.get("keep_file", False), if_exists=if_exists)
         else:
-            return self._from_buffer(output)
+            return self.from_buffer(output, if_exists=if_exists)
 
     def from_file(
         self,
@@ -381,6 +401,46 @@ class S3:
             f"Successfully uploaded '{self.file_name}' to 's3://{self.bucket}/{self.s3_key}'"
         )
 
+    def from_buffer(
+        self,
+        buffer: Union[BytesIO, StringIO],
+        if_exists: Literal["fail", "skip", "replace", "archive"] = "replace",
+        versioning: bool = True,
+    ):
+        """Writes local file to S3.
+
+        Parameters
+        ----------
+        keep_file:
+            Whether to keep the local file copy after uploading it to Amazon S3, by default True
+        if_exists : str, optional
+            How to behave if the S3 already exists.
+
+            * fail: Raise ValueError
+            * skip: Abort without throwing an error
+            * replace: Overwrite existing file
+            * archive: Move old S3 to archive/s3_key/file_name(version)
+
+        """
+        if if_exists not in ("fail", "skip", "replace", "archive"):
+            raise ValueError(f"'{if_exists}' is not valid for if_exists")
+
+        if self.exists():
+            if if_exists == "fail":
+                raise ValueError(f"{self.full_s3_key} already exists")
+            elif if_exists == "skip":
+                return self
+            elif if_exists == "archive":
+                self.archive(versioning=versioning)
+
+        self._from_buffer(buffer=buffer)
+        self.status = "uploaded"
+
+        self.logger.info(f"Successfully uploaded '{self.file_name}' to S3")
+        self.logger.debug(f"{self.file_name}'s S3 location: 's3://{self.bucket}/{self.s3_key}'")
+
+        return self
+
     @_check_if_s3_exists
     def to_df(self, to_file=False, **kwargs) -> DataFrame:
         ext = ["csv", "parquet", "xlsx"]
@@ -452,7 +512,7 @@ class S3:
         table: str,
         schema: Optional[str] = None,
         dsn: Optional[str] = None,
-        rdbms: Optional[RDBMS] = None,
+        output_source: Optional[Redshift] = None,
         if_exists: Literal["fail", "skip", "replace", "drop"] = "fail",
         sep: str = "\t",
         types: Optional[dict] = None,
@@ -499,25 +559,25 @@ class S3:
 
         sqldb = kwargs.get("sqldb")
         if sqldb:
-            rdbms = sqldb
+            output_source = sqldb
             self.logger.warning(
                 "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                " Please use rdbms parameter instead.",
+                " Please use output_source parameter instead.",
             )
 
-        if dsn is None and rdbms is None:
+        if dsn is None and output_source is None:
             raise ValueError("Please specify dsn parameter")
         else:
-            rdbms = rdbms or RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+            output_source = output_source or Source(dsn=dsn, logger=self.logger, **kwargs)
 
-        if not isinstance2(rdbms, Redshift):
-            raise ValueError(f"Specified datasource '{rdbms.dsn}' is not a Redshift Database.")
+        if not isinstance2(output_source, Redshift):
+            raise ValueError(f"Specified datasource '{output_source.dsn}' is not a Redshift Database.")
 
         self.__validate_output_table(
-            table=table, schema=schema, rdbms=rdbms, if_exists=if_exists, sep=sep, types=types
+            table=table, schema=schema, output_source=output_source, if_exists=if_exists, sep=sep, types=types
         )
 
-        columns_output_table = rdbms.get_columns(table=table, schema=schema)
+        columns_output_table = output_source.get_columns(table=table, schema=schema)
 
         if column_order is None:
             if preserve_column_names:
@@ -597,7 +657,7 @@ class S3:
                 + sql[last_line_pos:]
             )
 
-        con = rdbms.get_connection()
+        con = output_source.get_connection()
         self.logger.info(f"Inserting '{self.file_name}' into {table_name}...")
         try:
             con.execute(sql)
@@ -620,7 +680,7 @@ class S3:
         table: str,
         schema: Optional[str] = None,
         dsn: Optional[str] = None,
-        rdbms: Optional[RDBMS] = None,
+        output_source: Optional[AuroraPostgreSQL] = None,
         if_exists: Literal["fail", "skip", "replace", "drop"] = "fail",
         sep: str = "\t",
         types: Optional[dict] = None,
@@ -667,28 +727,28 @@ class S3:
 
         sqldb = kwargs.get("sqldb")
         if sqldb:
-            rdbms = sqldb
+            output_source = sqldb
             self.logger.warning(
                 "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                " Please use rdbms parameter instead.",
+                " Please use output_source parameter instead.",
             )
 
-        if dsn is None and rdbms is None:
+        if dsn is None and output_source is None:
             raise ValueError("Please specify dsn parameter")
         else:
-            rdbms = rdbms or RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+            output_source = output_source or Source(dsn=dsn, logger=self.logger, **kwargs)
 
-        if not isinstance2(rdbms, AuroraPostgreSQL):
-            raise ValueError(f"Specified datasource '{rdbms.dsn}' is not an Aurora Database.")
+        if not isinstance2(output_source, AuroraPostgreSQL):
+            raise ValueError(f"Specified datasource '{output_source.dsn}' is not an Aurora Database.")
 
         self.__validate_output_table(
-            table=table, schema=schema, rdbms=rdbms, if_exists=if_exists, sep=sep, types=types
+            table=table, schema=schema, output_source=output_source, if_exists=if_exists, sep=sep, types=types
         )
 
-        con = rdbms.get_connection()
+        con = output_source.get_connection()
         con.execute("CREATE EXTENSION IF NOT EXISTS aws_s3 CASCADE; COMMIT;")
 
-        columns_output_table = rdbms.get_columns(table=table, schema=schema)
+        columns_output_table = output_source.get_columns(table=table, schema=schema)
 
         if column_order is None:
             column_order, _ = self._load_column_names(sep=sep)
@@ -731,7 +791,7 @@ class S3:
         self.logger.debug(f"'{self.file_name}''s Aurora location: {table_name}")
 
     def archive(self, versioning=True):
-        """Moves S3 to 'archive/' key. It adds also the versions of the file
+        """Moves S3 to 'archive/[today]/' key. It adds also the versions of the file
         eg. file(0).csv, file(1).csv, ...
 
         Examples
@@ -784,7 +844,7 @@ class S3:
             return False
         return True
 
-    def _create_table_like_s3(self, table, schema, rdbms, types, sep):
+    def _create_table_like_s3(self, table, schema, output_source, types, sep):
         if self.file_ext == "csv":
             # TODO: this should write to df
             s3_client = resource("s3").meta.client
@@ -871,7 +931,7 @@ class S3:
         else:
             raise ValueError("Table cannot be created. File extension not supported.")
 
-        rdbms.create_table(table=table, schema=schema, columns=col_names, types=col_types)
+        output_source.create_table(table=table, schema=schema, columns=col_names, types=col_types)
 
     def _load_column_names(self, sep) -> Tuple[List, Union[bool, None]]:
         if self.file_ext == "csv":
@@ -929,126 +989,27 @@ class S3:
         buffer.close()
         return self
 
-    def __validate_output_table(self, table, schema, rdbms, if_exists, sep, types):
-        if rdbms.check_if_exists(table, schema):
+    def __validate_output_table(self, table, schema, output_source, if_exists, sep, types):
+        if output_source.check_if_exists(table, schema):
             if if_exists == "fail":
                 raise ValueError(f"Table {table} already exists")
             elif if_exists == "replace":
-                rdbms.delete_from(table=table, schema=schema)
+                output_source.delete_from(table=table, schema=schema)
             elif if_exists == "drop":
-                rdbms.drop_table(table=table, schema=schema)
+                output_source.drop_table(table=table, schema=schema)
             else:
                 pass
         else:
             self._create_table_like_s3(
-                table=table, schema=schema, sep=sep, rdbms=rdbms, types=types
+                table=table, schema=schema, sep=sep, output_source=output_source, types=types
             )
 
     @staticmethod
     def __set_proxy():
-        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
-        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
+        config = grizly_config.get_service("proxies")
+        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or config.get("https")
+        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or config.get("http")
         if https_proxy is not None and http_proxy is not None:
             os.environ["HTTPS_PROXY"] = https_proxy
             os.environ["HTTP_PROXY"] = http_proxy
 
-
-@deprecation.deprecated(details="Use S3.to_file function instead",)
-def s3_to_csv(csv_path, bucket: str = None):
-    """
-    Writes s3 to csv file.
-
-    Parameters
-    ----------
-    csv_path : string
-        Path to csv file.
-    bucket : str, optional
-        Bucket name, if None then 'teis-data'
-    """
-    s3 = S3(
-        file_name=os.path.basename(csv_path), bucket=bucket, file_dir=os.path.dirname(csv_path),
-    )
-    s3.to_file()
-
-
-@deprecation.deprecated(details="Use S3.from_file function instead",)
-def csv_to_s3(csv_path, s3_key: str = None, keep_csv=True, bucket: str = None):
-    """
-    Writes csv file to s3.
-
-    Parameters
-    ----------
-    csv_path : string
-        Path to csv file.
-    keep_csv : bool, optional
-        Whether to keep the local csv copy after uploading it to Amazon S3, by default True
-    bucket : str, optional
-        Bucket name, if None then 'teis-data'
-    """
-    s3 = S3(
-        file_name=os.path.basename(csv_path),
-        s3_key=s3_key,
-        bucket=bucket,
-        file_dir=os.path.dirname(csv_path),
-    )
-    return s3.from_file(keep_file=keep_csv)
-
-
-@deprecation.deprecated(
-    details=(
-        "Use S3.from_df and S3.to_rds functions instead. "
-        "Parameters: schema, dtype, if_exists are ignored."
-    ),
-)
-def df_to_s3(
-    df,
-    table_name,
-    schema=None,
-    dtype=None,
-    sep="\t",
-    clean_df=False,
-    keep_csv=True,
-    chunksize=10000,
-    if_exists="fail",
-    s3_key=None,
-    bucket=None,
-    **kwargs,
-):
-    s3 = S3(file_name=table_name + ".csv", s3_key=s3_key, bucket=bucket, file_dir=os.getcwd())
-
-    return s3.from_df(df=df, sep=sep, clean_df=clean_df, keep_file=keep_csv, chunksize=chunksize)
-
-
-@deprecation.deprecated(details="Use S3.to_rds function instead.",)
-def s3_to_rds(
-    file_name,
-    table_name=None,
-    schema="",
-    time_format=None,
-    if_exists="fail",
-    sep="\t",
-    redshift_str=None,
-    bucket=None,
-    s3_key=None,
-    remove_inside_quotes=False,
-):
-
-    if not table_name:
-        table = file_name.replace(".csv", "")
-    else:
-        table = table_name
-    s3 = S3(
-        file_name=file_name,
-        s3_key=s3_key,
-        bucket=bucket,
-        file_dir=os.getcwd(),
-        redshift_str=redshift_str,
-    )
-    s3.to_rds(
-        table=table,
-        schema=schema,
-        if_exists=if_exists,
-        sep=sep,
-        remove_inside_quotes=remove_inside_quotes,
-        time_format=time_format,
-    )

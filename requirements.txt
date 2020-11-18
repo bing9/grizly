@@ -6,8 +6,8 @@ boto>=2.49.0
 botocore>=1.12.200
 configparser
 croniter>=0.3.29
-dask==2.19
-distributed==2.19
+dask==2.30
+distributed==2.30
 deprecation
 exchangelib>=2.0.1
 fpdf
@@ -18,13 +18,13 @@ jupyter_sphinx==0.2.4
 lxml>=4.3.4
 nbsphinx==0.7.0
 openpyxl>=2.6.2
-pandas==1.0.3
+pandas==1.1
 pendulum>=2.0.5
 pyarrow
-python-box==5.1.1
+python-box==5.1
 pytz>=2019.1
 pyzmq>=18.0.0
-simple-salesforce>=0.74.2
+simple-salesforce>=1.10.1
 sphinx_rtd_theme==0.4.3
 sqlparse>=0.3.0
 xlrd>=1.2.0
@@ -38,7 +38,7 @@ s3fs
 pyodbc
 wkhtmltopdf
 # docker
-bokeh==2.1
+bokeh==2.2
 jupyterlab
 jupyter-server-proxy
 dask_labextension

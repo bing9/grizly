@@ -12,3 +12,4 @@ docker_home
 dask-worker-space
 *.ini
 *.toml
+#GITS3

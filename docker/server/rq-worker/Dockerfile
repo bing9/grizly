@@ -3,6 +3,8 @@ FROM grizly_notebook:latest
 RUN pip install rq
 RUN pip install rq-scheduler
 RUN pip install setproctitle
+RUN pip install holidays==0.10.3
+RUN pip install business-duration==0.64
 
 
 WORKDIR ${HOME}

@@ -32,6 +32,11 @@ def _map_type(mapping, dtype, default=None, method="advanced"):
         return mapping.get(dtype, default)  # exact search
 
 
+def spectrum_to_redshift(dtype):
+    mapping = {"double": "DOUBLE PRECISION"}
+    return _map_type(mapping, dtype, method="simple")
+
+
 def mysql_to_postgresql(dtype):
     dtype = dtype.upper()
     mapping = {
@@ -260,6 +265,28 @@ def sfdc_to_python(dtype):
         "textarea": str,
         "time": datetime.datetime,
         "url": str,
+    }
+    return _map_type(mapping, dtype, default=str)
+
+
+def denodo_to_python(dtype):
+    mapping = {
+        "VARCHAR": str,
+        "DOUBLE PRECISION": np.float64,
+        "DATETIME": datetime.datetime,
+        "FLOAT": np.float32,
+        "INTEGER": int,
+    }
+    return _map_type(mapping, dtype, default=pa.string(), method="intermediate")
+
+
+def denodo_to_pyarrow(dtype):
+    mapping = {
+        "VARCHAR": pa.string(),
+        "DOUBLE PRECISION": pa.float64(),
+        "DATETIME": pa.timestamp("ms", tz="utc"),
+        "FLOAT": pa.float32(),
+        "INTEGER": pa.int32(),
     }
     return _map_type(mapping, dtype, default=str)
 

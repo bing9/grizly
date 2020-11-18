@@ -9,7 +9,7 @@ from hypothesis.strategies import integers, text, lists
 
 from ..grizly.drivers.frames_factory import QFrame
 from ..grizly.sources.filesystem.old_s3 import S3
-from ..grizly.sources.rdbms.rdbms_factory import RDBMS
+from ..grizly.sources.sources_factory import Source
 from ..grizly.utils.functions import get_path
 from ..grizly.config import config
 
@@ -28,12 +28,12 @@ def test_df_to_s3_and_s3_to_file():
 
 
 def test_can_upload():
-    s3 = S3(file_name="test_s3_2.csv", s3_key="bulk/tests/", min_time_window=3)
+    s3 = S3(file_name="test_s3_2.csv", s3_key="bulk/tests/", min_time_window=2)
     df = DataFrame({"col1": [1, 2], "col2": [3, 4]})
     s3.from_df(df)
 
     assert not s3._can_upload()
-    sleep(3)
+    sleep(2)
     assert s3._can_upload()
 
 
@@ -118,9 +118,9 @@ def test_to_rds():
     qf_csv.distinct()
     assert len(qf_csv) == 30
 
-    rdbms = RDBMS(dsn="redshift_acoe")
-    rdbms.drop_table(table=table_parquet, schema=schema)
-    rdbms.drop_table(table=table_csv, schema=schema)
+    source = Source(dsn="redshift_acoe")
+    source.drop_table(table=table_parquet, schema=schema)
+    source.drop_table(table=table_csv, schema=schema)
 
 
 def test_to_aurora():
@@ -182,7 +182,7 @@ def test_to_aurora():
     qf_csv.distinct()
     assert len(qf_csv) == 30
 
-    RDBMS(dsn="aurora_db").drop_table(table=table_csv, schema=schema)
+    Source(dsn="aurora_db").drop_table(table=table_csv, schema=schema)
 
 
 def test_to_serializable():

@@ -26,7 +26,7 @@ from exchangelib.errors import ErrorFolderNotFound
 from ..config import Config
 from ..tools.email import Email, EmailAccount
 from ..utils.functions import get_path, retry
-from ..sources.rdbms.rdbms_factory import RDBMS as SQLDB
+from ..sources.sources_factory import Source as SQLDB
 
 
 workflows_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows/workflows"

@@ -1,1 +1,1 @@
-docker-compose up --build --force-recreate --scale pytest_rq-worker=5 --scale pytest_dask_worker=2
+docker-compose up --build --force-recreate

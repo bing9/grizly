@@ -1,4 +1,4 @@
-FROM grizly_base:latest
+FROM acoeteam/grizly_base:latest
 
 
 # create and give priviledges to users
@@ -13,7 +13,7 @@ COPY . .
 RUN export https_proxy=${HTTPS_PROXY} && \
     pip install --upgrade pip && \
     python setup.py clean --all && \
-    python setup.py install && \
+    pip install -e . --user && \
     pip install -r requirements.txt && \
     pip install -r requirements-dev.txt && \
     rm -rf /grizly
@@ -27,8 +27,8 @@ WORKDIR ${HOME}
 
 ENV DASK_SCHEDULER_ADDRESS="tcp://dask_scheduler:8786"
 ENV GRIZLY_WORKFLOWS_HOME="${HOME}/workflows"
-ENV GRIZLY_DASK_SCHEDULER_ADDRESS=localhost:8786
-ENV GRIZLY_REDIS_HOST=localhost
+ENV GRIZLY_DASK_SCHEDULER_ADDRESS="localhost:8786"
+ENV GRIZLY_REDIS_HOST=redis
 ENV GRIZLY_REDIS_PORT=6379
 ENV GRIZLY_CONFIG_FILE="${HOME}/.grizly/config.json"
 

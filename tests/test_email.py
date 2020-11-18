@@ -1,8 +1,9 @@
-import toml
 import pytest
+import toml
+from exchangelib import FailFast
 
-from ..grizly.tools.email import Email, EmailAccount
 from ..grizly.config import config as grizly_config
+from ..grizly.tools.email import EmailAccount
 
 settings = toml.load("settings.toml")
 email_settings = settings.get("email")
@@ -22,7 +23,7 @@ def test_email_account_defaults():
         EmailAccount()
 
 
-def test_email_account_wrong_creds():
+def test_invalid_email_addr():
     with pytest.raises(ConnectionError):
         EmailAccount("wrong_email", "wrong_password")
 
