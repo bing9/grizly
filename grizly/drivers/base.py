@@ -31,25 +31,28 @@ class BaseDriver(ABC):
 
     @deprecated_params(params_mapping={"data": None})
     def __init__(
-        self, store: Optional[Store] = None, logger: logging.Logger = None, **kwargs,
+        self, store: Optional[Union[Store, dict]] = None, logger: logging.Logger = None, **kwargs,
     ):
         self.logger = logger or logging.getLogger(__name__)
         self.getfields = kwargs.get("getfields")
-
-        self.store = self._load_store(store=store)
+        self.store = self._load_store(store)
 
     def _load_store(
-        self, store: Store = None, json_path: str = None, subquery: str = None,
+        self, store: Union[Store, dict] = None, json_path: str = None, subquery: str = None,
     ) -> Store:
-        if store:
-            store = Store(store)
-        elif json_path:
-            store = Store().from_json(json_path=json_path, subquery=subquery)
-        else:
+        if not store and not json_path:
             store = Store()
+        if json_path:
+            store = Store.from_json(json_path=json_path, subquery=subquery)
+        # TODO: this should be the default structure since 0.4.0
+        extract_store = store.get("extract")
+        if extract_store:
+            store = store.get("qframe")
+            self.extract_store = extract_store
 
-        if store != Store():
-            store = self.validate_data(store)
+        store = Store(store)
+        store = self._validate_store(store)
+
         return store
 
     def from_json(self, json_path: str, subquery: str = ""):
@@ -62,7 +65,7 @@ class BaseDriver(ABC):
         subquery : str, optional
             Key in JSON file, by default ""
         """
-        self.store = self._load_store(store=None, json_path=json_path, subquery=subquery,)
+        self.store = self._load_store(json_path=json_path, subquery=subquery,)
         return self
 
     def from_dict(self, data: Union[dict, Store]):
@@ -1069,21 +1072,6 @@ class BaseDriver(ABC):
         }
         return mismatched
 
-    def validate_data(self, data: Union[dict, Store]) -> Store:
-        """Validate loaded data.
-
-        Parameters
-        ----------
-        data : dict
-            Dictionary structure holding fields, schema, table, sql information.
-
-        Returns
-        -------
-        Store
-            Store with validated data.
-        """
-        return self._validate_data(deepcopy(data))
-
     def _get_fields_names(
         self, fields, aliased=False, not_found=False
     ) -> Union[List[str], Tuple[List[str]]]:
@@ -1201,16 +1189,30 @@ class BaseDriver(ABC):
 
         return duplicates
 
-    def _validate_data(self, data) -> Store:
-        if data == {}:
-            raise AttributeError("Your data is empty.")
+    def _validate_store(self, store: Store) -> None:
+        """Validate loaded data.
 
-        if "select" not in data:
+        Parameters
+        ----------
+        store : Store
+            Store holding fields, schema, table, sql information.
+
+        Returns
+        -------
+        Store
+            Store with validated data.
+        """
+        store = deepcopy(store)
+
+        if not store:
+            return
+
+        if not store.get("select"):
             raise AttributeError("Missing 'select' attribute.")
 
-        select_data = data["select"]
+        select_data = store["select"]
 
-        if "fields" not in select_data:
+        if not select_data.get("fields"):
             raise AttributeError("Missing 'fields' attribute.")
 
         fields = select_data["fields"]
@@ -1228,7 +1230,7 @@ class BaseDriver(ABC):
                 key=key, data=select_data, func=validate_func,
             )
 
-        return Store(data)
+        return store
 
     def _validate_field(self, field: str, data: dict):
         if "dtype" not in data:
