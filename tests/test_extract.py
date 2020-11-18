@@ -44,11 +44,11 @@ logger = logging.getLogger(__name__)
 #     s3.rm(simple_extract.s3_root_url, recursive=True)
 
 
-def test_read_extract_store():
-    qf = QFrame(dsn="DenodoODBC", logger=logger).from_json(
-        f"s3://{s3_bucket}/test/denodo_extract_store.json"
-    )
-    assert qf.extract_store is not None
+# def test_read_extract_store():
+#     qf = QFrame(dsn="DenodoODBC", logger=logger).from_json(
+#         f"s3://{s3_bucket}/test/denodo_extract_store.json"
+#     )
+#     assert qf.extract_store is not None
 
 
 @pytest.fixture(scope="session")
