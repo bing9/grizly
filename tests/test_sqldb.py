@@ -1,5 +1,5 @@
 import os
-from ..grizly.sources.rdbms.rdbms_factory import RDBMS
+from ..grizly.sources.sources_factory import Source
 from ..grizly.utils.functions import get_path
 import pytest
 
@@ -10,21 +10,21 @@ def write_out(out):
 
 
 def test_check_if_exists():
-    rdbms = RDBMS(dsn="redshift_acoe")
-    assert rdbms.check_if_exists("fiscal_calendar_weeks", "base_views")
+    db = Source(dsn="redshift_acoe")
+    assert db.check_if_exists("fiscal_calendar_weeks", "base_views")
 
 
 def test_pyodbc_interface():
-    rdbms = RDBMS(dsn="redshift_acoe")
-    assert rdbms.check_if_exists("fiscal_calendar_weeks", "base_views")
+    db = Source(dsn="redshift_acoe")
+    assert db.check_if_exists("fiscal_calendar_weeks", "base_views")
 
 
 def test_create_external_table():
-    rdbms = RDBMS(dsn="redshift_acoe")
+    db = Source(dsn="redshift_acoe")
     table = "test_create_external_table"
     schema = "acoe_spectrum"
 
-    rdbms = rdbms.create_table(
+    db = db.create_table(
         table_type="external",
         table=table,
         columns=["col1", "col2"],
@@ -34,10 +34,10 @@ def test_create_external_table():
         bucket="acoe-s3",
         if_exists="drop",
     )
-    assert rdbms.check_if_exists(table=table, schema=schema)
+    assert db.check_if_exists(table=table, schema=schema)
 
     with pytest.raises(ValueError):
-        rdbms = rdbms.create_table(
+        db = db.create_table(
             table_type="external",
             table=table,
             columns=["col1", "col2"],
@@ -48,6 +48,6 @@ def test_create_external_table():
             if_exists="fail",
         )
 
-    rdbms._run_query(sql=f"DROP TABLE {schema}.{table}", autocommit=True)
+    db._run_query(sql=f"DROP TABLE {schema}.{table}", autocommit=True)
 
-    assert not rdbms.check_if_exists(table=table, schema=schema)
+    assert not db.check_if_exists(table=table, schema=schema)
