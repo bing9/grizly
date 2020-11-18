@@ -260,3 +260,14 @@ class SFDCDriver(SQLDriver):
         }
 
         return sql_blocks
+
+    @property
+    def nrows(self):
+        # query = f"SELECT COUNT() FROM ({self.get_sql()}) sq"
+        # records = self.source._fetch_records(query, table=self.store["select"]["table"])
+        # if records:
+        #     nrows = records[0][0]
+        # else:
+        #     nrows = 0
+        # return nrows
+        return 0
