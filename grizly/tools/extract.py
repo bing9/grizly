@@ -80,6 +80,16 @@ class BaseExtract:
 
         return cls(qf=qf, **extract_params)
 
+    def __repr__(self):
+        attrs = {k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)}
+        for attr, value in attrs.items():
+            attr_val = self._get_attr_val(attr, init_val=value)
+            line_len = len(str(attr))  # + len(str(attr_val))
+            if attr != "qf":
+                print(attr, str(attr_val).rjust(80 - line_len))
+            else:
+                print(attr, self.qf)
+
     def _get_attr_val(self, attr, init_val):
         attr_env = f"GRIZLY_EXTRACT_{attr.upper()}"
         # attr_val = (
@@ -91,7 +101,7 @@ class BaseExtract:
             # or config.get_service(attr)
             or os.getenv(attr_env)
         )
-        print(attr, attr_val)
+        # print(attr, attr_val)
         return attr_val
 
     def _load_attrs(self):
@@ -111,7 +121,8 @@ class BaseExtract:
             self.s3_root_url or f"s3://{self.s3_bucket}/extracts/{self.name_snake_case}/"
         )
         self.output_source = Source(
-            dsn=self.output_dsn, dialect=self.output_dialect, source=self.output_source_name)
+            dsn=self.output_dsn, dialect=self.output_dialect, source=self.output_source_name
+        )
         self.s3_staging_url = os.path.join(self.s3_root_url, "data", "staging")
         self.table_if_exists = self._map_if_exists(self.if_exists)
         self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
@@ -133,6 +144,15 @@ class BaseExtract:
     @dask.delayed
     def begin_extract(self):
         self.logger.info("Starting the extract process...")
+
+    @dask.delayed
+    @retry(Exception, tries=5, delay=5)
+    def to_parquet(self, qf, path, upstream=None):
+        # need to raise here as well for retries to work
+        try:
+            qf.to_parquet(path)
+        except Exception:
+            raise
 
     @dask.delayed
     def arrow_to_s3(self, arrow_table: Table, file_name: str = None):
@@ -479,15 +499,6 @@ class DenodoExtract(BaseExtract):
     def remove_table(self, schema, table):
         pass
 
-    @dask.delayed
-    @retry(Exception, tries=5, delay=5)
-    def to_parquet(self, qf, path):
-        # need to raise here as well for retries to work
-        try:
-            qf.to_parquet(path)
-        except Exception:
-            raise
-
     def _get_source_partitions(self, cache: str = "off", upstream=None) -> Delayed:
         """Generate a task that retrieves the list of partitions from source data"""
         if cache == "on":
@@ -621,17 +632,22 @@ class DenodoExtract(BaseExtract):
 
 
 class Extract:
+    def __new__(cls, **kwargs):
+        source_name = kwargs.get("qf").source.__class__.__name__.lower()
+        if source_name == "sfdb":
+            return SFDCExtract(**kwargs)
+        elif source_name == "denodo":
+            return DenodoExtract(**kwargs)
+        else:
+            return SimpleExtract(**kwargs)
+
+    @classmethod
     def from_json(self, store_path):
 
         store = Store.from_json(store_path)
-
-        dsn = store.extract.qframe.select.source.get("dsn")
         source_name = store.extract.qframe.select.source.get("source_name")
 
-        if "sqlite" in dsn:
-            return SimpleExtract.from_json(store_path)
-
-        if source_name == "sfdc":
+        if source_name == "sfdb":
             return SFDCExtract.from_json(store_path)
         elif source_name == "denodo":
             return DenodoExtract.from_json(store_path)
