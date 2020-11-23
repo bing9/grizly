@@ -47,9 +47,8 @@ class BaseDriver(ABC):
         # TODO: this should be the default structure since 0.4.0
         extract_store = store.get("extract")
         if extract_store:
-            store = store.get("qframe")
+            store = extract_store.get("qframe")
             self.extract_store = extract_store
-
         store = Store(store)
         store = self._validate_store(store)
 
