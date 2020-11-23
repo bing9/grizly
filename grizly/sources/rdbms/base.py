@@ -453,6 +453,7 @@ class RDBMSWriteBase(BaseWriteSource, RDBMSReadBase):
         sql = f"DROP TABLE IF EXISTS {full_table_name};"
         self.logger.info(f"Dropping table {full_table_name}...")
         self._run_query(sql, autocommit=True)
+        self.logger.info(f"Table {full_table_name} has been successfully dropped.")
 
         return self
 
