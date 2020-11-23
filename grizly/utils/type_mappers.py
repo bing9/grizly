@@ -283,12 +283,17 @@ def denodo_to_python(dtype):
 def denodo_to_pyarrow(dtype):
     mapping = {
         "VARCHAR": pa.string(),
+        "NVARCHAR": pa.string(),
         "DOUBLE PRECISION": pa.float64(),
+        "DATE": pa.date32(),
         "DATETIME": pa.timestamp("ms", tz="utc"),
+        "TIMESTAMP": pa.timestamp("ms", tz="utc"),
         "FLOAT": pa.float32(),
         "INTEGER": pa.int32(),
+        "SMALLINT": pa.int32(),
+        "BIGINT": pa.int64(),
     }
-    return _map_type(mapping, dtype, default=str)
+    return _map_type(mapping, dtype, default=pa.string())
 
 
 def postgresql_to_python(dtype):
