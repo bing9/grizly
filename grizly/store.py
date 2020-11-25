@@ -1,11 +1,15 @@
-from copy import deepcopy
 import json
 import logging
 import os
+from copy import deepcopy
+from functools import partial
 
 from box import Box
 
 from .sources.filesystem.old_s3 import S3
+from .utils.deprecation import deprecated_params
+
+deprecated_params = partial(deprecated_params, deprecated_in="0.4.1", removed_in="0.4.5")
 
 
 class Store(Box):
@@ -26,14 +30,15 @@ class Store(Box):
         return Store(d)
 
     @classmethod
-    def from_json(cls, json_path: str, subquery: str = None):
+    @deprecated_params(params_mapping={"subquery": "key"})
+    def from_json(cls, json_path: str, key: str = None, **kwargs):
         """Read QFrame.data from json file
 
         Parameters
         ----------
         json_path : str
             Path to json file.
-        subquery : str, optional
+        key : str, optional
             Key in json file, by default None
 
         Returns
@@ -46,18 +51,19 @@ class Store(Box):
             with open(json_path, "r") as f:
                 json_data = json.load(f)
 
-        data = json_data.get(subquery, json_data)
+        data = json_data.get(key, json_data)
 
         return cls(data)
 
-    def to_json(self, json_path: str, subquery: str = None):
+    @deprecated_params(params_mapping={"subquery": "key"})
+    def to_json(self, json_path: str, key: str = None, **kwargs):
         """Save Store to json file
 
         Parameters
         ----------
         json_path : str
             Path to json file.
-        subquery : str, optional
+        key : str, optional
             Key in json file, by default None
         """
         json_data = {}
@@ -68,8 +74,8 @@ class Store(Box):
         else:
             json_data = self._from_local(json_path=json_path)
 
-        if subquery:
-            json_data[subquery] = self.to_dict()
+        if key:
+            json_data[key] = self.to_dict()
         else:
             if json_data:
                 self.logger.warning("Overwriting existing store.")
