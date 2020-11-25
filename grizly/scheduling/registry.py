@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from functools import wraps
 from time import time
-from typing import Any, List, Literal, Optional, Union, Dict
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import dask
 from croniter import croniter
@@ -17,15 +17,15 @@ from distributed import Client, Future
 from distributed.protocol.serialize import deserialize as dask_deserialize
 from distributed.protocol.serialize import serialize as dask_serialize
 from redis import Redis
-from rq import Queue
+from rq import Queue, cancel_job
 from rq.job import Job as RqJob
 from rq.job import NoSuchJobError
 from rq_scheduler import Scheduler
 
 from ..config import Config
 from ..exceptions import JobAlreadyRunningError, JobNotFoundError, JobRunNotFoundError
-from ..utils.functions import dict_diff
 from ..store import Store
+from ..utils.functions import dict_diff
 
 SubmitCondition = Literal["success", "fail", "result_change"]
 
@@ -591,7 +591,7 @@ class Job(SchedulerObject):
     @property
     def last_run(self) -> Optional[JobRun]:
         """Job's last run (JobRun object)
-        
+
         Return
         -------
             JobRun
@@ -897,6 +897,7 @@ class Job(SchedulerObject):
         upstream: Dict[str, SubmitCondition] = None,
         triggers: Union[List[str], str] = None,
         if_exists: Literal["fail", "replace", "skip"] = "fail",
+        remove_job_runs: bool = True,
         *args,
         **kwargs,
     ) -> "Job":
@@ -913,7 +914,7 @@ class Job(SchedulerObject):
             elif if_exists == "fail":
                 raise ValueError(f"{self} already exists")
             else:
-                self.unregister(remove_job_runs=True)
+                self.unregister(remove_job_runs=remove_job_runs)
 
         # VALIDATIONS
         # cron
@@ -1140,7 +1141,7 @@ class Job(SchedulerObject):
                     timeout=self.timeout,
                 )
                 self.logger.debug(
-                    f"{self} with cron '{cron}' has been added to rq sheduler with id {rq_job.id}"
+                    f"{self} with cron '{cron}' has been added to rq scheduler with id {rq_job.id}"
                 )
                 rq_job_ids.append(rq_job.id)
             self.logger.debug(f"{self} has been added to the rq scheduler")
@@ -1161,6 +1162,47 @@ class Job(SchedulerObject):
                     pass
 
             self.logger.debug(f"{self} has been removed from the rq scheduler")
+
+    @_check_if_exists()
+    def stop(self):
+        self.backend.cancel(self)
+        self.last_run.status = "killed"
+
+
+class Backend(ABC):
+    @abstractmethod
+    def compute(self, job: Job) -> Any:
+        pass
+
+    @abstractmethod
+    def cancel(self, job: Job) -> bool:
+        pass
+
+
+class DaskBackend(Backend):
+    def __init__(self, scheduler_address):
+        self.scheduler_address = scheduler_address
+
+    def compute(self, job: Job):
+        graph = dask.delayed()(job.tasks, name=job.name + "_graph")
+        result = graph.compute()
+        return result
+
+    def cancel(self, job: Job):
+        client = Client(self.scheduler_address)
+        f = Future(job + "_graph", client=client)
+        f.cancel(force=True)
+        client.close()
+        return True
+
+
+class RedisBackend(Backend):
+    def compute(self, job: Job):
+        pass
+
+    def cancel(self, job: Job):
+        for rq_job in job._rq_job_ids:
+            cancel_job(rq_job)
 
 
 class Trigger(SchedulerObject):
