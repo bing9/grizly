@@ -38,12 +38,12 @@ class BaseDriver(ABC):
         self.store = self._load_store(store)
 
     def _load_store(
-        self, store: Union[Store, dict] = None, json_path: str = None, subquery: str = None,
+        self, store: Union[Store, dict] = None, json_path: str = None, key: str = None,
     ) -> Store:
         if not store and not json_path:
             store = Store()
         if json_path:
-            store = Store.from_json(json_path=json_path, subquery=subquery)
+            store = Store.from_json(json_path=json_path, key=key)
         # TODO: this should be the default structure since 0.4.0
         extract_store = store.get("extract")
         if extract_store:
@@ -54,17 +54,18 @@ class BaseDriver(ABC):
 
         return store
 
-    def from_json(self, json_path: str, subquery: str = ""):
+    @deprecated_params(params_mapping={"subquery": "key"})
+    def from_json(self, json_path: str, key: str = None, **kwargs):
         """Load QFrame store from JSON file.
 
         Parameters
         ----------
         json_path : str
             Path to local file or S3 url
-        subquery : str, optional
-            Key in JSON file, by default ""
+        key : str, optional
+            Key in JSON file, by default None
         """
-        self.store = self._load_store(json_path=json_path, subquery=subquery,)
+        self.store = self._load_store(json_path=json_path, key=key)
         return self
 
     def from_dict(self, data: Union[dict, Store]):
@@ -851,7 +852,6 @@ class BaseDriver(ABC):
 
     def _dict_to_arrow(self, _dict):
         self.logger.debug("Generating PyArrow table...")
-        self._fix_types()
 
         columns = self.get_fields(aliased=True)
         types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
@@ -875,7 +875,6 @@ class BaseDriver(ABC):
         """
 
         self.logger.debug("Generating PyArrow table...")
-        self._fix_types()
         columns = self.get_fields(aliased=True)
         types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
@@ -889,25 +888,25 @@ class BaseDriver(ABC):
 
         return table
 
-    def to_arrow_iter(self, chunksize: int = 20000) -> Iterator[pa.Table]:
-        """Write QFrame result to pyarrow.Table.
+    # def to_arrow_iter(self, chunksize: int = 20000) -> Iterator[pa.Table]:
+    #     """Write QFrame result to pyarrow.Table.
 
-        Returns
-        -------
-        pa.Table
-            QFrame's result
-        """
-        self.logger.debug("Generating PyArrow table...")
-        self._fix_types()
-        columns = self.get_fields(aliased=True)
-        types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
-        schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
-        self.logger.debug(f"Retrieved schema: {schema}")
+    #     Returns
+    #     -------
+    #     pa.Table
+    #         QFrame's result
+    #     """
+    #     self.logger.debug("Generating PyArrow table...")
+    #     self.fix_types()
+    #     columns = self.get_fields(aliased=True)
+    #     types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
+    #     schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
+    #     self.logger.debug(f"Retrieved schema: {schema}")
 
-        dicts = self.to_dicts(chunksize=chunksize)
-        for _dict in dicts:
-            table = pa.Table.from_pydict(_dict, schema=schema)
-            yield table
+    #     dicts = self.to_dicts(chunksize=chunksize)
+    #     for _dict in dicts:
+    #         table = pa.Table.from_pydict(_dict, schema=schema)
+    #         yield table
 
     @deprecated_params(params_mapping={"parquet_path": "path"})
     def to_parquet(self, path: str, **kwargs) -> bool:
@@ -1038,14 +1037,18 @@ class BaseDriver(ABC):
         """Make a copy of QFrame."""
         return deepcopy(self)
 
-    def _fix_types(self):
+    def fix_types(self):
         mismatched: dict = self._check_types()
         mismatched_aliases = list(mismatched.keys())
         mismatched_names = self._get_fields_names(mismatched_aliases)
         for field_name, field_alias in zip(mismatched_names, mismatched_aliases):
             python_dtype = mismatched[field_alias]
             sql_dtype = python_to_sql(python_dtype)
+            prev_dtype = self.store["select"]["fields"][field_name]["dtype"]
             self.store["select"]["fields"][field_name]["dtype"] = sql_dtype
+
+            self.logger.info(f"{field_name}'s type changed from {prev_dtype} to {sql_dtype}")
+        return self
 
     def _check_types(self):
         expected_types_mapped = self.source.map_types(self.dtypes, to="python")
