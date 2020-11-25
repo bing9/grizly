@@ -1050,7 +1050,7 @@ class BaseDriver(ABC):
             self.logger.info(f"{field_name}'s type changed from {prev_dtype} to {sql_dtype}")
         return self
 
-    def _check_types(self):
+    def _check_types(self) -> Dict[str, type]:
         expected_types_mapped = self.source.map_types(self.dtypes, to="python")
         expected_cols_and_types = dict(zip(self.get_fields(aliased=True), expected_types_mapped))
         # this only checks the first 100 rows
