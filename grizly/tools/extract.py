@@ -14,15 +14,14 @@ from distributed import Client
 from pyarrow import Table
 
 from ..config import config
-from ..store import Store
 from ..drivers.frames_factory import QFrame
 from ..scheduling.registry import Job, SchedulerDB
 from ..sources.filesystem.old_s3 import S3
 from ..sources.sources_factory import Source
+from ..store import Store
 from ..utils.functions import chunker, retry
 from ..utils.type_mappers import spectrum_to_redshift
 
-WORKING_DIR = os.getcwd()
 s3 = s3fs.S3FileSystem()
 
 
@@ -71,7 +70,7 @@ class BaseExtract:
 
     @classmethod
     def from_json(cls, path, key="extract"):
-        store = Store.from_json(json_path=path, subquery=key)
+        store = Store.from_json(json_path=path, key=key)
         dsn = store.qframe.select.source.get("dsn")
         name = store.get("name")
         logger = logging.getLogger("distributed.worker").getChild(name)
@@ -85,10 +84,13 @@ class BaseExtract:
         for attr, value in attrs.items():
             attr_val = self._get_attr_val(attr, init_val=value)
             line_len = len(str(attr))  # + len(str(attr_val))
-            if attr != "qf":
-                print(attr, str(attr_val).rjust(80 - line_len))
-            else:
-                print(attr, self.qf)
+            attr_val_str = str(attr_val)
+            if attr == "qf":
+                attr_val_str = self.qf.__class__
+            try:
+                print(attr, attr_val_str.rjust(80 - line_len))
+            except:
+                print(attr)
 
     def _get_attr_val(self, attr, init_val):
         attr_env = f"GRIZLY_EXTRACT_{attr.upper()}"
@@ -145,6 +147,12 @@ class BaseExtract:
     def begin_extract(self):
         self.logger.info("Starting the extract process...")
 
+    @staticmethod
+    @dask.delayed
+    def fix_qf_types(qf, upstream=None):
+        qf_c = qf.copy()
+        return qf_c.fix_types()
+
     @dask.delayed
     @retry(Exception, tries=5, delay=5)
     def to_parquet(self, qf, path, upstream=None):
@@ -153,6 +161,7 @@ class BaseExtract:
             qf.to_parquet(path)
         except Exception:
             raise
+        return qf
 
     @dask.delayed
     def arrow_to_s3(self, arrow_table: Table, file_name: str = None):
@@ -181,8 +190,9 @@ class BaseExtract:
             self.logger.debug(f"Couldn't wipe out {self.s3_staging_url} as it doesn't exist")
 
     @dask.delayed
-    def create_external_table(self, upstream: Delayed = None):
-        self.qf.create_external_table(
+    def create_external_table(self, qf, upstream: Delayed = None):
+        """Use processed QF rather than self.qf, as the types can be modified by to_arrow()"""
+        qf.create_external_table(
             schema=self.staging_schema,
             table=self.staging_table,
             output_source=self.output_source,
@@ -269,8 +279,9 @@ class SimpleExtract(BaseExtract):
         path = os.path.join(self.s3_root_url, file_name)
 
         start = self.begin_extract()
-        s3 = self.to_parquet(qf=self.qf, path=path, upstream=start)
-        external_table = self.create_external_table(upstream=s3)
+        qf_fixed = self.fix_qf_types(self.qf, upstream=start)
+        s3 = self.to_parquet(qf=qf_fixed, path=path)
+        external_table = self.create_external_table(qf=qf_fixed, upstream=s3)
         base_table = self.create_table(upstream=external_table)
 
         if self.output_table_type == "base":
@@ -311,13 +322,17 @@ class SFDCExtract(BaseExtract):
 
         wipe_staging = self.wipe_staging() if self.if_exists == "replace" else None
 
+        qf_fixed = self.fix_qf_types(self.qf, upstream=wipe_staging)
+
         s3_uploads = []
         batch_no = 1
         for url_chunk in chunks:
             first_url_pos = url_chunk[0].split("-")[1]
             last_url_pos = url_chunk[-1].split("-")[1]
             file_name = f"{first_url_pos}-{last_url_pos}.parquet"
-            arrow_table = self.urls_to_arrow(url_chunk, batch_no=batch_no, upstream=wipe_staging)
+            arrow_table = self.urls_to_arrow(
+                qf=qf_fixed, urls=url_chunk, batch_no=batch_no, upstream=wipe_staging
+            )
             to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
             s3_uploads.append(to_s3)
             batch_no += 1
@@ -345,17 +360,17 @@ class SFDCExtract(BaseExtract):
 
     @dask.delayed
     def urls_to_arrow(
-        self, urls: List[str], batch_no: int, upstream: dask.delayed = None
+        self, qf: QFrame, urls: List[str], batch_no: int, upstream: dask.delayed = None
     ) -> pa.Table:
         self.logger.info(f"Converting batch no. {batch_no} into a pyarrow table...")
         start = datetime.datetime.now()
         records = []
         for url in urls:
-            records_chunk: List[tuple] = self.qf.source._fetch_records_url(url)
-            redords_chunk_processed: List[tuple] = self.qf._cast_records(records_chunk)
+            records_chunk: List[tuple] = qf.source._fetch_records_url(url)
+            redords_chunk_processed: List[tuple] = qf._cast_records(records_chunk)
             records.extend(redords_chunk_processed)
 
-        cols = self.qf.get_fields(aliased=True)
+        cols = qf.get_fields(aliased=True)
 
         _dict = {col: [] for col in cols}
         for record in records:
@@ -363,7 +378,7 @@ class SFDCExtract(BaseExtract):
                 col_name = cols[i]
                 _dict[col_name].append(col_val)
 
-        arrow_table = self.qf._dict_to_arrow(_dict)
+        arrow_table = qf._dict_to_arrow(_dict)
 
         duration = datetime.datetime.now() - start
         seconds = duration.seconds
@@ -379,8 +394,6 @@ class DenodoExtract(BaseExtract):
     ):
         super().__init__(qf, *args, **kwargs)
         self.partition_cols = partition_cols
-        # self.store = qf.store["extract"]  # TODO: add store validation
-        # self._load_attrs_from_store(self.store)
 
     def _validate_store(self, store):
         pass
@@ -490,9 +503,10 @@ class DenodoExtract(BaseExtract):
 
         return cached_partitions
 
+    @staticmethod
     @dask.delayed
-    def filter_qf(self, query: str):
-        queried = self.qf.copy().where(query, if_exists="append")
+    def filter_qf(qf: QFrame, query: str) -> QFrame:
+        queried = qf.copy().where(query, if_exists="append")
         return queried
 
     @dask.delayed
@@ -534,15 +548,16 @@ class DenodoExtract(BaseExtract):
     def _generate_extract_tasks(self, partitions) -> List[Delayed]:
         partition_cols_expr = self._get_partition_cols_expr()
         uploads = []
+        qf_fixed = self.fix_qf_types(self.qf)
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
             file_name = f"{partition}.parquet"
             where = f"{partition_cols_expr}='{partition_concatenated}'"
-            processed_qf = self.filter_qf(query=where)
+            processed_qf = self.filter_qf(qf=qf_fixed, query=where)
             s3 = self.to_parquet(processed_qf, os.path.join(self.s3_staging_url, file_name))
             uploads.append(s3)
 
-        external_table = self.create_external_table(upstream=uploads)
+        external_table = self.create_external_table(qf=qf_fixed, upstream=uploads)
 
         if self.output_table_type == "base":
             regular_table = self.create_table(upstream=external_table)
@@ -642,14 +657,14 @@ class Extract:
             return SimpleExtract(**kwargs)
 
     @classmethod
-    def from_json(self, store_path):
+    def from_json(self, store_path, key="extract"):
 
-        store = Store.from_json(store_path)
-        source_name = store.extract.qframe.select.source.get("source_name")
+        store = Store.from_json(store_path, key=key)
+        source_name = store.qframe.select.source.get("source_name")
 
         if source_name == "sfdb":
-            return SFDCExtract.from_json(store_path)
+            return SFDCExtract.from_json(store_path, key=key)
         elif source_name == "denodo":
-            return DenodoExtract.from_json(store_path)
+            return DenodoExtract.from_json(store_path, key=key)
         else:
-            return SimpleExtract.from_json(store_path)
+            return SimpleExtract.from_json(store_path, key=key)
