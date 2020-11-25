@@ -597,6 +597,7 @@ class DenodoExtract(BaseExtract):
         crons: List[str] = None,
         partitions_cache: str = "off",
         if_exists: str = "skip",
+        remove_job_runs: bool = False,
         **kwargs,
     ) -> bool:
         """Submit the partitions and/or extract job
@@ -614,7 +615,11 @@ class DenodoExtract(BaseExtract):
 
         self.extract_job = Job(self.name, logger=self.logger, db=registry)
         self.extract_job.register(
-            tasks=tasks, crons=crons, if_exists=if_exists, **kwargs,
+            tasks=tasks,
+            crons=crons,
+            if_exists=if_exists,
+            remove_job_runs=remove_job_runs,
+            **kwargs,
         )
         return True
 
