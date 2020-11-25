@@ -1047,7 +1047,7 @@ class BaseDriver(ABC):
             prev_dtype = self.store["select"]["fields"][field_name]["dtype"]
             self.store["select"]["fields"][field_name]["dtype"] = sql_dtype
 
-            self.logger.info(f"{field_name}'s type changed from {prev_dtype} to {sql_dtype}")
+            self.logger.debug(f"{field_name}'s type changed from {prev_dtype} to {sql_dtype}")
         return self
 
     def _check_types(self) -> Dict[str, type]:
