@@ -276,7 +276,7 @@ def denodo_to_python(dtype):
         "DOUBLE PRECISION": np.float64,
         "DATETIME": datetime.datetime,
         "TIMESTAMP": datetime.datetime,
-        "DATE": datetime.datetime,
+        "DATE": datetime.date,
         "FLOAT": np.float32,
         "INTEGER": int,
         "SMALLINT": int,
@@ -377,7 +377,13 @@ def mysql_to_python(dtype):
 
 
 def python_to_sql(dtype):
-    mapping = {str: "VARCHAR(50)", int: "INTEGER", float: "FLOAT8", datetime.datetime: "DATETIME"}
+    mapping = {
+        str: "VARCHAR(50)",
+        int: "INTEGER",
+        float: "FLOAT8",
+        datetime.date: "DATE",
+        datetime.datetime: "DATETIME",
+    }
     return _map_type(mapping, dtype, default="VARCHAR(255)")
 
 
