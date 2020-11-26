@@ -18,7 +18,7 @@ RUN touch /etc/wgetrc && \
 RUN apt-get update &&\
     yes | apt-get install git python3-dev unixodbc-dev g++ libboost-all-dev\
     apt-utils vim unixodbc odbc-postgresql awscli wkhtmltopdf \
-    fonts-font-awesome graphviz sudo ca-certificates zsh && \
+    fonts-font-awesome graphviz sudo ca-certificates zsh pandoc && \
     rm -rf /var/lib/apt/lists/*
 
 ## Beautify shell
