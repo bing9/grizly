@@ -8,22 +8,23 @@ import pytz
 from ...tools.email import EmailAccount
 from ..base import BaseReadSource
 from ...exceptions import MessageNotFound
+from ...config import config
 
 
 class Exchange365(BaseReadSource):
     def __init__(
         self,
-        address: str = None,
-        password: str = None,
         auth_address: str = None,
+        password: str = None,
+        address: str = None,
         proxy: str = None,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.address = address
         self.password = password
-        self.auth_address = auth_address or address
+        self.auth_address = auth_address or config.get_service("email").get("address")
+        self.address = address or auth_address
         self.proxy = proxy
         self._con = None
 
