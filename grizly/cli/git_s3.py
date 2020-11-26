@@ -56,7 +56,7 @@ def sync_s3(path, bucket="acoe-s3", local_to_s3=True):
     process.wait()
     print(process.communicate())
 
-def getobjects_s3(to_file = True):
+def getobjects_s3():
     cwd = os.getcwd()
     repo = os.path.basename(os.path.normpath(cwd))
     cwd = os.getcwd()
@@ -67,8 +67,9 @@ def getobjects_s3(to_file = True):
     output, err = process.communicate(b"input data that is passed to subprocess' stdin")
     objects = []
     for item in output.split():
-        if "grizly_webui" in str(item):
-            objects.append(item.decode("utf-8"))
+        _item = item.decode("utf-8")
+        if "workstreams" in _item:
+            objects.append(_item)
     with open(".s3synced", "w") as f:
         out = "\n".join(objects)
         f.write(out)
@@ -128,9 +129,20 @@ def pull(path):
     """Pulls all files from S3 inside input path.
     """
     git_ignore_lines, git_s3_lines  = get_blocks()
-    paths_found = filter_paths(path, git_s3_lines)
-    for path in paths_found:
-        sync_s3(path[1], local_to_s3=False)
+    if path.isdigit():
+        indx = int(path)
+        try:
+            _path = git_s3_lines[indx]
+            sync_s3(_path, local_to_s3=False)
+        except IndexError:
+            raise IndexError(f"""Your path index {path} is not an index of 
+                                tracked files. Check available indexes with git 
+                                s3 list
+                            """)
+    else:
+        paths_found = filter_paths(path, git_s3_lines)
+        for path in paths_found:
+            sync_s3(path[1], local_to_s3=False)
 
 @click.command()
 @click.argument('path')
@@ -168,13 +180,18 @@ def list(path_filter=None):
         click.echo(str(path[0]) + " " + path[1])
 
 @click.command()
-def synced():
+@click.option('-f', "path_filter", help="filters paths containing input value")
+def synced(path_filter=None):
     """Lists of all objects (files) stored into S3. 
        from the current repo
     """
     objects = getobjects_s3()
     for obj in objects:
-        click.echo(obj)
+        if path_filter != None:
+            if path_filter in obj:
+                click.echo(obj)
+        else:
+            click.echo(obj)
 
 
 cli.add_command(track)
