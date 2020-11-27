@@ -47,7 +47,7 @@ class BaseExtract:
         s3_bucket: str = None,
         dask_scheduler_address: str = None,
         if_exists: str = "append",
-        priority: int = 0,
+        priority: int = -1,
         **kwargs,
     ):
         self.qf = qf
@@ -80,6 +80,9 @@ class BaseExtract:
         return cls(qf=qf, **extract_params)
 
     def __str__(self):
+
+        from termcolor import colored  # change to _repr_html?
+
         attrs = {k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)}
         _repr = ""
         for attr, value in attrs.items():
@@ -90,12 +93,11 @@ class BaseExtract:
             else:
                 attr_val_str = str(attr_val)
             if attr_val_str == "None":
-                from termcolor import colored
 
                 line_len -= 9
 
-                attr_val_str = colored(attr_val_str, "red")
-                attr = colored(attr, "red")
+                attr_val_str = colored(attr_val_str, "yellow")
+                attr = colored(attr, "yellow")
 
             _repr += attr + " " + attr_val_str.rjust(80 - line_len) + "\n"
         return _repr
