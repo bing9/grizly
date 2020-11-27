@@ -79,18 +79,26 @@ class BaseExtract:
 
         return cls(qf=qf, **extract_params)
 
-    def __repr__(self):
+    def __str__(self):
         attrs = {k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)}
+        _repr = ""
         for attr, value in attrs.items():
+            line_len = len(attr)
             attr_val = self._get_attr_val(attr, init_val=value)
-            line_len = len(str(attr))  # + len(str(attr_val))
-            attr_val_str = str(attr_val)
             if attr == "qf":
-                attr_val_str = self.qf.__class__
-            try:
-                print(attr, attr_val_str.rjust(80 - line_len))
-            except:
-                print(attr)
+                attr_val_str = self.qf.__class__.__name__
+            else:
+                attr_val_str = str(attr_val)
+            if attr_val_str == "None":
+                from termcolor import colored
+
+                line_len -= 9
+
+                attr_val_str = colored(attr_val_str, "red")
+                attr = colored(attr, "red")
+
+            _repr += attr + " " + attr_val_str.rjust(80 - line_len) + "\n"
+        return _repr
 
     def _get_attr_val(self, attr, init_val):
         attr_env = f"GRIZLY_EXTRACT_{attr.upper()}"

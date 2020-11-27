@@ -37,9 +37,10 @@ typer==0.3
 s3fs==0.4
 pyodbc==4.0
 wkhtmltopdf==0.2
+termcolor==1.1.0
 # docker
 bokeh==2.2
 jupyterlab==2.2
 jupyter-server-proxy==1.5
 dask_labextension==3.0
-jupyterlab-git==0.20
+jupyterlab-git==0.
