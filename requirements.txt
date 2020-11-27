@@ -37,7 +37,7 @@ typer==0.3
 s3fs==0.4
 pyodbc==4.0
 wkhtmltopdf==0.2
-termcolor==1.1.0
+termcolor==1.1
 # docker
 bokeh==2.2
 jupyterlab==2.2
