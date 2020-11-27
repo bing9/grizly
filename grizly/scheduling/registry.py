@@ -186,13 +186,14 @@ class SchedulerObject(ABC):
 
     def __init__(
         self,
-        name: Optional[str],
+        name: str,
         logger: Optional[logging.Logger] = None,
         db: Optional[SchedulerDB] = None,
         redis_host: Optional[str] = None,
         redis_port: Optional[int] = None,
     ):
         # TODO: fix this workaround - we need this cause JobRun has name property
+        # TODO: make name required in Job to fix above
         if self.__class__.__name__ != "JobRun":
             self.name = name or ""
             self.hash_name = self.prefix + self.name
