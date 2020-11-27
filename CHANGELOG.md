@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## Unreleased
+
+### Overall
+
+-
+
+### Config
+- `address` key was changed to `auth_address`, and `send_as` is now simply `address`.
+This makes it more explicit that you can authenticate using one address, and use another mailbox
+with these credentials (eg. to send as another email address)
 
 ## [0.4](https://github.com/kfk/grizly/compare/v0.4.0rc0...v0.4) - 18-11-2020
 
