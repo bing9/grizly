@@ -323,7 +323,7 @@ class SchedulerObject(ABC):
         return added_values
 
     def _get_dict_data_diff(self, key: str, new: Dict[str, str]) -> Dict[str, str]:
-        """Filter out unchaged key/values pairs between redis data in 'key' and data 'data'
+        """Filter out unchanged key/values pairs between redis data in 'key' and data 'data'
 
         Parameters
         ----------
