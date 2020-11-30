@@ -43,6 +43,7 @@ class BaseExtract:
         output_dialect: str = None,
         output_source_name: str = None,
         output_table_type: str = "external",
+        autocast: bool = True,
         s3_root_url: str = None,
         s3_bucket: str = None,
         dask_scheduler_address: str = None,
@@ -59,10 +60,11 @@ class BaseExtract:
         self.output_dsn = output_dsn
         self.output_dialect = output_dialect
         self.output_source_name = output_source_name
+        self.output_table_type = output_table_type
+        self.autocast = autocast
         self.s3_root_url = s3_root_url
         self.s3_bucket = s3_bucket
         self.dask_scheduler_address = dask_scheduler_address
-        self.output_table_type = output_table_type
         self.if_exists = if_exists
         self.priority = priority
 
@@ -558,7 +560,10 @@ class DenodoExtract(BaseExtract):
     def _generate_extract_tasks(self, partitions) -> List[Delayed]:
         partition_cols_expr = self._get_partition_cols_expr()
         uploads = []
-        qf_fixed = self.fix_qf_types(self.qf)
+        if self.autocast:
+            qf_fixed = self.fix_qf_types(self.qf)
+        else:
+            qf_fixed = self.qf
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
             file_name = f"{partition}.parquet"
@@ -578,7 +583,7 @@ class DenodoExtract(BaseExtract):
 
         return [final_task]
 
-    def generate_tasks(self, partitions_cache: str = "off", **kwargs,) -> List[List[Delayed]]:
+    def generate_tasks(self, partitions_cache: str = "off") -> List[List[Delayed]]:
         """Generate partitioning and extraction tasks
 
         Parameters
