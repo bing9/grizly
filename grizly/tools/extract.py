@@ -77,7 +77,7 @@ class BaseExtract:
         name = store.get("name")
         logger = logging.getLogger("distributed.worker").getChild(name)
         qf = QFrame(dsn=dsn, logger=logger).from_dict(store.qframe)
-        extract_params = {key: val for key, val in store.items() if key != "qframe" and val != ""}
+        extract_params = {key: val for key, val in store.items() if key != "qframe" and val is not None}
 
         return cls(qf=qf, **extract_params)
 
