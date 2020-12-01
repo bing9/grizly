@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This makes it more explicit that you can authenticate using one address, and use another mailbox
 with these credentials (eg. to send as another email address)
 
+### QFrame
+- Fixed bugs https://github.com/tedcs/grizly/issues/446, https://github.com/tedcs/grizly/issues/505 and https://github.com/tedcs/grizly/issues/653
+
+### git s3
+
+- `pull` option works now with the number (position in track list) https://github.com/tedcs/grizly/issues/646
+- Fixed `synced` option https://github.com/tedcs/grizly/issues/647
+
 ## [0.4](https://github.com/kfk/grizly/compare/v0.4.0rc0...v0.4) - 18-11-2020
 
 ### Overall changes
