@@ -6,6 +6,7 @@ Tutorials
 .. toctree::
    :maxdepth: 4
 
-   qframe
-   crosstab
-   scheduling
+   tutorials/qframe
+   tutorials/crosstab
+   tutorials/scheduling
+   tutorials/extract
