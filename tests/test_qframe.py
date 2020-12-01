@@ -62,9 +62,9 @@ def test_to_json_and_from_json1():
 
 def test_to_json_and_from_json2():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=customers)
-    q.store.to_json("qframe_data.json", subquery="alias")
+    q.store.to_json("qframe_data.json", key="alias")
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
-        json_path="qframe_data.json", subquery="alias"
+        json_path="qframe_data.json", key="alias"
     )
     os.remove(os.path.join(os.getcwd(), "qframe_data.json"))
     assert q.store.to_dict() == customers
@@ -72,7 +72,7 @@ def test_to_json_and_from_json2():
 
 def test_from_json_s3():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
-        json_path="s3://acoe-s3/test/test_from_json_s3.json", subquery="test_subquery",
+        json_path="s3://acoe-s3/test/test_from_json_s3.json", key="test_subquery",
     )
     assert len(q.get_fields()) == 1
 
@@ -178,7 +178,7 @@ def test_having_from_table():
     assert q.data["select"]["having"] == testexpr
 
 
-def test_assign():
+def test_assign_1():
     q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
     value_x_two = "Value * 2"
     q.assign(value_x_two=value_x_two, dtype="FLOAT(53)")
@@ -199,6 +199,29 @@ def test_assign():
         "order_by": "",
         "expression": "format('yyyy-MM-dd', '2019-04-05 13:00:09')",
     }
+
+
+def test_assign_2():
+    q = QFrame(dsn=dsn, db="sqlite", dialect="mysql", store=orders)
+    q.select("*")
+    q.assign(Order="1", dtype="INT")
+
+    q.rename({"Customer": "MyCustomer"})
+    q.assign(MyCustomer="'Me'", dtype="CHAR(2)")
+
+    sql = """SELECT sq."Bookings" AS "Bookings",
+                sq."Part1" AS "Part1",
+                sq."Value" AS "Value",
+                1 AS "Order",
+                'Me' AS "MyCustomer"
+            FROM
+            (SELECT "Order" AS "Bookings",
+                    "Part" AS "Part1",
+                    "Customer",
+                    "Value"
+            FROM Orders) sq
+            """
+    assert clean_testexpr(sql) == clean_testexpr(q.get_sql())
 
 
 def test_groupby():
@@ -810,23 +833,19 @@ def test_from_table_sqlite():
 
 def test_from_table_sqlite_json():
     QFrame(dsn=dsn, db="sqlite", dialect="mysql", table="Playlist").store.to_json(
-        json_path="test.json", subquery="q1"
+        json_path="test.json", key="q1"
     )
     QFrame(dsn=dsn, db="sqlite", dialect="mysql", table="PlaylistTrack").store.to_json(
-        json_path="test.json", subquery="q2"
+        json_path="test.json", key="q2"
     )
 
-    qf1 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
-        json_path="test.json", subquery="q1"
-    )
+    qf1 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(json_path="test.json", key="q1")
     sql = """SELECT "PlaylistId",
                 "Name"
             FROM Playlist"""
     assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
 
-    qf2 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(
-        json_path="test.json", subquery="q2"
-    )
+    qf2 = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_json(json_path="test.json", key="q2")
     sql = """SELECT "PlaylistId",
                 "TrackId"
             FROM PlaylistTrack"""
@@ -855,13 +874,12 @@ def test_from_table_rds():
     assert dtypes == qf.get_dtypes()
 
 
-def test_pivot_rds():
+def test_pivot_rds_1():
     qf = QFrame(dsn="redshift_acoe", table="table_tutorial", schema="grizly")
 
     with pytest.raises(ValueError, match="'my_value' not found in fields."):
         qf.pivot(rows=["col1"], columns=["col2", "col3"], values="my_value")
 
-    # sorted
     qf1 = qf.copy()
     with pytest.warns(UserWarning):
         qf1.pivot(rows=["col1"], columns=["col2", "col3"], values="col4", prefix="p_", sort=True)
@@ -886,6 +904,72 @@ def test_pivot_rds():
             GROUP BY 1"""
 
     assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
+
+
+def test_pivot_rds_2():
+    qf = QFrame(dsn="redshift_acoe", table="table_tutorial", schema="grizly")
+
+    qf.orderby("col2", ascending=False)
+    qf.assign(flag="CAST((CASE WHEN col2 = 0 THEN 1 ELSE 0 END) AS CHAR(1))", dtype="CHAR(1)")
+
+    # col2 has only two values (1.3 and 0.0), the records should be in this order
+    # so pivot with sort=True should sort them to put first 0 then 1
+
+    # sorted
+    qf1 = qf.copy()
+    qf1.pivot(rows=["col1"], columns=["flag"], values="col4", sort=True)
+
+    sql = """SELECT sq."col1" AS "col1",
+                sum(CASE
+                        WHEN "flag"='0' THEN "col4"
+                        ELSE 0
+                    END) AS "0",
+                sum(CASE
+                        WHEN "flag"='1' THEN "col4"
+                        ELSE 0
+                    END) AS "1"
+            FROM
+            (SELECT "col1",
+                    "col2",
+                    "col3",
+                    "col4",
+                    CAST((CASE
+                                WHEN col2 = 0 THEN 1
+                                ELSE 0
+                            END) AS CHAR(1)) AS "flag"
+            FROM grizly.table_tutorial
+            ORDER BY 2 DESC) sq
+            GROUP BY 1"""
+
+    assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
+
+    # NOT sorted
+    qf2 = qf.copy()
+    qf2.pivot(rows=["col1"], columns=["flag"], values="col4", sort=False)
+
+    sql = """SELECT sq."col1" AS "col1",
+                sum(CASE
+                    WHEN "flag"='1' THEN "col4"
+                    ELSE 0
+                END) AS "1",
+                sum(CASE
+                        WHEN "flag"='0' THEN "col4"
+                        ELSE 0
+                    END) AS "0"
+            FROM
+            (SELECT "col1",
+                    "col2",
+                    "col3",
+                    "col4",
+                    CAST((CASE
+                                WHEN col2 = 0 THEN 1
+                                ELSE 0
+                            END) AS CHAR(1)) AS "flag"
+            FROM grizly.table_tutorial
+            ORDER BY 2 DESC) sq
+            GROUP BY 1"""
+
+    assert clean_testexpr(sql) == clean_testexpr(qf2.get_sql())
 
 
 def test_join_pivot_sqlite():

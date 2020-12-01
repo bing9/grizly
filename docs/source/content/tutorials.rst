@@ -9,3 +9,4 @@ Tutorials
    tutorials/qframe
    tutorials/crosstab
    tutorials/scheduling
+   tutorials/extract

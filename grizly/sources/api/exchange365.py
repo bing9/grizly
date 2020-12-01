@@ -8,23 +8,26 @@ import pytz
 from ...tools.email import EmailAccount
 from ..base import BaseReadSource
 from ...exceptions import MessageNotFound
+from ...config import config
 
 
 class Exchange365(BaseReadSource):
     def __init__(
         self,
-        address: str = None,
-        password: str = None,
         auth_address: str = None,
+        password: str = None,
+        address: str = None,
         proxy: str = None,
+        folder: str = None,
         *args,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.address = address
         self.password = password
-        self.auth_address = auth_address or address
+        self.auth_address = auth_address or config.get_service("email").get("auth_address")
+        self.address = address or config.get_service("email").get("address") or auth_address
         self.proxy = proxy
+        self.folder = folder or config.get_service("email").get("folder")
         self._con = None
 
     @property
@@ -56,6 +59,10 @@ class Exchange365(BaseReadSource):
 
     def message(self, subject: str = None, folder: str = None) -> exchangelib.Message:
         """Retrieve a message by subject"""
+
+        if not folder:
+            folder = self.folder
+
         try:
             if folder:
                 query_set = (

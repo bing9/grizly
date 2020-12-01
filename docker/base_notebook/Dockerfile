@@ -18,7 +18,7 @@ RUN touch /etc/wgetrc && \
 RUN apt-get update &&\
     yes | apt-get install git python3-dev unixodbc-dev g++ libboost-all-dev\
     apt-utils vim unixodbc odbc-postgresql awscli wkhtmltopdf \
-    fonts-font-awesome graphviz sudo ca-certificates zsh && \
+    fonts-font-awesome graphviz sudo ca-certificates zsh pandoc && \
     rm -rf /var/lib/apt/lists/*
 
 ## Beautify shell
@@ -51,10 +51,10 @@ RUN tar -vxf Denodo/denodo-vdp-odbcdriver.tar.gz && \
     rm -rf Denodo
 
 # appdend odbcini configs
-# COPY docker/base_notebook/odbcinst.ini .
-# RUN echo "" >> /etc/odbcinst.ini && \
-#     cat odbcinst.ini >> /etc/odbcinst.ini && \
-#     rm -f odbcinst.ini
+COPY docker/docker_home/.config/odbcinst.ini .
+RUN echo "" >> /etc/odbcinst.ini && \
+    cat odbcinst.ini >> /etc/odbcinst.ini && \
+    rm -f odbcinst.ini
 
 COPY requirements.txt .
 COPY requirements-dev.txt .

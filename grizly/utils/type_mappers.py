@@ -272,23 +272,34 @@ def sfdc_to_python(dtype):
 def denodo_to_python(dtype):
     mapping = {
         "VARCHAR": str,
+        "NVARCHAR": str,
         "DOUBLE PRECISION": np.float64,
         "DATETIME": datetime.datetime,
+        "TIMESTAMP": datetime.datetime,
+        "DATE": datetime.date,
         "FLOAT": np.float32,
         "INTEGER": int,
+        "SMALLINT": int,
+        "BIGINT": int,
     }
-    return _map_type(mapping, dtype, default=pa.string(), method="intermediate")
+    return _map_type(mapping, dtype, default=str)
 
 
 def denodo_to_pyarrow(dtype):
     mapping = {
         "VARCHAR": pa.string(),
+        "NVARCHAR": pa.string(),
         "DOUBLE PRECISION": pa.float64(),
+        "DATE": pa.date32(),
         "DATETIME": pa.timestamp("ms", tz="utc"),
+        "TIMESTAMP": pa.timestamp("ms", tz="utc"),
         "FLOAT": pa.float32(),
+        "FLOAT8": pa.float32(),
         "INTEGER": pa.int32(),
+        "SMALLINT": pa.int32(),
+        "BIGINT": pa.int64(),
     }
-    return _map_type(mapping, dtype, default=str)
+    return _map_type(mapping, dtype, default=pa.string(), method="intermediate")
 
 
 def postgresql_to_python(dtype):
@@ -366,7 +377,13 @@ def mysql_to_python(dtype):
 
 
 def python_to_sql(dtype):
-    mapping = {str: "VARCHAR(50)", int: "INTEGER", float: "FLOAT8"}
+    mapping = {
+        str: "VARCHAR(50)",
+        int: "INTEGER",
+        float: "FLOAT8",
+        datetime.date: "DATE",
+        datetime.datetime: "DATETIME",
+    }
     return _map_type(mapping, dtype, default="VARCHAR(255)")
 
 

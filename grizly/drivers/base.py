@@ -18,7 +18,7 @@ from ..store import Store
 from ..tools.crosstab import Crosstab
 from ..utils.functions import copy_df_to_excel, dict_diff
 from ..utils.deprecation import deprecated_params
-from ..utils.type_mappers import python_to_sql, rds_to_pyarrow, sql_to_python
+from ..utils.type_mappers import python_to_sql
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
 deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="0.4.5")
@@ -38,34 +38,34 @@ class BaseDriver(ABC):
         self.store = self._load_store(store)
 
     def _load_store(
-        self, store: Union[Store, dict] = None, json_path: str = None, subquery: str = None,
+        self, store: Union[Store, dict] = None, json_path: str = None, key: str = None,
     ) -> Store:
         if not store and not json_path:
             store = Store()
         if json_path:
-            store = Store.from_json(json_path=json_path, subquery=subquery)
+            store = Store.from_json(json_path=json_path, key=key)
         # TODO: this should be the default structure since 0.4.0
         extract_store = store.get("extract")
         if extract_store:
-            store = store.get("qframe")
+            store = extract_store.get("qframe")
             self.extract_store = extract_store
-
         store = Store(store)
         store = self._validate_store(store)
 
         return store
 
-    def from_json(self, json_path: str, subquery: str = ""):
+    @deprecated_params(params_mapping={"subquery": "key"})
+    def from_json(self, json_path: str, key: str = None, **kwargs):
         """Load QFrame store from JSON file.
 
         Parameters
         ----------
         json_path : str
             Path to local file or S3 url
-        subquery : str, optional
-            Key in JSON file, by default ""
+        key : str, optional
+            Key in JSON file, by default None
         """
-        self.store = self._load_store(json_path=json_path, subquery=subquery,)
+        self.store = self._load_store(json_path=json_path, key=key)
         return self
 
     def from_dict(self, data: Union[dict, Store]):
@@ -412,10 +412,15 @@ class BaseDriver(ABC):
         #         "You can't assign expressions inside union. Use select() method first."
         #     )
         # else:
+        existing_fields = self._get_fields(aliased=True)
         if kwargs is not None:
             for key, expression in kwargs.items():
                 if key in ["custom_type", "type"]:
                     continue
+                # overwrite existing field if exists already
+                if key in existing_fields:
+                    self.remove([key])
+
                 self.store["select"]["fields"][key] = {
                     "dtype": dtype,
                     "as": key,
@@ -852,7 +857,6 @@ class BaseDriver(ABC):
 
     def _dict_to_arrow(self, _dict):
         self.logger.debug("Generating PyArrow table...")
-        self._fix_types()
 
         columns = self.get_fields(aliased=True)
         types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
@@ -876,7 +880,6 @@ class BaseDriver(ABC):
         """
 
         self.logger.debug("Generating PyArrow table...")
-        self._fix_types()
         columns = self.get_fields(aliased=True)
         types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
         schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
@@ -890,25 +893,25 @@ class BaseDriver(ABC):
 
         return table
 
-    def to_arrow_iter(self, chunksize: int = 20000) -> Iterator[pa.Table]:
-        """Write QFrame result to pyarrow.Table.
+    # def to_arrow_iter(self, chunksize: int = 20000) -> Iterator[pa.Table]:
+    #     """Write QFrame result to pyarrow.Table.
 
-        Returns
-        -------
-        pa.Table
-            QFrame's result
-        """
-        self.logger.debug("Generating PyArrow table...")
-        self._fix_types()
-        columns = self.get_fields(aliased=True)
-        types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
-        schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
-        self.logger.debug(f"Retrieved schema: {schema}")
+    #     Returns
+    #     -------
+    #     pa.Table
+    #         QFrame's result
+    #     """
+    #     self.logger.debug("Generating PyArrow table...")
+    #     self.fix_types()
+    #     columns = self.get_fields(aliased=True)
+    #     types_mapped = self.source.map_types(self.get_dtypes(), to="pyarrow")
+    #     schema = pa.schema([pa.field(name, dtype) for name, dtype in zip(columns, types_mapped)])
+    #     self.logger.debug(f"Retrieved schema: {schema}")
 
-        dicts = self.to_dicts(chunksize=chunksize)
-        for _dict in dicts:
-            table = pa.Table.from_pydict(_dict, schema=schema)
-            yield table
+    #     dicts = self.to_dicts(chunksize=chunksize)
+    #     for _dict in dicts:
+    #         table = pa.Table.from_pydict(_dict, schema=schema)
+    #         yield table
 
     @deprecated_params(params_mapping={"parquet_path": "path"})
     def to_parquet(self, path: str, **kwargs) -> bool:
@@ -1039,16 +1042,20 @@ class BaseDriver(ABC):
         """Make a copy of QFrame."""
         return deepcopy(self)
 
-    def _fix_types(self):
+    def fix_types(self):
         mismatched: dict = self._check_types()
         mismatched_aliases = list(mismatched.keys())
         mismatched_names = self._get_fields_names(mismatched_aliases)
         for field_name, field_alias in zip(mismatched_names, mismatched_aliases):
             python_dtype = mismatched[field_alias]
             sql_dtype = python_to_sql(python_dtype)
+            prev_dtype = self.store["select"]["fields"][field_name]["dtype"]
             self.store["select"]["fields"][field_name]["dtype"] = sql_dtype
 
-    def _check_types(self):
+            self.logger.debug(f"{field_name}'s type changed from {prev_dtype} to {sql_dtype}")
+        return self
+
+    def _check_types(self) -> Dict[str, type]:
         expected_types_mapped = self.source.map_types(self.dtypes, to="python")
         expected_cols_and_types = dict(zip(self.get_fields(aliased=True), expected_types_mapped))
         # this only checks the first 100 rows
