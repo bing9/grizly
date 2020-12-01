@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
-## Unreleased
+## [0.4.1](https://github.com/kfk/grizly/compare/v0.4...v0.4.1) - 01-12-2020
 
 ### Overall
 
@@ -17,12 +17,12 @@ This makes it more explicit that you can authenticate using one address, and use
 with these credentials (eg. to send as another email address)
 
 ### QFrame
-- Fixed bugs https://github.com/tedcs/grizly/issues/446, https://github.com/tedcs/grizly/issues/505 and https://github.com/tedcs/grizly/issues/653
+- Fixed bugs [#446](https://github.com/tedcs/grizly/issues/446), [#505](https://github.com/tedcs/grizly/issues/505) and [#653](https://github.com/tedcs/grizly/issues/653)
 
 ### git s3
 
-- `pull` option works now with the number (position in track list) https://github.com/tedcs/grizly/issues/646
-- Fixed `synced` option https://github.com/tedcs/grizly/issues/647
+- `pull` option works now with the number (position in track list) [#646](https://github.com/tedcs/grizly/issues/646)
+- Fixed `synced` option [#647](https://github.com/tedcs/grizly/issues/647)
 
 ## [0.4](https://github.com/kfk/grizly/compare/v0.4.0rc0...v0.4) - 18-11-2020
 
