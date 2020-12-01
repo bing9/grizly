@@ -49,6 +49,7 @@ class BaseExtract:
         dask_scheduler_address: str = None,
         if_exists: str = "append",
         priority: int = -1,
+        store: Store = None,
         **kwargs,
     ):
         self.qf = qf
@@ -67,6 +68,7 @@ class BaseExtract:
         self.dask_scheduler_address = dask_scheduler_address
         self.if_exists = if_exists
         self.priority = priority
+        self.store = store
 
         self._load_attrs()
 
@@ -77,9 +79,11 @@ class BaseExtract:
         name = store.get("name")
         logger = logging.getLogger("distributed.worker").getChild(name)
         qf = QFrame(dsn=dsn, logger=logger).from_dict(store.qframe)
-        extract_params = {key: val for key, val in store.items() if key != "qframe" and val != ""}
+        extract_params = {
+            key: val for key, val in store.items() if key != "qframe" and val is not None
+        }
 
-        return cls(qf=qf, **extract_params)
+        return cls(qf=qf, store=store, **extract_params)
 
     def __str__(self):
 
@@ -92,6 +96,8 @@ class BaseExtract:
             attr_val = self._get_attr_val(attr, init_val=value)
             if attr == "qf":
                 attr_val_str = self.qf.__class__.__name__
+            elif attr == "store" and self.store:
+                attr_val_str = str(self.store)[:50] + "..."
             else:
                 attr_val_str = str(attr_val)
             if attr_val_str == "None":
@@ -106,20 +112,15 @@ class BaseExtract:
 
     def _get_attr_val(self, attr, init_val):
         attr_env = f"GRIZLY_EXTRACT_{attr.upper()}"
-        # attr_val = (
-        #     init_val or self.store.get(attr) or config.get_service(attr) or os.getenv(attr_env)
-        # )
         attr_val = (
             init_val
-            # or self.store.get(attr)
             # or config.get_service(attr)
             or os.getenv(attr_env)
         )
-        # print(attr, attr_val)
         return attr_val
 
     def _load_attrs(self):
-        """Load attributes. Looking in init->store->config->env variables"""
+        """Load attributes from init and env variables."""
 
         attrs = {k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)}
         for attr, value in attrs.items():
@@ -141,6 +142,17 @@ class BaseExtract:
         self.table_if_exists = self._map_if_exists(self.if_exists)
         self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
         self.qf.logger = self.logger
+
+        if not self.store:
+            # construct self.store from parameters
+            attrs_final = {
+                k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)
+            }
+            qf_store = self.qf.store.to_dict()
+            attrs_dict = {
+                attr: (attrs_final[attr] if attr != "qf" else qf_store) for attr in attrs_final
+            }
+            self.store = Store(attrs_dict)
 
     @staticmethod
     def _to_snake_case(text):
@@ -663,7 +675,8 @@ class DenodoExtract(BaseExtract):
         return True
 
     def validate(self):
-        pass
+        groupby_cols = self.store.validation.groupby
+        sum_cols = self.store.validation.sum
 
 
 class Extract:

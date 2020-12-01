@@ -15,7 +15,7 @@ deprecated_params = partial(deprecated_params, deprecated_in="0.4.1", removed_in
 class Store(Box):
     logger = logging.getLogger("store")
 
-    def __repr__(self):
+    def __str__(self):
         return f"Store({self.to_dict()})"
 
     def deepcopy(self) -> "Store":

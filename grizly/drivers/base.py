@@ -18,7 +18,7 @@ from ..store import Store
 from ..tools.crosstab import Crosstab
 from ..utils.functions import copy_df_to_excel, dict_diff
 from ..utils.deprecation import deprecated_params
-from ..utils.type_mappers import python_to_sql, rds_to_pyarrow, sql_to_python
+from ..utils.type_mappers import python_to_sql
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.5")
 deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="0.4.5")
