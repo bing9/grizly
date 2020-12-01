@@ -268,9 +268,9 @@ class SQLDriver(BaseDriver):
 
         qf = self.copy()
         qf.select(columns).groupby()
-        if sort:
-            qf.orderby(qf.get_fields())
         col_values = qf.to_records()
+        if sort:
+            col_values = sorted(col_values)
 
         value = self._get_fields_names([values], aliased=True)[0]
         value_type = self.store["select"]["fields"][self._get_fields_names([values])[0]]["dtype"]

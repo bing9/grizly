@@ -40,14 +40,14 @@ def test_can_upload():
 def test_to_rds():
     import os
 
-    print(os.environ)
+    # print(os.environ)
 
     dsn = get_path("grizly_dev", "tests", "Chinook.sqlite")
     qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql").from_table(table="Track")
 
     qf.window(offset=100, limit=30, order_by=["TrackId"])
 
-    qf.assign(LikeIt="CASE WHEN GenreId = 5 THEN 1 ELSE 0 END", dtype="BOOL")
+    qf.assign(LikeIt="CASE WHEN GenreId = 5 THEN 1 ELSE 0 END", dtype="INT")
     qf.assign(SpareColumn="NULL")
 
     qf.rename(

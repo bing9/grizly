@@ -412,10 +412,15 @@ class BaseDriver(ABC):
         #         "You can't assign expressions inside union. Use select() method first."
         #     )
         # else:
+        existing_fields = self._get_fields(aliased=True)
         if kwargs is not None:
             for key, expression in kwargs.items():
                 if key in ["custom_type", "type"]:
                     continue
+                # overwrite existing field if exists already
+                if key in existing_fields:
+                    self.remove([key])
+
                 self.store["select"]["fields"][key] = {
                     "dtype": dtype,
                     "as": key,
