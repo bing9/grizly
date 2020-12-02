@@ -131,6 +131,7 @@ class BaseExtract:
         # use automated defaults
         self.name_snake_case = self._to_snake_case(self.name)
         self.staging_table = self.staging_table or self.name_snake_case
+        self.prod_table = self.prod_table or self.name_snake_case
         # TODO: remove -- should be read automatically above once the structure is improved
         self.s3_bucket = self.s3_bucket or config.get_service("s3").get("bucket")
         self.s3_root_url = (
