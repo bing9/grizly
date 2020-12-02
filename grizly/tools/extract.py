@@ -239,7 +239,7 @@ class BaseExtract:
             table=self.prod_table,
             columns=qf.get_fields(aliased=True),
             types=mapped_types,
-            if_exists="drop",  # always re-create from the external table
+            if_exists="drop",  # always re-create from external table
         )
         qf.source.write_to(
             schema=self.output_schema_prod,
