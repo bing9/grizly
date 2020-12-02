@@ -6,6 +6,7 @@ from abc import abstractmethod
 from typing import Any, List, Optional, Union
 
 import dask
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import s3fs
@@ -242,8 +243,8 @@ class BaseExtract:
             if_exists="drop",  # always re-create from external table
         )
         qf.source.write_to(
-            schema=self.output_schema_prod,
-            table=self.output_table_prod,
+            schema=self.prod_schema,
+            table=self.prod_table,
             columns=qf.get_fields(aliased=True),
             sql=qf.get_sql(),
             if_exists="append",
@@ -439,23 +440,17 @@ class DenodoExtract(BaseExtract):
 
         self.logger.debug("Retrieving source partitions..")
 
-        try:
-            # faster method, but this will fail if user is working on multiple schemas/tables
-            schema = self.qf.store["select"]["schema"]
-            table = self.qf.store["select"]["table"]
-            where = self.qf.store["select"]["where"]
+        schema = self.qf.store["select"]["schema"]
+        table = self.qf.store["select"]["table"]
+        where = self.qf.store["select"]["where"]
 
-            partitions_qf = (
-                self.qf.copy()
-                .from_table(table=table, schema=schema, columns=columns)
-                .where(where)
-                .groupby()
-            )
-        except KeyError:
-            # source qf queries multiple tables; use source qf
-            partitions_qf = self.qf.copy().select(columns).groupby()
-
+        partitions_qf = (
+            QFrame(dsn=self.qf.source.dsn, table=table, schema=schema, columns=columns)
+            .where(where)
+            .groupby()
+        )
         records = partitions_qf.to_records()
+
         if isinstance(columns, list):
             source_partitions = ["|".join(str(val) for val in row) for row in records]
         else:
@@ -540,6 +535,7 @@ class DenodoExtract(BaseExtract):
     def _get_source_partitions(self, cache: str = "off", upstream=None) -> Delayed:
         """Generate a task that retrieves the list of partitions from source data"""
         if cache == "on":
+
             partitions = self._get_cached_partitions(file_name="partitions.json")
         else:
             partitions = self.__get_source_partitions()
@@ -674,9 +670,90 @@ class DenodoExtract(BaseExtract):
         )
         return True
 
-    def validate(self):
+    def _compare_dfs(
+        self,
+        df1: pd.DataFrame,
+        df2: pd.DataFrame,
+        sort_by: List[str] = None,
+        max_allowed_diff_percent: float = 1,
+    ) -> pd.DataFrame:
+        """Compare the sums of all numeric columns of df1 and df2 and show mismatches
+
+        Parameters
+        ----------
+        df1 : DataFrame
+            First df
+        df2 : DataFrame
+            Second df
+        max_allowed_diff_percent : float, optional
+            Allowed percentage difference per row, by default 1%
+        """
+
+        if (df1.sum() == df2.sum()).all():
+            self.logger.info("Amounts match.")
+            return
+
+        df1 = df1.sort_values(by=sort_by)
+        df2 = df2.sort_values(by=sort_by)
+
+        df1_numeric = df1.select_dtypes("number")
+        df2_numeric = df2.select_dtypes("number")
+
+        show_diffs = False
+        for col in df1_numeric:
+            col_diff = abs(df1_numeric[col] - df2_numeric[col])
+            for row_no, row_diff in enumerate(col_diff):
+                row_value = df1_numeric.loc[row_no, col]
+                if (row_diff / row_value) > (max_allowed_diff_percent / 100):
+                    show_diffs = True
+
+        if show_diffs:
+            non_numeric_cols = [
+                col for col in df1.columns if col not in df1.select_dtypes("number").columns
+            ]
+            df_non_numeric = df1[non_numeric_cols]
+            diffs = abs(df1_numeric - df2_numeric)
+            total_diff = diffs.sum().sum()
+            diffs_pretty = diffs.applymap("${0:,.0f}".format)
+            diff_df = pd.concat([df_non_numeric, diffs_pretty], axis=1)
+            total_col_diffs_str = ""
+            for col, val in zip(diffs.columns, diffs.sum()):
+                col_diff_str = f"{col}: ${(val/1e6):.2f} M"
+                total_col_diffs_str += col_diff_str + "\n"
+            msg = f"Amounts are different by a total of ${(total_diff/1e6):.2f} M." + "\n\n"
+            msg += "Differences per column:" + "\n"
+            msg += f"{total_col_diffs_str}" + "\n"
+            msg += "Differences per row:" + "\n"
+            msg += f"{diff_df.to_markdown(index=False)}"
+            self.logger.error(msg)
+
+    def validate(self, max_allowed_diff_percent=1):
         groupby_cols = self.store.validation.groupby
         sum_cols = self.store.validation.sum
+        cols = groupby_cols + sum_cols
+        where = self.qf.store.select.get("where")
+
+        in_schema = self.qf.store.select.get("schema")
+        in_table = self.qf.store.select.get("table")
+        in_qf = QFrame(dsn=self.qf.source.dsn, schema=in_schema, table=in_table, columns=cols)
+        in_qf_filtered = in_qf.copy().where(where)
+        in_qf_grouped = in_qf_filtered.groupby(groupby_cols)
+        in_qf_final = in_qf_grouped[sum_cols].agg("sum")
+        # TODO: add the groupby
+
+        out_schema = self.staging_schema
+        out_table = self.staging_table
+        out_qf = QFrame(dsn=self.output_dsn, schema=out_schema, table=out_table, columns=cols)
+        out_qf_filtered = out_qf.copy().where(where)
+        out_qf_grouped = out_qf_filtered.groupby(groupby_cols)
+        out_qf_final = out_qf_grouped[sum_cols].agg("sum")
+
+        in_df = in_qf_final.to_df()
+        out_df = out_qf_final.to_df()
+
+        self._compare_dfs(
+            in_df, out_df, sort_by=groupby_cols, max_allowed_diff_percent=max_allowed_diff_percent
+        )
 
 
 class Extract:
