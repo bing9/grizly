@@ -112,6 +112,11 @@ class BaseExtract:
         return _repr
 
     def _get_attr_val(self, attr, init_val):
+
+        NON_ENV_PARAMS = ("qf", "store")
+        if attr in NON_ENV_PARAMS:
+            return init_val
+
         attr_env = f"GRIZLY_EXTRACT_{attr.upper()}"
         attr_val = (
             init_val
