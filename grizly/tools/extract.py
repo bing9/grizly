@@ -680,7 +680,7 @@ class DenodoExtract(BaseExtract):
         self,
         df1: pd.DataFrame,
         df2: pd.DataFrame,
-        sort_by: List[str] = None,
+        sort_by: Union[str, List[str]] = None,
         max_allowed_diff_percent: float = 1,
     ) -> pd.DataFrame:
         """Compare the sums of all numeric columns of df1 and df2 and show mismatches
@@ -691,6 +691,8 @@ class DenodoExtract(BaseExtract):
             First df
         df2 : DataFrame
             Second df
+        sort_by: Union[str, List[str]], optional
+            The column(s) by which to sort the rows for comparison
         max_allowed_diff_percent : float, optional
             Allowed percentage difference per row, by default 1%
         """
@@ -701,6 +703,9 @@ class DenodoExtract(BaseExtract):
 
         df1 = df1.sort_values(by=sort_by)
         df2 = df2.sort_values(by=sort_by)
+
+        # make sure rows are in the same order, so we compare apples to apples
+        assert df1[sort_by].values.tolist() == df2[sort_by].values.tolist()
 
         df1_numeric = df1.select_dtypes("number")
         df2_numeric = df2.select_dtypes("number")
@@ -757,8 +762,10 @@ class DenodoExtract(BaseExtract):
         in_df = in_qf_final.to_df()
         out_df = out_qf_final.to_df()
 
+        sort_by = groupby_cols if len(groupby_cols) > 1 else groupby_cols[0]
+
         self._compare_dfs(
-            in_df, out_df, sort_by=groupby_cols, max_allowed_diff_percent=max_allowed_diff_percent
+            in_df, out_df, sort_by=sort_by, max_allowed_diff_percent=max_allowed_diff_percent
         )
 
 
