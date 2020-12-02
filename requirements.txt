@@ -43,3 +43,4 @@ jupyterlab==2.2
 jupyter-server-proxy==1.5
 dask_labextension==3.0
 jupyterlab-git==0.23
+PyGithub==1.54
