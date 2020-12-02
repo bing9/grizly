@@ -14,6 +14,7 @@ from ..sources.sources_factory import Source
 from ..store import Store
 
 # from ..types import Redshift, Source # DONT UNCOMMENT THIS LINE !!!
+from ..types import Redshift
 from ..utils.deprecation import deprecated_params
 from ..utils.functions import isinstance2
 from .base import BaseDriver
