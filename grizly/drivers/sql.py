@@ -12,7 +12,8 @@ import sqlparse
 from .. import types
 from ..sources.sources_factory import Source
 from ..store import Store
-from ..types import Redshift, Source
+
+# from ..types import Redshift, Source # DONT UNCOMMENT THIS LINE !!!
 from ..utils.deprecation import deprecated_params
 from ..utils.functions import isinstance2
 from .base import BaseDriver
@@ -59,7 +60,7 @@ class SQLDriver(BaseDriver):
         schema: str = None,
         table: str = None,
         columns: list = None,
-        source: Source = None,
+        source: types.Source = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -363,12 +364,15 @@ class SQLDriver(BaseDriver):
         output_source = output_source or (
             self.source if dsn is None else Source(dsn=dsn, logger=self.logger, **kwargs)
         )
-        mapped_types = output_source.map_types(self.get_dtypes(), to=output_source.dialect)
+
+        dtypes = self.get_dtypes()
+        if self.source.dialect != output_source.dialect:
+            dtypes = output_source.map_types(dtypes, to=output_source.dialect)
 
         output_source.create_table(
             type="base_table",
             columns=self.get_fields(aliased=True),
-            types=mapped_types,
+            types=dtypes,
             table=table,
             schema=schema,
             if_exists=if_exists,
