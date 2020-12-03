@@ -368,7 +368,7 @@ class SFDCExtract(BaseExtract):
             s3_uploads.append(to_s3)
             batch_no += 1
 
-        external_table = self.create_external_table(upstream=s3_uploads)
+        external_table = self.create_external_table(qf=qf_fixed, upstream=s3_uploads)
         base_table = self.create_table(upstream=external_table)
 
         if self.output_table_type == "base":
