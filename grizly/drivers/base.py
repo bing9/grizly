@@ -349,7 +349,7 @@ class BaseDriver(ABC):
         self,
         group_by: str = "",
         order_by: Literal["ASC", "DESC", ""] = "",
-        dtype: str = "VARCHAR(500)",
+        dtype: str = None,
         **kwargs,
     ):
         """Assign expressions.
@@ -385,6 +385,11 @@ class BaseDriver(ABC):
                END AS "sales_positive"
         FROM grizly.sales
         """
+        if not dtype:
+            self.logger.warning("Dtype was not provided. Assigning the default (VARCHAR(500))...")
+            self.logger.warning("Parameter 'dtype' will be required in QFrame.assign() from 0.4.5...")
+            dtype = "VARCHAR(500)"
+
         custom_type = kwargs.get("custom_type")
         _type = kwargs.get("type")
         if custom_type:
