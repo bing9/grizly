@@ -186,12 +186,16 @@ class BaseExtract:
 
     @dask.delayed
     @retry(Exception, tries=5, delay=5)
-    def to_parquet(self, qf, path, upstream=None):
+    def to_parquet(self, qf, file_name=None, upstream=None):
+
+        path = os.path.join(self.s3_staging_url, file_name)
+
         # need to raise here as well for retries to work
         try:
             qf.to_parquet(path)
         except Exception:
             raise
+
         return qf
 
     @dask.delayed
@@ -307,11 +311,10 @@ class SimpleExtract(BaseExtract):
 
     def generate_tasks(self):
         file_name = self.name_snake_case + ".parquet"
-        path = os.path.join(self.s3_root_url, file_name)
 
         start = self.begin_extract()
         qf_fixed = self.fix_qf_types(self.qf, upstream=start)
-        s3 = self.to_parquet(qf=qf_fixed, path=path)
+        s3 = self.to_parquet(qf=qf_fixed, file_name=file_name)
         external_table = self.create_external_table(qf=qf_fixed, upstream=s3)
         base_table = self.create_table(upstream=external_table)
 
@@ -355,18 +358,24 @@ class SFDCExtract(BaseExtract):
 
         qf_fixed = self.fix_qf_types(self.qf, upstream=wipe_staging)
 
-        s3_uploads = []
-        batch_no = 1
-        for url_chunk in chunks:
-            first_url_pos = url_chunk[0].split("-")[1]
-            last_url_pos = url_chunk[-1].split("-")[1]
-            file_name = f"{first_url_pos}-{last_url_pos}.parquet"
-            arrow_table = self.urls_to_arrow(
-                qf=qf_fixed, urls=url_chunk, batch_no=batch_no, upstream=wipe_staging
-            )
-            to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
-            s3_uploads.append(to_s3)
-            batch_no += 1
+        if chunks:
+            # extract `chunksize` URLs at a time
+            s3_uploads = []
+            batch_no = 1
+            for url_chunk in chunks:
+                first_url_pos = url_chunk[0].split("-")[1]
+                last_url_pos = url_chunk[-1].split("-")[1]
+                file_name = f"{first_url_pos}-{last_url_pos}.parquet"
+                arrow_table = self.urls_to_arrow(
+                    qf=qf_fixed, urls=url_chunk, batch_no=batch_no, upstream=wipe_staging
+                )
+                to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
+                s3_uploads.append(to_s3)
+                batch_no += 1
+        else:
+            # extract the table into a single parquet file
+            to_s3 = self.to_parquet(qf_fixed, file_name="1.parquet")
+            s3_uploads = [to_s3]
 
         external_table = self.create_external_table(qf=qf_fixed, upstream=s3_uploads)
         base_table = self.create_table(upstream=external_table)
@@ -388,6 +397,10 @@ class SFDCExtract(BaseExtract):
     @dask.delayed
     def chunk(iterable, chunksize):
         return chunker(iterable, size=chunksize)
+
+    @dask.delayed
+    def qf_to_arrow(qf: QFrame) -> pa.Table:
+        return qf.to_arrow()
 
     @dask.delayed
     def urls_to_arrow(
@@ -583,7 +596,7 @@ class DenodoExtract(BaseExtract):
             file_name = f"{partition}.parquet"
             where = f"{partition_cols_expr}='{partition_concatenated}'"
             processed_qf = self.filter_qf(qf=qf_fixed, query=where)
-            s3 = self.to_parquet(processed_qf, os.path.join(self.s3_staging_url, file_name))
+            s3 = self.to_parquet(processed_qf, file_name=file_name)
             uploads.append(s3)
 
         external_table = self.create_external_table(qf=qf_fixed, upstream=uploads)
