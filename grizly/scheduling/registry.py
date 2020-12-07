@@ -1,17 +1,17 @@
 from __future__ import annotations
-
+from abc import ABC, abstractmethod
+from datetime import datetime, timezone
+from functools import wraps
 import json
 import logging
 import os
 import sys
-from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from functools import wraps
 from time import time
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+import warnings
 
-import dask
 from croniter import croniter
+import dask
 from dask.delayed import Delayed
 from distributed import Client, Future
 from distributed.protocol.serialize import deserialize as dask_deserialize
@@ -22,6 +22,8 @@ from rq.job import Job as RqJob
 from rq.job import NoSuchJobError
 from rq_scheduler import Scheduler
 
+import dill
+
 from ..config import Config
 from ..exceptions import JobAlreadyRunningError, JobNotFoundError, JobRunNotFoundError
 from ..store import Store
@@ -31,7 +33,9 @@ SubmitCondition = Literal["success", "fail", "result_change"]
 
 
 def _check_if_exists(raise_error=True):
-    """Checks if the job exists in the registry Parameters
+    """Check if the job exists in the registry.
+
+    Parameters
     ----------
     raise_error : bool, optional
         Whether to raise error if job doesn't exist, by default True
@@ -113,7 +117,7 @@ class SchedulerDB:
     def add_job(
         self,
         name: str,
-        tasks: List[Delayed],
+        func: Callable,
         owner: Optional[str] = None,
         crons: Union[List[str], str] = None,
         upstream: Dict[str, SubmitCondition] = None,
@@ -125,7 +129,7 @@ class SchedulerDB:
         job = Job(name=name, logger=self.logger, db=self)
         job.register(
             owner=owner,
-            tasks=tasks,
+            func=func,
             crons=crons,
             upstream=upstream,
             triggers=triggers,
@@ -257,6 +261,8 @@ class SchedulerObject(ABC):
                 except:
                     self.logger.warning("Tasks could not be deserialized")
                     deserialized_data[key] = []
+            elif key == "func":
+                deserialized_data[key] = self._deserialize(value, _type="function")
             else:
                 try:
                     deserialized_data[key] = self._deserialize(value, _type="datetime")
@@ -270,13 +276,19 @@ class SchedulerObject(ABC):
         if isinstance(value, datetime):
             value = str(value)
 
-        if isinstance(value, list) and all(isinstance(i, Delayed) for i in value) and value != []:
+        elif isinstance(value, list) and all(isinstance(i, Delayed) for i in value) and value != []:
             value = str(dask_serialize(value))
+
+        elif isinstance(value, Callable):
+            dill.settings["recurse"] = True
+            value = str(dill.dumps(value))
 
         return json.dumps(value)
 
     @staticmethod
-    def _deserialize(value: Any, _type: Optional[Literal["datetime", "dask"]] = None,) -> Any:
+    def _deserialize(
+        value: Any, _type: Optional[Literal["datetime", "dask", "function"]] = None,
+    ) -> Any:
         if value is None:
             return None
         else:
@@ -286,10 +298,14 @@ class SchedulerObject(ABC):
                     value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f%z")
                 elif _type == "dask" and value != []:
                     value = dask_deserialize(*eval(value))
+                elif _type == "function":
+                    value = dill.loads(eval(value))
 
             return value
 
-    def _get(self, key: str, _type: Optional[Literal["datetime", "dask"]] = None,) -> Any:
+    def _get(
+        self, key: str, _type: Optional[Literal["datetime", "dask", "function"]] = None,
+    ) -> Any:
         raw_value = self.con.hget(self.hash_name, key)
         deserialized_value = self._deserialize(value=raw_value, _type=_type)
         self.logger.debug(f"{self.db} : {self} : {key} : {deserialized_value}")
@@ -584,10 +600,10 @@ class Job(SchedulerObject):
             self.hash_name, "description", self._serialize(description),
         )
 
-    @property
-    def graph(self) -> Delayed:
-        """Job's dask graph"""
-        return dask.delayed()(self.tasks, name=self.name + "_graph")
+    # @property
+    # def graph(self) -> Delayed:
+    #     """Job's dask graph"""
+    #     return dask.delayed()(self.tasks, name=self.name + "_graph")
 
     @property
     def last_run(self) -> Optional[JobRun]:
@@ -623,11 +639,55 @@ class Job(SchedulerObject):
         """List of Job's tasks"""
         return self._get("tasks", _type="dask")
 
-    @tasks.setter
+    # @tasks.setter
+    # @_check_if_exists()
+    # def tasks(self, tasks: List[Delayed]):
+    #     self.con.hset(
+    #         self.hash_name, "tasks", self._serialize(tasks),
+    #     )
+
+    @property
+    def func(self) -> Callable:
+        """Function to be executed"""
+
+        val = self._get("func", _type="function")
+        if val is None and self.tasks is not None:
+
+            def f():
+                return dask.delayed(self.tasks).compute()
+
+            val = f
+        return val
+
+    @func.setter
     @_check_if_exists()
-    def tasks(self, tasks: List[Delayed]):
+    def func(self, func: Callable):
         self.con.hset(
-            self.hash_name, "tasks", self._serialize(tasks),
+            self.hash_name, "func", self._serialize(func),
+        )
+
+    @property
+    def args(self) -> Tuple[Any]:
+        """Args passed to Job.func"""
+        return self._get("args")
+
+    @args.setter
+    @_check_if_exists()
+    def args(self, args: Tuple[Any]):
+        self.con.hset(
+            self.hash_name, "args", self._serialize(args),
+        )
+
+    @property
+    def kwargs(self) -> Dict[str, Any]:
+        """Kwargs passed to Job.func"""
+        return self._get("kwargs")
+
+    @kwargs.setter
+    @_check_if_exists()
+    def kwargs(self, kwargs: Dict[str, Any]):
+        self.con.hset(
+            self.hash_name, "kwargs", self._serialize(kwargs),
         )
 
     @property
@@ -890,7 +950,8 @@ class Job(SchedulerObject):
 
     def register(
         self,
-        tasks: List[Delayed],
+        func: Callable,
+        *args,
         owner: Optional[str] = None,
         description: Optional[str] = None,
         timeout: int = 3600,
@@ -899,7 +960,6 @@ class Job(SchedulerObject):
         triggers: Union[List[str], str] = None,
         if_exists: Literal["fail", "replace", "skip"] = "fail",
         remove_job_runs: bool = True,
-        *args,
         **kwargs,
     ) -> "Job":
         """Register new job
@@ -918,6 +978,29 @@ class Job(SchedulerObject):
                 self.unregister(remove_job_runs=remove_job_runs)
 
         # VALIDATIONS
+        # func
+        tasks = None
+        wrong_func_param = (
+            isinstance(func, list) and all(isinstance(i, Delayed) for i in func) and func != []
+        )
+        if wrong_func_param:
+            tasks = func
+        if "tasks" in kwargs:
+            tasks = kwargs.get("tasks")
+            del kwargs["tasks"]
+        if tasks is not None:
+            warnings.warn(
+                "Parameter tasks in register is deprecated as of 0.4.2 and will "
+                "be removed in 0.5. Please use func instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+            def new_func():
+                return dask.delayed(tasks).compute()
+
+            func = new_func
+
         # cron
         crons = crons or []
         if isinstance(crons, str):
@@ -943,7 +1026,8 @@ class Job(SchedulerObject):
             "upstream": self._serialize(upstream),
             "downstream": self._serialize(dict()),
             "triggers": self._serialize(triggers),
-            "tasks": self._serialize(tasks),
+            # "tasks": self._serialize(tasks),
+            "func": self._serialize(func),
             "args": self._serialize(args),
             "kwargs": self._serialize(kwargs),
             "created_at": self._serialize(datetime.now(timezone.utc)),
@@ -956,7 +1040,7 @@ class Job(SchedulerObject):
             name=self.hash_name, key=None, value=None, mapping=mapping,
         )
 
-        self._rq_job_ids = self.__add_to_scheduler(crons, *args, **kwargs)
+        self._rq_job_ids = self.__add_to_scheduler(crons)
 
         # add the job as downstream in all upstream jobs
         for upstream_job_name, condition in upstream.items():
@@ -1021,10 +1105,12 @@ class Job(SchedulerObject):
     @_check_if_exists()
     def submit(
         self,
+        *args,
         client: Client = None,
         scheduler_address: str = None,
         priority: int = 1,
         to_dask: bool = True,
+        **kwargs,
     ) -> Any:
 
         if self._is_running():
@@ -1046,10 +1132,10 @@ class Job(SchedulerObject):
 
         start = time()
         try:
-            result = self.graph.compute()
+            result = self.func(*args, **kwargs)
             job_run.status = "success"
         except Exception:
-            result = [None]
+            result = None
             job_run.status = "fail"
             _, exc_value, _ = sys.exc_info()
             job_run.error = str(exc_value)
@@ -1103,9 +1189,10 @@ class Job(SchedulerObject):
                 SchedulerDB.submit_queue_name, connection=self.con, default_timeout=self.timeout
             )
             for job in jobs:
-                # TODO: should read downstream *args ad **kwargs from registry
                 rq_job = queue.enqueue(
                     job.submit,
+                    args=self.args,
+                    kwargs=self.kwargs,
                     scheduler_address=self.scheduler_address,
                     result_ttl=job._result_ttl,
                     job_timeout=self.timeout,
@@ -1120,11 +1207,11 @@ class Job(SchedulerObject):
         else:
             self.logger.debug(f"No {self} downstream jobs with condition '{condition}' found")
 
-    @_check_if_exists()
-    def visualize(self, **kwargs):
-        return self.graph.visualize(**kwargs)
+    # @_check_if_exists()
+    # def visualize(self, **kwargs):
+    #     return self.graph.visualize(**kwargs)
 
-    def __add_to_scheduler(self, crons: List[str], *args, **kwargs):
+    def __add_to_scheduler(self, crons: List[str]):
         rq_job_ids = []
         if crons:
             queue = Queue(
@@ -1135,8 +1222,8 @@ class Job(SchedulerObject):
                 rq_job = scheduler.cron(
                     cron,
                     func=self.submit,
-                    args=args,
-                    kwargs=kwargs,
+                    args=self.args,
+                    kwargs=self.kwargs,
                     repeat=None,
                     queue_name=queue.name,
                     timeout=self.timeout,
