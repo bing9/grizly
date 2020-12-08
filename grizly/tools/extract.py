@@ -146,6 +146,7 @@ class BaseExtract:
             dsn=self.output_dsn, dialect=self.output_dialect, source=self.output_source_name
         )
         self.s3_staging_url = os.path.join(self.s3_root_url, "data", "staging")
+        self.s3_prod_url = os.path.join(self.s3_root_url, "data", "prod")
         self.table_if_exists = self._map_if_exists(self.if_exists)
         self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
         self.qf.logger = self.logger
@@ -178,11 +179,10 @@ class BaseExtract:
     def begin_extract(self):
         self.logger.info("Starting the extract process...")
 
-    @staticmethod
     @dask.delayed
-    def fix_qf_types(qf, upstream=None):
-        qf_c = qf.copy()
-        return qf_c.fix_types()
+    def fix_qf_types(self, upstream=None):
+        qf_fixed = self.qf.copy().fix_types()
+        return qf_fixed
 
     @dask.delayed
     @retry(Exception, tries=5, delay=5)
@@ -225,13 +225,13 @@ class BaseExtract:
             self.logger.debug(f"Couldn't wipe out {self.s3_staging_url} as it doesn't exist")
 
     @dask.delayed
-    def create_external_table(self, qf, upstream: Delayed = None):
+    def create_external_table(self, qf, schema, table, s3_url, upstream: Delayed = None):
         """Use processed QF rather than self.qf, as the types can be modified by to_arrow()"""
         qf.create_external_table(
-            schema=self.staging_schema,
-            table=self.staging_table,
+            schema=schema,
+            table=table,
             output_source=self.output_source,
-            s3_url=self.s3_staging_url,
+            s3_url=s3_url,
             if_exists=self.table_if_exists,
         )
 
@@ -305,6 +305,133 @@ class BaseExtract:
         self.extract_job.submit(scheduler_address=self.dask_scheduler_address, **kwargs)
         return True
 
+    @dask.delayed
+    def _compare_dfs(
+        self,
+        df1: pd.DataFrame,
+        df2: pd.DataFrame,
+        sort_by: Union[str, List[str]] = None,
+        max_allowed_diff_percent: float = 1,
+    ) -> pd.DataFrame:
+        """Compare the sums of all numeric columns of df1 and df2 and show mismatches
+
+        Parameters
+        ----------
+        df1 : DataFrame
+            First df
+        df2 : DataFrame
+            Second df
+        sort_by: Union[str, List[str]], optional
+            The column(s) by which to sort the rows for comparison
+        max_allowed_diff_percent : float, optional
+            Allowed percentage difference per row, by default 1%
+        """
+
+        if (df1.sum() == df2.sum()).all():
+            self.logger.info("Amounts match.")
+            return
+
+        df1 = df1.copy()
+        df2 = df2.copy()
+
+        df1 = df1.sort_values(by=sort_by).reset_index(drop=True)
+        df2 = df2.sort_values(by=sort_by).reset_index(drop=True)
+
+        # make sure rows are in the same order, so we compare apples to apples
+        assert df1[sort_by].values.tolist() == df2[sort_by].values.tolist()
+
+        df1_numeric = df1.select_dtypes("number")
+        df2_numeric = df2.select_dtypes("number")
+
+        show_diffs = False
+        for col in df1_numeric:
+            col_diff = abs(df1_numeric[col] - df2_numeric[col])
+            for row_no, row_diff in enumerate(col_diff):
+                row_value = df1_numeric.loc[row_no, col]
+                if (row_diff / row_value) > (max_allowed_diff_percent / 100):
+                    show_diffs = True
+
+        if show_diffs:
+            non_numeric_cols = [
+                col for col in df1.columns if col not in df1.select_dtypes("number").columns
+            ]
+            df_non_numeric = df1[non_numeric_cols]
+            diffs = abs(df1_numeric - df2_numeric)
+            total_diff = diffs.sum().sum()
+            diffs_pretty = diffs.applymap("${0:,.0f}".format)
+            diff_df = pd.concat([df_non_numeric, diffs_pretty], axis=1)
+            total_col_diffs_str = ""
+            for col, val in zip(diffs.columns, diffs.sum()):
+                col_diff_str = f"{col}: ${(val/1e6):.2f} M"
+                total_col_diffs_str += col_diff_str + "\n"
+            msg = f"Amounts are different by a total of ${(total_diff/1e6):.2f} M." + "\n\n"
+            msg += "Differences per column:" + "\n"
+            msg += f"{total_col_diffs_str}" + "\n"
+            msg += "Differences per row:" + "\n"
+            msg += f"{diff_df.to_markdown(index=False)}"
+            self.logger.error(msg)
+            return False
+        return True
+
+    def _process_validation_qf(self, qf, where, groupby_cols, sum_cols):
+        qf_filtered = qf.copy().where(where)
+        qf_grouped = qf_filtered.groupby(groupby_cols)
+        qf_final = qf_grouped[sum_cols].agg("sum")
+        return qf_final
+
+    @dask.delayed
+    @retry(Exception, tries=3, delay=10)
+    def get_df(self, qf):
+        try:
+            df = qf.to_df()
+        except Exception:
+            # trigger retry
+            raise
+        return df
+
+    @dask.delayed
+    def staging_to_prod(self, qf, is_correct):
+        if not is_correct:
+            raise ValueError(f"Extract '{self.name}' did not pass the validation")
+        s3.copy(self.s3_staging_url, self.s3_prod_url, recursive=True)
+        self.create_external_table(
+            qf, schema=self.prod_schema, table=self.prod_table, s3_url=self.s3_prod_url
+        )
+
+    def _generate_validation_tasks(self, max_allowed_diff_percent=1):
+        groupby_cols = self.store.validation.groupby
+        sort_by = groupby_cols if len(groupby_cols) > 1 else groupby_cols[0]
+
+        sum_cols = self.store.validation.sum
+        cols = groupby_cols + sum_cols
+        where = self.qf.store.select.get("where")
+
+        in_schema = self.qf.store.select.get("schema")
+        in_table = self.qf.store.select.get("table")
+
+        out_schema = self.prod_schema
+        out_table = self.prod_table
+
+        in_qf = QFrame(dsn=self.qf.source.dsn, schema=in_schema, table=in_table, columns=cols)
+        out_qf = QFrame(dsn=self.output_dsn, schema=out_schema, table=out_table, columns=cols)
+
+        in_qf_processed = self._process_validation_qf(in_qf, where, groupby_cols, sum_cols)
+        out_qf_processed = self._process_validation_qf(out_qf, where, groupby_cols, sum_cols)
+
+        # build dask graph
+        in_df = self.get_df(in_qf_processed)
+        out_df = self.get_df(out_qf_processed)
+
+        is_correct = self._compare_dfs(
+            in_df, out_df, sort_by=sort_by, max_allowed_diff_percent=max_allowed_diff_percent
+        )
+
+        to_prod = self.staging_to_prod(out_qf_processed, is_correct)
+
+        graph = dask.delayed()([to_prod])
+
+        return graph
+
 
 class SimpleExtract(BaseExtract):
     """"Extract data in single piece"""
@@ -313,15 +440,21 @@ class SimpleExtract(BaseExtract):
         file_name = self.name_snake_case + ".parquet"
 
         start = self.begin_extract()
-        qf_fixed = self.fix_qf_types(self.qf, upstream=start)
+        qf_fixed = self.fix_qf_types(upstream=start)
         s3 = self.to_parquet(qf=qf_fixed, file_name=file_name)
-        external_table = self.create_external_table(qf=qf_fixed, upstream=s3)
-        base_table = self.create_table(upstream=external_table)
+        external_table_staging = self.create_external_table(
+            qf=qf_fixed,
+            schema=self.staging_schema,
+            table=self.staging_table,
+            s3_url=self.s3_staging_url,
+            upstream=s3,
+        )
+        base_table = self.create_table(upstream=external_table_staging)
 
         if self.output_table_type == "base":
             final_task = base_table
         else:
-            final_task = external_table
+            final_task = external_table_staging
 
         self.logger.debug("Tasks generated successfully")
 
@@ -356,7 +489,7 @@ class SFDCExtract(BaseExtract):
 
         wipe_staging = self.wipe_staging() if self.if_exists == "replace" else None
 
-        qf_fixed = self.fix_qf_types(self.qf, upstream=wipe_staging)
+        qf_fixed = self.fix_qf_types(upstream=wipe_staging)
 
         if chunks:
             # extract `chunksize` URLs at a time
@@ -377,13 +510,19 @@ class SFDCExtract(BaseExtract):
             to_s3 = self.to_parquet(qf_fixed, file_name="1.parquet")
             s3_uploads = [to_s3]
 
-        external_table = self.create_external_table(qf=qf_fixed, upstream=s3_uploads)
-        base_table = self.create_table(upstream=external_table)
+        external_table_staging = self.create_external_table(
+            qf=qf_fixed,
+            schema=self.staging_schema,
+            table=self.staging_table,
+            s3_url=self.s3_staging_url,
+            upstream=s3_uploads,
+        )
+        base_table = self.create_table(upstream=external_table_staging)
 
         if self.output_table_type == "base":
             final_task = base_table
         else:
-            final_task = external_table
+            final_task = external_table_staging
 
         self.logger.info("Tasks generated successfully")
 
@@ -586,11 +725,15 @@ class DenodoExtract(BaseExtract):
 
     def _generate_extract_tasks(self, partitions) -> List[Delayed]:
         partition_cols_expr = self._get_partition_cols_expr()
-        uploads = []
+
+        wipe_staging = self.wipe_staging() if self.if_exists == "replace" else None
+
         if self.autocast:
-            qf_fixed = self.fix_qf_types(self.qf)
+            qf_fixed = self.fix_qf_types(upstream=wipe_staging)
         else:
             qf_fixed = self.qf
+
+        uploads = []
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
             file_name = f"{partition}.parquet"
@@ -599,14 +742,20 @@ class DenodoExtract(BaseExtract):
             s3 = self.to_parquet(processed_qf, file_name=file_name)
             uploads.append(s3)
 
-        external_table = self.create_external_table(qf=qf_fixed, upstream=uploads)
+        external_table_staging = self.create_external_table(
+            qf=qf_fixed,
+            schema=self.staging_schema,
+            table=self.staging_table,
+            s3_url=self.s3_staging_url,
+            upstream=uploads,
+        )
 
         if self.output_table_type == "base":
-            regular_table = self.create_table(upstream=external_table)
+            regular_table = self.create_table(upstream=external_table_staging)
             final_task = regular_table
         else:
             # TODO: do not create this task if the table already exists and if_exists != 'replace'
-            final_task = external_table
+            final_task = external_table_staging
 
         return [final_task]
 
@@ -688,98 +837,6 @@ class DenodoExtract(BaseExtract):
             scheduler_address=self.dask_scheduler_address, priority=kwargs.get("priority")
         )
         return True
-
-    def _compare_dfs(
-        self,
-        df1: pd.DataFrame,
-        df2: pd.DataFrame,
-        sort_by: Union[str, List[str]] = None,
-        max_allowed_diff_percent: float = 1,
-    ) -> pd.DataFrame:
-        """Compare the sums of all numeric columns of df1 and df2 and show mismatches
-
-        Parameters
-        ----------
-        df1 : DataFrame
-            First df
-        df2 : DataFrame
-            Second df
-        sort_by: Union[str, List[str]], optional
-            The column(s) by which to sort the rows for comparison
-        max_allowed_diff_percent : float, optional
-            Allowed percentage difference per row, by default 1%
-        """
-
-        if (df1.sum() == df2.sum()).all():
-            self.logger.info("Amounts match.")
-            return
-
-        df1 = df1.sort_values(by=sort_by)
-        df2 = df2.sort_values(by=sort_by)
-
-        # make sure rows are in the same order, so we compare apples to apples
-        assert df1[sort_by].values.tolist() == df2[sort_by].values.tolist()
-
-        df1_numeric = df1.select_dtypes("number")
-        df2_numeric = df2.select_dtypes("number")
-
-        show_diffs = False
-        for col in df1_numeric:
-            col_diff = abs(df1_numeric[col] - df2_numeric[col])
-            for row_no, row_diff in enumerate(col_diff):
-                row_value = df1_numeric.loc[row_no, col]
-                if (row_diff / row_value) > (max_allowed_diff_percent / 100):
-                    show_diffs = True
-
-        if show_diffs:
-            non_numeric_cols = [
-                col for col in df1.columns if col not in df1.select_dtypes("number").columns
-            ]
-            df_non_numeric = df1[non_numeric_cols]
-            diffs = abs(df1_numeric - df2_numeric)
-            total_diff = diffs.sum().sum()
-            diffs_pretty = diffs.applymap("${0:,.0f}".format)
-            diff_df = pd.concat([df_non_numeric, diffs_pretty], axis=1)
-            total_col_diffs_str = ""
-            for col, val in zip(diffs.columns, diffs.sum()):
-                col_diff_str = f"{col}: ${(val/1e6):.2f} M"
-                total_col_diffs_str += col_diff_str + "\n"
-            msg = f"Amounts are different by a total of ${(total_diff/1e6):.2f} M." + "\n\n"
-            msg += "Differences per column:" + "\n"
-            msg += f"{total_col_diffs_str}" + "\n"
-            msg += "Differences per row:" + "\n"
-            msg += f"{diff_df.to_markdown(index=False)}"
-            self.logger.error(msg)
-
-    def validate(self, max_allowed_diff_percent=1):
-        groupby_cols = self.store.validation.groupby
-        sum_cols = self.store.validation.sum
-        cols = groupby_cols + sum_cols
-        where = self.qf.store.select.get("where")
-
-        in_schema = self.qf.store.select.get("schema")
-        in_table = self.qf.store.select.get("table")
-        in_qf = QFrame(dsn=self.qf.source.dsn, schema=in_schema, table=in_table, columns=cols)
-        in_qf_filtered = in_qf.copy().where(where)
-        in_qf_grouped = in_qf_filtered.groupby(groupby_cols)
-        in_qf_final = in_qf_grouped[sum_cols].agg("sum")
-        # TODO: add the groupby
-
-        out_schema = self.staging_schema
-        out_table = self.staging_table
-        out_qf = QFrame(dsn=self.output_dsn, schema=out_schema, table=out_table, columns=cols)
-        out_qf_filtered = out_qf.copy().where(where)
-        out_qf_grouped = out_qf_filtered.groupby(groupby_cols)
-        out_qf_final = out_qf_grouped[sum_cols].agg("sum")
-
-        in_df = in_qf_final.to_df()
-        out_df = out_qf_final.to_df()
-
-        sort_by = groupby_cols if len(groupby_cols) > 1 else groupby_cols[0]
-
-        self._compare_dfs(
-            in_df, out_df, sort_by=sort_by, max_allowed_diff_percent=max_allowed_diff_percent
-        )
 
 
 class Extract:
