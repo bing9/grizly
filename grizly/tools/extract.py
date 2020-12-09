@@ -102,6 +102,8 @@ class BaseExtract:
                 attr_val_str = self.qf.__class__.__name__
             elif attr == "store" and self.store:
                 attr_val_str = str(self.store)[:50] + "..."
+            elif attr == "partitions" and self.partitions:
+                attr_val_str = str(self.partitions)[:50] + "..."
             else:
                 attr_val_str = str(attr_val)
             if attr_val_str == "None":
