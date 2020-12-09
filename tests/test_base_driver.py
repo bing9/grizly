@@ -1,13 +1,15 @@
-import os
-
-from pandas import read_csv, read_sql, read_excel, read_parquet
-import pytest
-import random
 import itertools
+import os
+import random
 
-from ..grizly.drivers.frames_factory import QFrame
-from ..grizly.drivers.base import BaseDriver
+from pandas import DataFrame, read_csv, read_excel, read_parquet
+from pyarrow import Table
+import pytest
+
 from ..conftest import clean_testexpr, write_out
+from ..grizly.drivers.base import BaseDriver
+from ..grizly.drivers.frames_factory import QFrame
+from ..grizly.store import Store
 
 
 def draw_fields(qf, aliased):
@@ -92,9 +94,9 @@ def test_cut(playlist_qf):
     assert len(qframes1) == len(qframes2)
 
 
-def test_data():
-    # TODO
-    pass
+def test_data(qf):
+    data = qf.data
+    assert isinstance(data, Store)
 
 
 def test_distinct(qf):
@@ -312,9 +314,11 @@ def test_sum(aliased, qf):
     assert qf1.data == qf2.data
 
 
-def test_to_arrow():
-    # TODO
-    pass
+def test_to_arrow(qf_out):
+    qf = qf_out
+    table = qf.to_arrow()
+    assert isinstance(table, Table)
+    assert qf.get_fields(aliased=True) == list(table.column_names)
 
 
 def test_to_crosstab(table_tutorial_qf):
@@ -350,20 +354,25 @@ def test_to_csv(qf_out):
     qf = qf_out
     path = "test.csv"
     qf.to_csv(path)
-    df_from_qf = read_csv(path, sep="\t")
+    df = read_csv(path, sep="\t")
     os.remove(path)
 
-    test_df = qf.to_df()
-    assert df_from_qf.equals(test_df)
+    assert isinstance(df, DataFrame)
+    assert qf.get_fields(aliased=True) == list(df.columns)
 
 
 def test_to_df(qf_out):
     qf = qf_out
-    df_from_qf = qf.to_df()
+    df = qf.to_df()
+    assert isinstance(df, DataFrame)
+    assert qf.get_fields(aliased=True) == list(df.columns)
 
-    con = qf.source.get_connection()
-    test_df = read_sql(sql=qf.get_sql(), con=con)
-    assert df_from_qf.equals(test_df)
+
+def test_to_dict(qf_out):
+    qf = qf_out
+    data = qf.to_dict()
+    assert isinstance(data, dict)
+    assert qf.get_fields(aliased=True) == list(data.keys())
 
 
 def test_to_dicts():
@@ -375,37 +384,41 @@ def test_to_excel(qf_out):
     qf = qf_out
     path = "test.xlsx"
     qf.to_excel(path)
-    df_from_qf = read_excel(path)
+    df = read_excel(path)
     os.remove(path)
 
-    test_df = qf.to_df()
-    assert df_from_qf.equals(test_df)
+    assert isinstance(df, DataFrame)
+    assert qf.get_fields(aliased=True) == list(df.columns)
 
 
 def test_to_parquet(qf_out):
     qf = qf_out
     path = "test.parquet"
     qf.to_parquet(path)
-    df_from_qf = read_parquet(path)
+    df = read_parquet(path)
     os.remove(path)
 
-    test_df = qf.to_df()
-    assert df_from_qf.equals(test_df)
+    assert isinstance(df, DataFrame)
+    assert qf.get_fields(aliased=True) == list(df.columns)
 
 
-def test_to_records():
-    # TODO
-    pass
+def test_to_records(qf_out):
+    qf = qf_out
+    records = qf.to_records()
+    assert isinstance(records, list)
+    assert all(isinstance(i, tuple) for i in records)
+    assert len(qf) == len(records)
 
 
-def test_types():
-    # TODO
-    pass
+def test_types(customers_qf):
+    dtypes = ["VARCHAR(500)", "VARCHAR(500)"]
+    assert customers_qf.get_dtypes() == dtypes
 
 
-def test_window():
-    # TODO
-    pass
+def test_window(qf):
+    qf.window(2, 3)
+    assert qf.data["select"]["offset"] == "2"
+    assert qf.data["select"]["limit"] == "3"
 
 
 # OTHER TESTS
