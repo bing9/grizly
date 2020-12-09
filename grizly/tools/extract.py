@@ -222,13 +222,20 @@ class BaseExtract:
         _arrow_to_s3(arrow_table)
 
     @dask.delayed
-    def wipe_staging(self, upstream=None):
-        self.logger.info(f"Cleaning {self.s3_staging_url}...")
+    def empty_s3_dir(self, url, upstream=None):
+
+        if url == self.s3_prod_url and not self.is_valid:
+            self.logger.warning(f"Extract '{self.name}' did not pass the validation. Skipping...")
+            return
+
+        self.logger.info(f"Emptying {url}...")
+
         try:
-            s3.rm(self.s3_staging_url, recursive=True)
+            s3.rm(url, recursive=True)
         except FileNotFoundError:
-            self.logger.debug(f"Couldn't wipe out {self.s3_staging_url} as it doesn't exist")
-        self.logger.info(f"{self.s3_staging_url} has been successfully cleaned.")
+            self.logger.warning(f"Couldn't empty {url} as it doesn't exist")
+
+        self.logger.info(f"{url} has been successfully emptied.")
 
     @dask.delayed
     def create_external_table(self, qf, schema, table, s3_url, upstream: Delayed = None):
@@ -406,8 +413,10 @@ class BaseExtract:
             msg += "Differences per row:" + "\n"
             msg += f"{diff_df.to_markdown(index=False)}"
             self.logger.error(msg)
-            return False
-        return True
+            self.is_valid = False
+        else:
+            self.is_valid = True
+        return self.is_valid
 
     def _process_validation_qf(self, qf, where, groupby_cols, sum_cols):
         qf_filtered = qf.copy().where(where)
@@ -426,10 +435,10 @@ class BaseExtract:
         return df
 
     @dask.delayed
-    def staging_to_prod(self, is_correct):
+    def staging_to_prod(self, upstream=None):
 
-        if not is_correct:
-            raise ValueError(f"Extract '{self.name}' did not pass the validation")
+        if not self.is_valid:
+            return
 
         self.logger.info("Moving data to prod...")
 
@@ -489,11 +498,12 @@ class BaseExtract:
         in_df = self.get_df(in_qf_processed)
         out_df = self.get_df(out_qf_processed)
 
-        is_correct = self._compare_dfs(
+        validate = self._compare_dfs(
             in_df, out_df, sort_by=sort_by, max_allowed_diff_percent=max_allowed_diff_percent
         )
 
-        to_prod = self.staging_to_prod(is_correct)
+        empty_prod = self.empty_s3_dir(self.s3_prod_url, upstream=validate)
+        to_prod = self.staging_to_prod(upstream=empty_prod)
 
         return [to_prod]
 
@@ -552,7 +562,10 @@ class SFDCExtract(BaseExtract):
         client = self._get_client()
         chunks = client.compute(url_chunks).result()
 
-        wipe_staging = self.wipe_staging(upstream=chunks) if self.if_exists == "replace" else None
+        if self.if_exists == "replace":
+            wipe_staging = self.empty_s3_dir(url=self.s3_staging_url, upstream=chunks)
+        else:
+            wipe_staging = None
 
         qf_fixed = self.fix_qf_types(upstream=wipe_staging)
 
@@ -791,7 +804,9 @@ class DenodoExtract(BaseExtract):
     def _generate_extract_tasks(self, partitions) -> List[Delayed]:
         partition_cols_expr = self._get_partition_cols_expr()
 
-        wipe_staging = self.wipe_staging() if self.if_exists == "replace" else None
+        wipe_staging = (
+            self.empty_s3_dir(self.s3_staging_url) if self.if_exists == "replace" else None
+        )
 
         if self.autocast:
             qf_fixed = self.fix_qf_types(upstream=wipe_staging)
