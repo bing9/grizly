@@ -349,6 +349,8 @@ class BaseExtract:
             Allowed percentage difference per row, by default 1%
         """
 
+        self.logger.info("Validating data...")
+
         if (df1.sum() == df2.sum()).all():
             self.logger.info("Amounts match.")
             return
