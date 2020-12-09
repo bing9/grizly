@@ -218,7 +218,7 @@ class BaseExtract:
         _arrow_to_s3(arrow_table)
 
     @dask.delayed
-    def wipe_staging(self):
+    def wipe_staging(self, upstream=None):
         try:
             s3.rm(self.s3_staging_url, recursive=True)
         except FileNotFoundError:
@@ -268,25 +268,39 @@ class BaseExtract:
         self,
         registry: Optional[SchedulerDB] = None,
         redis_host: Optional[str] = None,
-        redis_port: Optional[int] = None,
+        redis_port: Optional[int] = 6379,
+        remove_job_runs=False,
         **kwargs,
     ):
         """Submit the partitions and/or extract job
 
         Parameters
         ----------
-        kwargs: arguments to pass to Job.register()
+        kwargs: arguments to pass to extract_job.register()
 
         Examples
         ----------
         dev_registry = SchedulerDB(dev_scheduler_addr)
-        Extract().register(registry=dev_registry, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
+        e = Extract.from_json("store.json")
+        e.register(registry=dev_registry, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
         """
         registry = registry or SchedulerDB(
             logger=self.logger, redis_host=redis_host, redis_port=redis_port
         )
+        extract_tasks = self.generate_tasks()
         self.extract_job = Job(self.name, logger=self.logger, db=registry)
-        self.extract_job.register(tasks=self.generate_tasks(), **kwargs)
+        self.extract_job.register(tasks=extract_tasks, remove_job_runs=remove_job_runs, **kwargs)
+
+        validation_tasks = self._generate_validation_tasks()
+        self.validation_job = Job(self.name + "- validation", logger=self.logger, db=registry)
+        self.validation_job.register(
+            tasks=validation_tasks,
+            owner="system",
+            description=f"{self.name} extract validation",
+            if_exists="replace",
+            remove_job_runs=False,
+            upstream={self.name: "success"},
+        )
 
     def unregister(self, registry: SchedulerDB = None, remove_job_runs: bool = False) -> bool:
         self.extract_job.unregister(remove_job_runs=remove_job_runs)
@@ -301,8 +315,16 @@ class BaseExtract:
 
         """
         if_exists = "replace" if reregister else "skip"
-        self.register(registry=registry, if_exists=if_exists)
-        self.extract_job.submit(scheduler_address=self.dask_scheduler_address, **kwargs)
+        self.register(registry=registry, if_exists=if_exists, **kwargs)
+        self.extract_job.submit(
+            scheduler_address=self.dask_scheduler_address, priority=kwargs.get("priority")
+        )
+        return True
+
+    def run(self, priority=-1, **kwargs):
+        self.extract_job.submit(
+            scheduler_address=self.dask_scheduler_address, priority=priority, **kwargs
+        )
         return True
 
     @dask.delayed
@@ -391,9 +413,14 @@ class BaseExtract:
 
     @dask.delayed
     def staging_to_prod(self, qf, is_correct):
+
         if not is_correct:
             raise ValueError(f"Extract '{self.name}' did not pass the validation")
-        s3.copy(self.s3_staging_url, self.s3_prod_url, recursive=True)
+
+        urls = s3.ls(self.s3_staging_url)
+        for url in urls[1:]:  # [0] is the dir itself
+            prod_url = url.replace("staging", "prod")
+            s3.cp(url, prod_url)
         self.create_external_table(
             qf, schema=self.prod_schema, table=self.prod_table, s3_url=self.s3_prod_url
         )
@@ -409,8 +436,8 @@ class BaseExtract:
         in_schema = self.qf.store.select.get("schema")
         in_table = self.qf.store.select.get("table")
 
-        out_schema = self.prod_schema
-        out_table = self.prod_table
+        out_schema = self.staging_schema
+        out_table = self.staging_table
 
         in_qf = QFrame(dsn=self.qf.source.dsn, schema=in_schema, table=in_table, columns=cols)
         out_qf = QFrame(dsn=self.output_dsn, schema=out_schema, table=out_table, columns=cols)
@@ -428,9 +455,7 @@ class BaseExtract:
 
         to_prod = self.staging_to_prod(out_qf_processed, is_correct)
 
-        graph = dask.delayed()([to_prod])
-
-        return graph
+        return [to_prod]
 
 
 class SimpleExtract(BaseExtract):
@@ -487,7 +512,7 @@ class SFDCExtract(BaseExtract):
         client = self._get_client()
         chunks = client.compute(url_chunks).result()
 
-        wipe_staging = self.wipe_staging() if self.if_exists == "replace" else None
+        wipe_staging = self.wipe_staging(upstream=chunks) if self.if_exists == "replace" else None
 
         qf_fixed = self.fix_qf_types(upstream=wipe_staging)
 
@@ -781,62 +806,6 @@ class DenodoExtract(BaseExtract):
         extract_tasks = self._generate_extract_tasks(partitions=partitions)
 
         return extract_tasks
-
-    def register(
-        self,
-        registry: SchedulerDB = None,
-        crons: List[str] = None,
-        partitions_cache: str = "off",
-        if_exists: str = "skip",
-        remove_job_runs: bool = False,
-        **kwargs,
-    ) -> bool:
-        """Submit the partitions and/or extract job
-
-        Parameters
-        ----------
-        kwargs: arguments to pass to Job.register()
-
-        Examples
-        ----------
-        dev_registry = SchedulerDB(dev_scheduler_addr)
-        Extract().register(registry=dev_registry, crons=["0 12 * * MON"], if_exists="replace")
-        """
-        tasks = self.generate_tasks(partitions_cache=partitions_cache)
-
-        self.extract_job = Job(self.name, logger=self.logger, db=registry)
-        self.extract_job.register(
-            tasks=tasks,
-            crons=crons,
-            if_exists=if_exists,
-            remove_job_runs=remove_job_runs,
-            **kwargs,
-        )
-        return True
-
-    def unregister(self, registry: SchedulerDB = None, remove_job_runs: bool = False) -> bool:
-        self.extract_job.unregister(remove_job_runs=remove_job_runs)
-        return True
-
-    def submit(
-        self, registry: SchedulerDB, reregister: bool = False, **kwargs,
-    ):
-        """Submit the extract job
-
-        Parameters
-        ----------
-        kwargs: arguments to pass to Job.register() and Job.submit()
-
-        """
-        if reregister:
-            if_exists = "replace"
-        else:
-            if_exists = "skip"
-        self.register(registry=registry, if_exists=if_exists, **kwargs)
-        self.extract_job.submit(
-            scheduler_address=self.dask_scheduler_address, priority=kwargs.get("priority")
-        )
-        return True
 
 
 class Extract:
