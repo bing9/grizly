@@ -24,6 +24,9 @@ from ..utils.functions import chunker, retry
 from ..utils.type_mappers import spectrum_to_redshift
 
 s3 = s3fs.S3FileSystem()
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 
 
 class BaseExtract:
@@ -79,7 +82,6 @@ class BaseExtract:
         dsn = store.qframe.select.source.get("dsn")
         name = store.get("name")
         logger = logging.getLogger(name)
-        logger.setLevel(logging.INFO)
         # logger = logging.getLogger("distributed.worker").getChild(name)
         qf = QFrame(dsn=dsn, logger=logger).from_dict(store.qframe)
         extract_params = {
@@ -152,7 +154,6 @@ class BaseExtract:
         self.table_if_exists = self._map_if_exists(self.if_exists)
         # self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
         self.logger = logging.getLogger(self.name_snake_case)
-        self.logger.setLevel(logging.INFO)
         self.qf.logger = self.logger
 
         if not self.store:
@@ -422,6 +423,9 @@ class BaseExtract:
 
         if not is_correct:
             raise ValueError(f"Extract '{self.name}' did not pass the validation")
+
+        self.logger.warning("Moving data to prod...")
+        self.logger.info("Testing info level log...")
 
         urls = s3.ls(self.s3_staging_url)
         for url in urls[1:]:  # [0] is the dir itself
