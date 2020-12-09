@@ -1191,8 +1191,8 @@ class Job(SchedulerObject):
             for job in jobs:
                 rq_job = queue.enqueue(
                     job.submit,
-                    args=self.args,
-                    kwargs=self.kwargs,
+                    args=job.args,
+                    kwargs=job.kwargs,
                     scheduler_address=self.scheduler_address,
                     result_ttl=job._result_ttl,
                     job_timeout=self.timeout,
