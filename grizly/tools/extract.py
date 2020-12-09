@@ -82,7 +82,6 @@ class BaseExtract:
         dsn = store.qframe.select.source.get("dsn")
         name = store.get("name")
         logger = logging.getLogger(name)
-        # logger = logging.getLogger("distributed.worker").getChild(name)
         qf = QFrame(dsn=dsn, logger=logger).from_dict(store.qframe)
         extract_params = {
             key: val for key, val in store.items() if key != "qframe" and val is not None
@@ -424,13 +423,15 @@ class BaseExtract:
         if not is_correct:
             raise ValueError(f"Extract '{self.name}' did not pass the validation")
 
-        self.logger.warning("Moving data to prod...")
-        self.logger.info("Testing info level log...")
+        self.logger.info("Moving data to prod...")
 
         urls = s3.ls(self.s3_staging_url)
         for url in urls[1:]:  # [0] is the dir itself
             prod_url = url.replace("staging", "prod")
             s3.cp(url, prod_url)
+
+        self.logger.info("Parquet files have been successfully moved to prod.")
+
         self.create_external_table(
             qf, schema=self.prod_schema, table=self.prod_table, s3_url=self.s3_prod_url
         )
@@ -449,8 +450,20 @@ class BaseExtract:
         out_schema = self.staging_schema
         out_table = self.staging_table
 
-        in_qf = QFrame(dsn=self.qf.source.dsn, schema=in_schema, table=in_table, columns=cols)
-        out_qf = QFrame(dsn=self.output_dsn, schema=out_schema, table=out_table, columns=cols)
+        in_qf = QFrame(
+            dsn=self.qf.source.dsn,
+            schema=in_schema,
+            table=in_table,
+            columns=cols,
+            logger=self.logger,
+        )
+        out_qf = QFrame(
+            dsn=self.output_dsn,
+            schema=out_schema,
+            table=out_table,
+            columns=cols,
+            logger=self.logger,
+        )
 
         in_qf_processed = self._process_validation_qf(in_qf, where, groupby_cols, sum_cols)
         out_qf_processed = self._process_validation_qf(out_qf, where, groupby_cols, sum_cols)
