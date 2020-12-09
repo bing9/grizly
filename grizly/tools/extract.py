@@ -222,9 +222,9 @@ class BaseExtract:
     @dask.delayed
     def empty_s3_dir(self, url, upstream=None):
 
-        if url == self.s3_prod_url and not self.is_valid:
-            self.logger.warning(f"Extract '{self.name}' did not pass the validation. Skipping...")
-            return
+        if upstream is False:
+            self.logger.warning("Received SKIP signal. Skipping...")
+            return False
 
         self.logger.info(f"Emptying {url}...")
 
@@ -411,10 +411,11 @@ class BaseExtract:
             msg += "Differences per row:" + "\n"
             msg += f"{diff_df.to_markdown(index=False)}"
             self.logger.error(msg)
+            is_valid = False
         else:
             self.logger.info("Data has been successfully validated.")
-            self.is_valid = True
-        return self.is_valid
+            is_valid = True
+        return is_valid
 
     def _process_validation_qf(self, qf, where, groupby_cols, sum_cols):
         qf_filtered = qf.copy().where(where)
@@ -435,7 +436,8 @@ class BaseExtract:
     @dask.delayed
     def staging_to_prod(self, upstream=None):
 
-        if not self.is_valid:
+        if upstream is False:
+            self.logger.warning("Received SKIP signal. Skipping...")
             return
 
         self.logger.info("Moving data to prod...")
