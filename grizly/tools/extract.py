@@ -148,7 +148,8 @@ class BaseExtract:
         self.s3_staging_url = os.path.join(self.s3_root_url, "data", "staging")
         self.s3_prod_url = os.path.join(self.s3_root_url, "data", "prod")
         self.table_if_exists = self._map_if_exists(self.if_exists)
-        self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
+        # self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
+        self.logger = logging.getLogger(self.name_snake_case)
         self.qf.logger = self.logger
 
         if not self.store:
@@ -292,7 +293,7 @@ class BaseExtract:
         self.extract_job.register(tasks=extract_tasks, remove_job_runs=remove_job_runs, **kwargs)
 
         validation_tasks = self._generate_validation_tasks()
-        self.validation_job = Job(self.name + "- validation", logger=self.logger, db=registry)
+        self.validation_job = Job(self.name + " - validation", logger=self.logger, db=registry)
         self.validation_job.register(
             tasks=validation_tasks,
             owner="system",
