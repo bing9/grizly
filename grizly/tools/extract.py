@@ -96,6 +96,7 @@ class BaseExtract:
         attrs = {k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)}
         _repr = ""
         for attr, value in attrs.items():
+            # TODO: trim all vals to :50
             line_len = len(attr)
             attr_val = self._get_attr_val(attr, init_val=value)
             if attr == "qf":
@@ -139,7 +140,7 @@ class BaseExtract:
         self.name_snake_case = self._to_snake_case(self.name)
         self.staging_table = self.staging_table or self.name_snake_case
         self.prod_table = self.prod_table or self.name_snake_case
-        # TODO: remove -- should be read automatically above once the structure is improved
+        # TODO: remove the bucket line -- should be read by _get_attr_val()
         self.s3_bucket = self.s3_bucket or config.get_service("s3").get("bucket")
         self.s3_root_url = (
             self.s3_root_url or f"s3://{self.s3_bucket}/extracts/{self.name_snake_case}/"
@@ -820,7 +821,10 @@ class DenodoExtract(BaseExtract):
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
             file_name = f"{partition}.parquet"
-            where = f"{partition_cols_expr}='{partition_concatenated}'"
+            if partition == "None":
+                where = f"{partition_cols_expr} IS NOT NULL"
+            else:
+                where = f"{partition_cols_expr}='{partition_concatenated}'"
             processed_qf = self.filter_qf(qf=qf_fixed, query=where)
             s3 = self.to_parquet(processed_qf, file_name=file_name)
             uploads.append(s3)
