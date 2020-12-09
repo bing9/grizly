@@ -387,14 +387,20 @@ class BaseExtract:
             ]
             df_non_numeric = df1[non_numeric_cols]
             diffs = abs(df1_numeric - df2_numeric)
+            total = df1_numeric.sum().sum() + df2_numeric.sum().sum()
+            total_str = f"${(total/1e6):.2f}"
             total_diff = diffs.sum().sum()
+            total_diff_str = f"${(total_diff/1e6):.2f}"
             diffs_pretty = diffs.applymap("${0:,.0f}".format)
             diff_df = pd.concat([df_non_numeric, diffs_pretty], axis=1)
             total_col_diffs_str = ""
             for col, val in zip(diffs.columns, diffs.sum()):
                 col_diff_str = f"{col}: ${(val/1e6):.2f} M"
                 total_col_diffs_str += col_diff_str + "\n"
-            msg = f"Amounts are different by a total of ${(total_diff/1e6):.2f} M." + "\n\n"
+            msg = (
+                f"Amounts are different by a total of {total_diff_str} M, out of {total_str} M."
+                + "\n\n"
+            )
             msg += "Differences per column:" + "\n"
             msg += f"{total_col_diffs_str}" + "\n"
             msg += "Differences per row:" + "\n"
@@ -420,7 +426,7 @@ class BaseExtract:
         return df
 
     @dask.delayed
-    def staging_to_prod(self, qf, is_correct):
+    def staging_to_prod(self, is_correct):
 
         if not is_correct:
             raise ValueError(f"Extract '{self.name}' did not pass the validation")
@@ -433,7 +439,12 @@ class BaseExtract:
             s3.cp(url, prod_url)
 
         self.logger.info("Parquet files have been successfully moved to prod.")
-
+        qf = QFrame(
+            source=Source(dsn=self.output_dsn, dialect="spectrum"),
+            schema=self.staging_schema,
+            table=self.staging_table,
+            logger=self.logger,
+        )
         qf.create_external_table(
             schema=self.prod_schema,
             table=self.prod_table,
@@ -482,7 +493,7 @@ class BaseExtract:
             in_df, out_df, sort_by=sort_by, max_allowed_diff_percent=max_allowed_diff_percent
         )
 
-        to_prod = self.staging_to_prod(out_qf_processed, is_correct)
+        to_prod = self.staging_to_prod(is_correct)
 
         return [to_prod]
 
