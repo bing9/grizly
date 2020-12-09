@@ -223,10 +223,12 @@ class BaseExtract:
 
     @dask.delayed
     def wipe_staging(self, upstream=None):
+        self.logger.info(f"Cleaning {self.s3_staging_url}...")
         try:
             s3.rm(self.s3_staging_url, recursive=True)
         except FileNotFoundError:
             self.logger.debug(f"Couldn't wipe out {self.s3_staging_url} as it doesn't exist")
+        self.logger.info(f"{self.s3_staging_url} has been successfully cleaned.")
 
     @dask.delayed
     def create_external_table(self, qf, schema, table, s3_url, upstream: Delayed = None):
@@ -432,8 +434,12 @@ class BaseExtract:
 
         self.logger.info("Parquet files have been successfully moved to prod.")
 
-        self.create_external_table(
-            qf, schema=self.prod_schema, table=self.prod_table, s3_url=self.s3_prod_url
+        qf.create_external_table(
+            schema=self.prod_schema,
+            table=self.prod_table,
+            output_source=self.output_source,
+            s3_url=self.s3_prod_url,
+            if_exists=self.table_if_exists,
         )
 
     def _generate_validation_tasks(self, max_allowed_diff_percent=1):
