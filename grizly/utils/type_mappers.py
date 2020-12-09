@@ -387,6 +387,17 @@ def python_to_sql(dtype):
     return _map_type(mapping, dtype, default="VARCHAR(255)")
 
 
+def spectrum_to_postgresql(dtype):
+    mapping = {
+        "double": "DOUBLE PRECISION",
+        "varchar": "VARCHAR",
+        "int": "INTEGER",
+        "timestamp": "TIMESTAMP",
+        "date": "DATE",
+    }
+    return _map_type(mapping, dtype, default="VARCHAR(255)")
+
+
 valid_redshift_types = [
     "SMALLINT",
     "INT2",
