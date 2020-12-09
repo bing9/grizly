@@ -78,7 +78,8 @@ class BaseExtract:
         store = Store.from_json(json_path=path, key=key)
         dsn = store.qframe.select.source.get("dsn")
         name = store.get("name")
-        logger = logging.getLogger(name).setLevel(logging.INFO)
+        logger = logging.getLogger(name)
+        logger.setLevel(logging.INFO)
         # logger = logging.getLogger("distributed.worker").getChild(name)
         qf = QFrame(dsn=dsn, logger=logger).from_dict(store.qframe)
         extract_params = {
@@ -150,7 +151,8 @@ class BaseExtract:
         self.s3_prod_url = os.path.join(self.s3_root_url, "data", "prod")
         self.table_if_exists = self._map_if_exists(self.if_exists)
         # self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
-        self.logger = logging.getLogger(self.name_snake_case).setLevel(logging.INFO)
+        self.logger = logging.getLogger(self.name_snake_case)
+        self.logger.setLevel(logging.INFO)
         self.qf.logger = self.logger
 
         if not self.store:
