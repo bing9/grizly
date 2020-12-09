@@ -121,11 +121,8 @@ class BaseExtract:
             return init_val
 
         attr_env = f"GRIZLY_EXTRACT_{attr.upper()}"
-        attr_val = (
-            init_val
-            # or config.get_service(attr)
-            or os.getenv(attr_env)
-        )
+        attr_val = init_val if init_val is not None else os.getenv(attr_env)
+
         return attr_val
 
     def _load_attrs(self):
@@ -154,6 +151,7 @@ class BaseExtract:
         # self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
         self.logger = logging.getLogger(self.name_snake_case)
         self.qf.logger = self.logger
+        self.is_valid = False
 
         if not self.store:
             # construct self.store from parameters
@@ -413,8 +411,8 @@ class BaseExtract:
             msg += "Differences per row:" + "\n"
             msg += f"{diff_df.to_markdown(index=False)}"
             self.logger.error(msg)
-            self.is_valid = False
         else:
+            self.logger.info("Data has been successfully validated.")
             self.is_valid = True
         return self.is_valid
 
@@ -651,10 +649,11 @@ class SFDCExtract(BaseExtract):
 
 class DenodoExtract(BaseExtract):
     def __init__(
-        self, qf, partition_cols, *args, **kwargs,
+        self, qf, partition_cols, partitions: List[Any] = None, *args, **kwargs,
     ):
         super().__init__(qf, *args, **kwargs)
         self.partition_cols = partition_cols
+        self.partitions = partitions
 
     def _validate_store(self, store):
         pass
@@ -853,11 +852,14 @@ class DenodoExtract(BaseExtract):
             Two lists: one with tasks for generating the list of partitions and the other with
             tasks for extracting these partitions into 'self.output_dsn'
         """
-        partition_task = self._generate_partition_task(cache=partitions_cache)
-        # compute partitions on the cluster
-        client = self._get_client()
-        partitions = client.compute(partition_task).result()
-        client.close()
+        if not self.partitions:
+            partition_task = self._generate_partition_task(cache=partitions_cache)
+            # compute partitions on the cluster
+            client = self._get_client()
+            partitions = client.compute(partition_task).result()
+            client.close()
+        else:
+            partitions = self.partitions
         extract_tasks = self._generate_extract_tasks(partitions=partitions)
 
         return extract_tasks
