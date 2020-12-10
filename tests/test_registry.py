@@ -23,6 +23,7 @@ def failing_task():
 def add(x, y):
     return x + y
 
+
 @dask.delayed
 def get_random_number():
     return random()
@@ -34,15 +35,16 @@ sum_task = add(1, 2)
 @pytest.fixture(scope="session")
 def failing_job():
     failing_job = Job(name="failing_job")
-    failing_job.register(tasks=[failing_task()], if_exists="replace")
+    failing_job.register([failing_task()], if_exists="replace")
     yield failing_job
     failing_job.unregister(remove_job_runs=True)
+
 
 @pytest.fixture(scope="session")
 def job_with_random_result():
     """This job will always return different result"""
     job_with_random_result = Job(name="job_with_random_result")
-    job_with_random_result.register(tasks=[get_random_number()], if_exists="replace")
+    job_with_random_result.register([get_random_number()], if_exists="replace")
     yield job_with_random_result
     job_with_random_result.unregister(remove_job_runs=True)
 
@@ -50,7 +52,7 @@ def job_with_random_result():
 @pytest.fixture(scope="session")
 def job_with_cron():
     job_with_cron = Job(name="job_with_cron")
-    job_with_cron.register(tasks=[sum_task], crons="* * * * *", if_exists="replace")
+    job_with_cron.register([sum_task], crons="* * * * *", if_exists="replace")
     yield job_with_cron
     job_with_cron.unregister(remove_job_runs=True)
 
@@ -59,7 +61,7 @@ def job_with_cron():
 def job_with_upstream_success(job_with_cron):
     job_with_upstream_success = Job(name="job_with_upstream_success")
     job_with_upstream_success.register(
-        tasks=[sum_task], upstream={job_with_cron.name: "success"}, if_exists="replace"
+        [sum_task], upstream={job_with_cron.name: "success"}, if_exists="replace"
     )
     yield job_with_upstream_success
     job_with_upstream_success.unregister(remove_job_runs=True)
@@ -69,7 +71,7 @@ def job_with_upstream_success(job_with_cron):
 def job_with_upstream_result_change(job_with_random_result):
     job_with_upstream_result_change = Job(name="job_with_upstream_result_change")
     job_with_upstream_result_change.register(
-        tasks=[sum_task], upstream={job_with_random_result.name: "result_change"}, if_exists="replace"
+        [sum_task], upstream={job_with_random_result.name: "result_change"}, if_exists="replace"
     )
     yield job_with_upstream_result_change
     job_with_upstream_result_change.unregister(remove_job_runs=True)
@@ -78,12 +80,14 @@ def job_with_upstream_result_change(job_with_random_result):
 @pytest.fixture(scope="module")
 def job_with_trigger(trigger):
     job_with_trigger = Job(name="job_with_trigger")
-    job_with_trigger.register(tasks=[sum_task], triggers=trigger.name, if_exists="replace")
+    job_with_trigger.register([sum_task], triggers=trigger.name, if_exists="replace")
     yield job_with_trigger
     job_with_trigger.unregister(remove_job_runs=True)
 
 
-@pytest.fixture(scope="module", params=["job_with_cron", "job_with_upstream_success", "job_with_trigger"])
+@pytest.fixture(
+    scope="module", params=["job_with_cron", "job_with_upstream_success", "job_with_trigger"]
+)
 def job(job_with_cron, job_with_upstream_success, job_with_trigger, request):
     return eval(request.param)
 
@@ -151,7 +155,7 @@ def test_scheduler_db_add_job(scheduler_db):
 
     # property check
     assert job.name is not None
-    assert job.tasks is not None
+    # assert job.tasks is not None
 
     job.unregister(remove_job_runs=True)
 
@@ -249,9 +253,9 @@ def test_job_description(job, description):
     assert job.description is None
 
 
-def test_job_graph(job_with_cron):
-    graph = job_with_cron.graph
-    assert isinstance(graph, Delayed)
+# def test_job_graph(job_with_cron):
+#     graph = job_with_cron.graph
+#     assert isinstance(graph, Delayed)
 
 
 def test_job_last_run(job_with_cron):
@@ -286,10 +290,9 @@ def test_job_runs(job_with_cron):
     assert isinstance(runs[0], JobRun)
 
 
-def test_job_tasks(job):
-    tasks = job.tasks
-    assert len(tasks) == 1
-    assert dask.delayed(tasks).compute() == [3]
+def test_job_func(job):
+    func = job.func
+    assert func() == [3]
 
 
 def test_job_triggers(job_with_trigger, trigger):
@@ -350,7 +353,7 @@ def test_job_add_remove_triggers(job_with_trigger):
 
 def test_job_update_remove_downstream_jobs(job_with_cron):
     d_job = Job(name="d_job_name")
-    d_job.register(tasks=[], if_exists="replace")
+    d_job.register([], if_exists="replace")
 
     job_with_cron.update_downstream_jobs({d_job.name: "success"})
     assert d_job in job_with_cron.downstream_jobs
@@ -371,7 +374,7 @@ def test_job_update_remove_downstream_jobs(job_with_cron):
 
 def test_job_update_remove_upstream_jobs(job_with_cron):
     u_job = Job(name="u_job_name")
-    u_job.register(tasks=[], if_exists="replace")
+    u_job.register([], if_exists="replace")
 
     job_with_cron.update_upstream_jobs({u_job.name: "success"})
     assert u_job in job_with_cron.upstream_jobs
@@ -407,7 +410,7 @@ def test_job_unregister(job_with_cron):
     con = job_with_cron.con
     assert con.hgetall(job_with_cron.hash_name) == {}
 
-    job_with_cron.register(tasks=[sum_task], crons="* * * * *", if_exists="replace")
+    job_with_cron.register([sum_task], crons="* * * * *", if_exists="replace")
     con = job_with_cron.con
     assert con.hgetall(job_with_cron.hash_name) != {}
 
@@ -420,16 +423,18 @@ def test_job_submit_fail(failing_job):
     assert failing_job.last_run.error == "Error"
     assert failing_job.last_run.status == "fail"
 
+
 def test_job_submit_result_change(job_with_random_result, job_with_upstream_result_change):
     assert job_with_upstream_result_change.last_run is None
     job_with_random_result.submit(to_dask=False)
     import time
+
     time.sleep(2)
     assert job_with_upstream_result_change.last_run is not None
 
 
-def test_job_visualize(job_with_cron):
-    assert job_with_cron.visualize() is not None
+# def test_job_visualize(job_with_cron):
+#     assert job_with_cron.visualize() is not None
 
 
 def test_job__add_to_scheduler():
