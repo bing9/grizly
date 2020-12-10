@@ -822,7 +822,7 @@ class DenodoExtract(BaseExtract):
             partition_concatenated = partition.replace("|", "")
             file_name = f"{partition}.parquet"
             if partition == "None":
-                where = f"{partition_cols_expr} IS NOT NULL"
+                where = f"{partition_cols_expr} IS NULL"
             else:
                 where = f"{partition_cols_expr}='{partition_concatenated}'"
             processed_qf = self.filter_qf(qf=qf_fixed, query=where)
