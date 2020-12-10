@@ -21,7 +21,6 @@ from ..sources.filesystem.old_s3 import S3
 from ..sources.sources_factory import Source
 from ..store import Store
 from ..utils.functions import chunker, retry
-from ..utils.type_mappers import spectrum_to_redshift
 
 s3 = s3fs.S3FileSystem()
 logging.basicConfig(
@@ -46,7 +45,6 @@ class BaseExtract:
         output_dsn: str = None,
         output_dialect: str = None,
         output_source_name: str = None,
-        output_table_type: str = "external",
         autocast: bool = True,
         s3_root_url: str = None,
         s3_bucket: str = None,
@@ -65,7 +63,6 @@ class BaseExtract:
         self.output_dsn = output_dsn
         self.output_dialect = output_dialect
         self.output_source_name = output_source_name
-        self.output_table_type = output_table_type
         self.autocast = autocast
         self.s3_root_url = s3_root_url
         self.s3_bucket = s3_bucket
@@ -86,7 +83,6 @@ class BaseExtract:
         extract_params = {
             key: val for key, val in store.items() if key != "qframe" and val is not None
         }
-
         return cls(qf=qf, store=store, **extract_params)
 
     def __str__(self):
@@ -154,7 +150,6 @@ class BaseExtract:
         # self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
         self.logger = logging.getLogger(self.name_snake_case)
         self.qf.logger = self.logger
-        self.is_valid = False
 
         if not self.store:
             # construct self.store from parameters
@@ -201,8 +196,6 @@ class BaseExtract:
         except Exception:
             raise
 
-        return qf
-
     @dask.delayed
     def arrow_to_s3(self, arrow_table: Table, file_name: str = None):
         def _arrow_to_s3(arrow_table):
@@ -247,31 +240,6 @@ class BaseExtract:
             output_source=self.output_source,
             s3_url=s3_url,
             if_exists=self.table_if_exists,
-        )
-
-    @dask.delayed
-    def create_table(self, upstream: Delayed = None):
-        """Create and populate a table"""
-        qf = QFrame(
-            source=self.output_source,
-            schema=self.staging_schema,
-            table=self.staging_table,
-            logger=self.logger,
-        )
-        mapped_types = [spectrum_to_redshift(dtype) for dtype in qf.dtypes]
-        qf.source.create_table(
-            schema=self.prod_schema,
-            table=self.prod_table,
-            columns=qf.get_fields(aliased=True),
-            types=mapped_types,
-            if_exists="drop",  # always re-create from external table
-        )
-        qf.source.write_to(
-            schema=self.prod_schema,
-            table=self.prod_table,
-            columns=qf.get_fields(aliased=True),
-            sql=qf.get_sql(),
-            if_exists="append",
         )
 
     @abstractmethod
@@ -527,16 +495,10 @@ class SimpleExtract(BaseExtract):
             s3_url=self.s3_staging_url,
             upstream=s3,
         )
-        base_table = self.create_table(upstream=external_table_staging)
-
-        if self.output_table_type == "base":
-            final_task = base_table
-        else:
-            final_task = external_table_staging
 
         self.logger.debug("Tasks generated successfully")
 
-        return [final_task]
+        return [external_table_staging]
 
 
 class SFDCExtract(BaseExtract):
@@ -556,6 +518,7 @@ class SFDCExtract(BaseExtract):
     """
 
     def generate_tasks(self) -> List[Delayed]:
+
         self.logger.info("Generating tasks...")
 
         start = self.begin_extract()
@@ -564,6 +527,7 @@ class SFDCExtract(BaseExtract):
         url_chunks = self.chunk(urls, chunksize=50)
         client = self._get_client()
         chunks = client.compute(url_chunks).result()
+        client.close()
 
         if self.if_exists == "replace":
             wipe_staging = self.empty_s3_dir(url=self.s3_staging_url, upstream=chunks)
@@ -598,16 +562,10 @@ class SFDCExtract(BaseExtract):
             s3_url=self.s3_staging_url,
             upstream=s3_uploads,
         )
-        base_table = self.create_table(upstream=external_table_staging)
 
-        if self.output_table_type == "base":
-            final_task = base_table
-        else:
-            final_task = external_table_staging
+        self.logger.info("Tasks have been successfully generated.")
 
-        self.logger.info("Tasks generated successfully")
-
-        return [final_task]
+        return [external_table_staging]
 
     @dask.delayed
     def get_urls(self, upstream=None):
@@ -829,6 +787,7 @@ class DenodoExtract(BaseExtract):
             s3 = self.to_parquet(processed_qf, file_name=file_name)
             uploads.append(s3)
 
+        # TODO: do not create this task if the table already exists and if_exists != 'replace'
         external_table_staging = self.create_external_table(
             qf=qf_fixed,
             schema=self.staging_schema,
@@ -837,21 +796,14 @@ class DenodoExtract(BaseExtract):
             upstream=uploads,
         )
 
-        if self.output_table_type == "base":
-            regular_table = self.create_table(upstream=external_table_staging)
-            final_task = regular_table
-        else:
-            # TODO: do not create this task if the table already exists and if_exists != 'replace'
-            final_task = external_table_staging
-
-        return [final_task]
+        return [external_table_staging]
 
     def generate_tasks(self, partitions_cache: str = "off") -> List[List[Delayed]]:
         """Generate partitioning and extraction tasks
 
         Parameters
         ----------
-        cache : bool, optional, by default True
+        partitions_cache : str, optional, by default "off"
             Whether to use caching for partitions list. This can be useful if partitions don't
             change often and the computation is expensive.
         Returns
@@ -860,6 +812,9 @@ class DenodoExtract(BaseExtract):
             Two lists: one with tasks for generating the list of partitions and the other with
             tasks for extracting these partitions into 'self.output_dsn'
         """
+
+        self.logger.info("Generating tasks...")
+
         if not self.partitions:
             partition_task = self._generate_partition_task(cache=partitions_cache)
             # compute partitions on the cluster
@@ -869,6 +824,8 @@ class DenodoExtract(BaseExtract):
         else:
             partitions = self.partitions
         extract_tasks = self._generate_extract_tasks(partitions=partitions)
+
+        self.logger.info("Tasks have been successfully generated.")
 
         return extract_tasks
 
