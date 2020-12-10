@@ -1,11 +1,12 @@
+import logging
 from datetime import datetime
 from random import random
 
 import dask
+import pytest
 from dask.delayed import Delayed
 from hypothesis import given, settings
 from hypothesis.strategies import integers, lists, text
-import pytest
 from redis import Redis
 
 from ..grizly.exceptions import JobNotFoundError
@@ -14,13 +15,14 @@ from ..grizly.scheduling.registry import Job, JobRun, SchedulerDB, Trigger
 settings(max_examples=10)
 
 
-@dask.delayed
 def failing_task():
     raise ValueError("Error")
 
 
 @dask.delayed
 def add(x, y):
+    logger = logging.getLogger("grizly")
+    logger.info("Adding numbers...")
     return x + y
 
 
@@ -35,7 +37,7 @@ sum_task = add(1, 2)
 @pytest.fixture(scope="session")
 def failing_job():
     failing_job = Job(name="failing_job")
-    failing_job.register([failing_task()], if_exists="replace")
+    failing_job.register(failing_task, if_exists="replace")
     yield failing_job
     failing_job.unregister(remove_job_runs=True)
 
@@ -482,6 +484,10 @@ def test_job_run_created_finished_at(job_run):
     assert job_finished_at == value
 
 
+def test_job_run_logs(job_run):
+    assert job_run.logs == "Adding numbers...\n"
+
+
 def test_job_run_name(job_run):
     assert job_run.name is None
     value = job_run.name
@@ -509,6 +515,13 @@ def test_job_run_status(job_run):
     assert job_run.status == "running"
     job_run.status = value
     assert job_run.status == value
+
+
+def test_job_run_traceback(failing_job):
+    failing_job.submit(to_dask=False)
+    tb = failing_job.last_run.traceback
+    assert tb.startswith("Traceback (most recent call last):")
+    assert tb.endswith('raise ValueError("Error")\nValueError: Error\n')
 
 
 # JobRun METHODS

@@ -2,6 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from functools import wraps
+from io import StringIO
 import json
 import logging
 import os
@@ -9,10 +10,12 @@ import sys
 from time import time
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 import warnings
+import traceback
 
 from croniter import croniter
 import dask
 from dask.delayed import Delayed
+import dill
 from distributed import Client, Future
 from distributed.protocol.serialize import deserialize as dask_deserialize
 from distributed.protocol.serialize import serialize as dask_serialize
@@ -21,8 +24,6 @@ from rq import Queue, cancel_job
 from rq.job import Job as RqJob
 from rq.job import NoSuchJobError
 from rq_scheduler import Scheduler
-
-import dill
 
 from ..config import Config
 from ..exceptions import JobAlreadyRunningError, JobNotFoundError, JobRunNotFoundError
@@ -72,11 +73,6 @@ class SchedulerDB:
         logger: Optional[logging.Logger] = None,
     ):
         self.logger = logger or logging.getLogger(f"rq.worker.{__name__}")
-        logging.basicConfig(
-            format="%(asctime)s | %(levelname)s : %(message)s",
-            level=logging.INFO,
-            stream=sys.stderr,
-        )
         self.config = Config().get_service("scheduling")
         self.redis_host = (
             redis_host
@@ -203,11 +199,6 @@ class SchedulerObject(ABC):
             self.hash_name = self.prefix + self.name
         self.db = db or SchedulerDB(logger=logger, redis_host=redis_host, redis_port=redis_port)
         self.logger = logger or logging.getLogger(__name__)
-        logging.basicConfig(
-            format="%(asctime)s | %(levelname)s : %(message)s",
-            level=logging.INFO,
-            stream=sys.stderr,
-        )
 
     def __eq__(self, other):
         return self.hash_name == other.hash_name
@@ -490,6 +481,17 @@ class JobRun(SchedulerObject):
         )
 
     @property
+    def logs(self) -> str:
+        return self._get("logs")
+
+    @logs.setter
+    @_check_if_exists()
+    def logs(self, logs: str):
+        self.con.hset(
+            self.hash_name, "logs", self._serialize(logs),
+        )
+
+    @property
     def name(self) -> str:
         return self._get("name")
 
@@ -522,6 +524,17 @@ class JobRun(SchedulerObject):
             self.hash_name, "status", self._serialize(status),
         )
 
+    @property
+    def traceback(self) -> str:
+        return self._get("traceback")
+
+    @traceback.setter
+    @_check_if_exists()
+    def traceback(self, traceback: str):
+        self.con.hset(
+            self.hash_name, "traceback", self._serialize(traceback),
+        )
+
     def register(self):
 
         mapping = {
@@ -531,7 +544,9 @@ class JobRun(SchedulerObject):
             "finished_at": "null",
             "duration": "null",
             "status": "null",
+            "logs": "null",
             "error": "null",
+            "traceback": "null",
             "result": "null",
         }
         self.con.hset(
@@ -1129,6 +1144,7 @@ class Job(SchedulerObject):
         self.logger.info(f"Submitting job {self.name}...")
         job_run = JobRun(job_name=self.name, logger=self.logger, db=self.db)
         job_run.status = "running"
+        log_stream = self.__get_log_stream()
 
         start = time()
         try:
@@ -1138,9 +1154,14 @@ class Job(SchedulerObject):
             result = None
             job_run.status = "fail"
             _, exc_value, _ = sys.exc_info()
+            job_run.traceback = traceback.format_exc()
             job_run.error = str(exc_value)
 
+        job_run.logs = log_stream.getvalue()
         job_run.result = result
+
+        if to_dask:
+            client.close()
 
         self.logger.info(f"Job {self.name} finished with status {job_run.status}")
         end = time()
@@ -1153,10 +1174,15 @@ class Job(SchedulerObject):
             if flag:
                 self.__submit_downstream_jobs(condition=condition)
 
-        if to_dask:
-            client.close()
-
         return result
+
+    @staticmethod
+    def __get_log_stream():
+        str_buffer = StringIO()
+        ch = logging.StreamHandler(str_buffer)
+        logger = logging.getLogger("grizly")
+        logger.addHandler(ch)
+        return str_buffer
 
     def __check_conditions(self, job_run: JobRun) -> Dict[SubmitCondition, bool]:
         # result_change
