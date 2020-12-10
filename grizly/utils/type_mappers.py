@@ -32,11 +32,6 @@ def _map_type(mapping, dtype, default=None, method="advanced"):
         return mapping.get(dtype, default)  # exact search
 
 
-def spectrum_to_redshift(dtype):
-    mapping = {"double": "DOUBLE PRECISION"}
-    return _map_type(mapping, dtype, method="simple")
-
-
 def mysql_to_postgresql(dtype):
     dtype = dtype.upper()
     mapping = {
