@@ -1,6 +1,10 @@
 from typing import List, Literal
 
-from ...utils.type_mappers import postgresql_to_pyarrow, postgresql_to_python
+from ...utils.type_mappers import (
+    postgresql_to_pyarrow,
+    postgresql_to_python,
+    spectrum_to_postgresql,
+)
 from .base import RDBMSWriteBase
 
 
@@ -163,9 +167,21 @@ class Redshift(RDBMSWriteBase):
 
     @staticmethod
     def map_types(dtypes: List[str], to: str = None):
-        if to == "python":
+        if to == "postgresql":
+            return dtypes
+        elif to == "python":
             return [postgresql_to_python(dtype) for dtype in dtypes]
         elif to == "pyarrow":
             return [postgresql_to_pyarrow(dtype) for dtype in dtypes]
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"Mapping to {to} is not yet implemented")
+
+
+class RedshiftSpectrum(Redshift):
+    @staticmethod
+    def map_types(dtypes: List[str], to: str = None):
+        if to == "postgresql":
+            mapping_func = spectrum_to_postgresql
+        else:
+            raise NotImplementedError(f"Mapping to {to} is not yet implemented")
+        return [mapping_func(dtype) for dtype in dtypes]

@@ -407,7 +407,8 @@ class SQLDriver(BaseDriver):
         )
 
         if not isinstance2(output_source, types.Redshift):
-            raise NotImplementedError("Writing to external tables is only supported in Redshift")
+            msg = f"Writing to external tables is only supported in Redshift. Got {output_source}"
+            raise NotImplementedError(msg)
 
         columns = self.get_fields(aliased=True)
         mapped_types = self.source.map_types(self.get_dtypes(), to=output_source.dialect)

@@ -106,6 +106,7 @@ def pyarrow_to_rds(dtype):
 
 
 def postgresql_to_pyarrow(dtype):
+    dtype = dtype.upper()
     mapping = {
         "BOOL": pa.bool_(),
         "BOOLEAN": pa.bool_(),
@@ -144,6 +145,7 @@ def rds_to_pyarrow(dtype):
 
 
 def mysql_to_pyarrow(dtype):
+    dtype = dtype.upper()
     # TODO: fix below mapper
     mapping = {
         "BOOL": pa.bool_(),
@@ -270,6 +272,7 @@ def sfdc_to_python(dtype):
 
 
 def denodo_to_python(dtype):
+    dtype = dtype.upper()
     mapping = {
         "VARCHAR": str,
         "NVARCHAR": str,
@@ -286,6 +289,7 @@ def denodo_to_python(dtype):
 
 
 def denodo_to_pyarrow(dtype):
+    dtype = dtype.upper()
     mapping = {
         "VARCHAR": pa.string(),
         "NVARCHAR": pa.string(),
@@ -303,6 +307,7 @@ def denodo_to_pyarrow(dtype):
 
 
 def postgresql_to_python(dtype):
+    dtype = dtype.upper()
     # TODO: fix below mapper
     mapping = {
         "BOOL": bool,
@@ -342,6 +347,7 @@ def sql_to_python(dtype):
 
 
 def mysql_to_python(dtype):
+    dtype = dtype.upper()
     # TODO: fix below mapper
     mapping = {
         "BOOL": bool,
@@ -383,6 +389,17 @@ def python_to_sql(dtype):
         float: "FLOAT8",
         datetime.date: "DATE",
         datetime.datetime: "DATETIME",
+    }
+    return _map_type(mapping, dtype, default="VARCHAR(255)")
+
+
+def spectrum_to_postgresql(dtype):
+    mapping = {
+        "double": "DOUBLE PRECISION",
+        "varchar": "VARCHAR",
+        "int": "INTEGER",
+        "timestamp": "TIMESTAMP",
+        "date": "DATE",
     }
     return _map_type(mapping, dtype, default="VARCHAR(255)")
 

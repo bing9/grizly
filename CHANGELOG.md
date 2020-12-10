@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Extract
+- Added automatic validations
+- Added `run()` method as a thin wrapper around `Job.submit()`
+- It's now preferred to run `Extract.register()` and then `Extract.run()` rather than `Extract.submit()`,
+which was confusing to use and to code, as well as inefficient
+
 ## [0.4.1](https://github.com/kfk/grizly/compare/v0.4...v0.4.1) - 01-12-2020
 
 ### Overall
