@@ -7,7 +7,7 @@ build
 .vscode
 .hypothesis
 .env
-docker_home
+docker/home
 *.png
 dask-worker-space
 *.ini

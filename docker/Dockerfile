@@ -1,4 +1,4 @@
-FROM acoeteam/grizly_base:latest
+FROM acoeteam/base_notebook:latest
 
 
 # create and give priviledges to users
