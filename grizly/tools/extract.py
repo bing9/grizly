@@ -513,7 +513,11 @@ class BaseExtract:
         empty_prod = self.empty_s3_dir(self.s3_prod_url, upstream=validate)
         to_prod = self.staging_to_prod(upstream=empty_prod)
 
-        dask.delayed()([to_prod], name=self.name).compute()
+        graph = dask.delayed()([to_prod], name=self.name)
+        client = self._get_client()
+        client.compute(graph)
+        client.close()
+        # dask.delayed()([to_prod], name=self.name + " - validation").compute()
 
 
 class SimpleExtract(BaseExtract):
@@ -538,7 +542,11 @@ class SimpleExtract(BaseExtract):
         self.logger.info("Tasks have been successfully generated.")
 
         self.logger.info("Submitting to Dask...")
-        dask.delayed()([external_table_staging], name=self.name).compute()
+        graph = dask.delayed()([external_table_staging], name=self.name)
+        client = self._get_client()
+        client.compute(graph)
+        client.close()
+        # dask.delayed()([external_table_staging], name=self.name).compute()
         self.logger.info("Tasks have been successfully submitted to Dask.")
 
 
@@ -607,7 +615,10 @@ class SFDCExtract(BaseExtract):
         self.logger.info("Tasks have been successfully generated.")
 
         self.logger.info("Submitting to Dask...")
-        dask.delayed()([external_table_staging], name=self.name).compute()
+        graph = dask.delayed()([external_table_staging], name=self.name)
+        client = self._get_client()
+        client.compute(graph)
+        client.close()
         self.logger.info("Tasks have been successfully submitted to Dask.")
 
     @dask.delayed
@@ -871,7 +882,11 @@ class DenodoExtract(BaseExtract):
         self.logger.info("Tasks have been successfully generated.")
 
         self.logger.info("Submitting to Dask...")
-        dask.delayed()(extract_tasks, name=self.name).compute()
+        # dask.delayed()(extract_tasks, name=self.name).compute()
+        graph = dask.delayed()([extract_tasks], name=self.name)
+        client = self._get_client()
+        client.compute(graph)
+        client.close()
         self.logger.info("Tasks have been successfully submitted to Dask.")
 
 
