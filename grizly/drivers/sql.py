@@ -831,7 +831,7 @@ def join(
 
     out_qf = SQLDriver(store=data, source=qframes[0].source, logger=qframes[0].logger)
 
-    out_qf.logger.info("Data joined successfully.")
+    out_qf.logger.debug("Data joined successfully.")
     if not unique_col:
         warnings.warn(
             "Please remove or rename duplicated columns."
@@ -962,6 +962,6 @@ def union(
     data["select"]["union"] = {"union_type": union_type}
 
     out_qf = SQLDriver(store=data, source=qframes[0].source, logger=qframes[0].logger)
-    out_qf.logger.info("Data unioned successfully.")
+    out_qf.logger.debug("Data unioned successfully.")
 
     return out_qf
