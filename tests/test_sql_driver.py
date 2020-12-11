@@ -89,6 +89,7 @@ def test_get_sql(orders_qf):
                 GROUP BY 1,
                         2,
                         3,
+                        "HiddenColumn",
                         5
                 LIMIT 5
             """
