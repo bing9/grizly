@@ -57,17 +57,18 @@ class SQLite(RDBMSWriteBase):
         else:
             return col_names
 
-    @staticmethod
-    def map_types(dtypes: List[str], to: str = None):
-        if to == "postgresql":
+    @classmethod
+    def map_types(cls, dtypes: List[str], to: str = None):
+        if to == cls.dialect:
+            return dtypes
+        elif to == "postgresql":
             return [mysql_to_postgresql(dtype) for dtype in dtypes]
         elif to == "python":
             return [mysql_to_python(dtype) for dtype in dtypes]
         elif to == "pyarrow":
             return [mysql_to_pyarrow(dtype) for dtype in dtypes]
         else:
-            raise NotImplementedError
-
+            raise NotImplementedError(f"Mapping from {cls.dialect} to {to} is not yet implemented")
 
     def _run_query(self, sql: str, autocommit: bool = False):
         """Sqlite doesn't allow to run many queries at the same time and autocommits"""
@@ -88,7 +89,7 @@ class SQLite(RDBMSWriteBase):
             self.logger.debug("Connection closed")
 
     @staticmethod
-    def __split_query(query: str)-> List[str]:
+    def __split_query(query: str) -> List[str]:
         queries = query.split(";")
 
         # remove 'commit' and '' elements
