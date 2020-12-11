@@ -1011,6 +1011,9 @@ class S3:
                 output_source.delete_from(table=table, schema=schema)
             elif if_exists == "drop":
                 output_source.drop_table(table=table, schema=schema)
+                self._create_table_like_s3(
+                    table=table, schema=schema, sep=sep, output_source=output_source, types=types
+                )
             else:
                 pass
         else:
