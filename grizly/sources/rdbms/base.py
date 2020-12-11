@@ -240,8 +240,8 @@ class RDBMSReadBase(BaseReadSource):
         else:
             return sql
 
-    @staticmethod
-    def map_types(types: Union[str, List[Any]], to: str = None):
+    @classmethod
+    def map_types(cls, dtypes: Union[str, List[Any]], to: str = None):
         """Map types from the source to other dialect.
 
         Parameters
@@ -251,7 +251,10 @@ class RDBMSReadBase(BaseReadSource):
         to : str, optional
             Output dialect, by default None
         """
-        raise NotImplementedError
+        if to == cls.dialect:
+            return dtypes
+        else:
+            raise NotImplementedError(f"Mapping from {cls.dialect} to {to} is not yet implemented")
 
 
 class RDBMSWriteBase(BaseWriteSource, RDBMSReadBase):

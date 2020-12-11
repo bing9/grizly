@@ -256,15 +256,15 @@ class SFDB(RDBMSReadBase):
         """Alias for object."""
         return self.object(name=name)
 
-    @staticmethod
-    def map_types(types, to):
-        if to == "postgresql":
-            mapping_func = sfdc_to_sqlalchemy
+    @classmethod
+    def map_types(cls, dtypes: List[str], to: str = None):
+        if to == cls.dialect:
+            return dtypes
+        elif to == "postgresql":
+            return [sfdc_to_sqlalchemy(t) for t in dtypes]
         elif to == "pyarrow":
-            mapping_func = sfdc_to_pyarrow
+            return [sfdc_to_pyarrow(t) for t in dtypes]
         elif to == "python":
-            mapping_func = sfdc_to_python
+            return [sfdc_to_python(t) for t in dtypes]
         else:
-            raise NotImplementedError
-        mapped = [mapping_func(t) for t in types]
-        return mapped
+            raise NotImplementedError(f"Mapping from {cls.dialect} to {to} is not yet implemented")

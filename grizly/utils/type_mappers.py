@@ -294,6 +294,7 @@ def denodo_to_pyarrow(dtype):
         "TIMESTAMP": pa.timestamp("ms", tz="utc"),
         "FLOAT": pa.float32(),
         "FLOAT8": pa.float32(),
+        "NUMERIC": pa.float32(),
         "INTEGER": pa.int32(),
         "SMALLINT": pa.int32(),
         "BIGINT": pa.int64(),

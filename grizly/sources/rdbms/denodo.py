@@ -107,13 +107,16 @@ class Denodo(RDBMSReadBase):
                 col_types = [col_names_and_types[col_name] for col_name in col_names]
             return col_names, col_types
 
-    @staticmethod
-    def map_types(types, to):
-        if to == "postgresql":
-            return types
-        if to == "python":
-            mapping_func = denodo_to_python
+    @classmethod
+    def map_types(cls, dtypes: List[str], to: str = None):
+        if to == cls.dialect:
+            return dtypes
+        elif to == "postgresql":
+            # TODO: implement denodo_to_postgresql mapper
+            return dtypes
+        elif to == "python":
+            return [denodo_to_python(dtype) for dtype in dtypes]
         elif to == "pyarrow":
-            mapping_func = denodo_to_pyarrow
-        mapped = [mapping_func(t) for t in types]
-        return mapped
+            return [denodo_to_pyarrow(dtype) for dtype in dtypes]
+        else:
+            raise NotImplementedError(f"Mapping from {cls.dialect} to {to} is not yet implemented")
