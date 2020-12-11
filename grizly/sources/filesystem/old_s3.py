@@ -548,7 +548,7 @@ class S3:
         remove_inside_quotes : bool, optional
             Whether to add REMOVEQUOTES to copy statement, by default False
         """
-        if if_exists not in ("fail", "replace", "append"):
+        if if_exists not in ("fail", "replace", "drop", "append"):
             raise ValueError(f"'{if_exists}' is not valid for if_exists")
 
         if not execute_on_skip:
@@ -571,10 +571,17 @@ class S3:
             output_source = output_source or Source(dsn=dsn, logger=self.logger, **kwargs)
 
         if not isinstance2(output_source, Redshift):
-            raise ValueError(f"Specified datasource '{output_source.dsn}' is not a Redshift Database.")
+            raise ValueError(
+                f"Specified datasource '{output_source.dsn}' is not a Redshift Database."
+            )
 
         self.__validate_output_table(
-            table=table, schema=schema, output_source=output_source, if_exists=if_exists, sep=sep, types=types
+            table=table,
+            schema=schema,
+            output_source=output_source,
+            if_exists=if_exists,
+            sep=sep,
+            types=types,
         )
 
         columns_output_table = output_source.get_columns(table=table, schema=schema)
@@ -739,10 +746,17 @@ class S3:
             output_source = output_source or Source(dsn=dsn, logger=self.logger, **kwargs)
 
         if not isinstance2(output_source, AuroraPostgreSQL):
-            raise ValueError(f"Specified datasource '{output_source.dsn}' is not an Aurora Database.")
+            raise ValueError(
+                f"Specified datasource '{output_source.dsn}' is not an Aurora Database."
+            )
 
         self.__validate_output_table(
-            table=table, schema=schema, output_source=output_source, if_exists=if_exists, sep=sep, types=types
+            table=table,
+            schema=schema,
+            output_source=output_source,
+            if_exists=if_exists,
+            sep=sep,
+            types=types,
         )
 
         con = output_source.get_connection()
@@ -1007,8 +1021,12 @@ class S3:
     @staticmethod
     def __set_proxy():
         config = grizly_config.get_service("proxies")
-        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or config.get("https")
-        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or config.get("http")
+        https_proxy = (
+            os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or config.get("https")
+        )
+        http_proxy = (
+            os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or config.get("http")
+        )
         if https_proxy is not None and http_proxy is not None:
             os.environ["HTTPS_PROXY"] = https_proxy
             os.environ["HTTP_PROXY"] = http_proxy
