@@ -1120,12 +1120,10 @@ class Job(SchedulerObject):
     @_check_if_exists()
     def submit(
         self,
-        *args,
         client: Client = None,
         scheduler_address: str = None,
         priority: int = 1,
         to_dask: bool = True,
-        **kwargs,
     ) -> Any:
 
         if self._is_running():
@@ -1148,7 +1146,7 @@ class Job(SchedulerObject):
 
         start = time()
         try:
-            result = self.func(*args, **kwargs)
+            result = self.func(*self.args, **self.kwargs)
             job_run.status = "success"
         except Exception:
             result = None
@@ -1217,8 +1215,8 @@ class Job(SchedulerObject):
             for job in jobs:
                 rq_job = queue.enqueue(
                     job.submit,
-                    args=job.args,
-                    kwargs=job.kwargs,
+                    # args=job.args,
+                    # kwargs=job.kwargs,
                     scheduler_address=self.scheduler_address,
                     result_ttl=job._result_ttl,
                     job_timeout=self.timeout,
@@ -1248,8 +1246,8 @@ class Job(SchedulerObject):
                 rq_job = scheduler.cron(
                     cron,
                     func=self.submit,
-                    args=self.args,
-                    kwargs=self.kwargs,
+                    # args=self.args,
+                    # kwargs=self.kwargs,
                     repeat=None,
                     queue_name=queue.name,
                     timeout=self.timeout,
