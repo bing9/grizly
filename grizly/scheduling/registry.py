@@ -615,11 +615,6 @@ class Job(SchedulerObject):
             self.hash_name, "description", self._serialize(description),
         )
 
-    # @property
-    # def graph(self) -> Delayed:
-    #     """Job's dask graph"""
-    #     return dask.delayed()(self.tasks, name=self.name + "_graph")
-
     @property
     def last_run(self) -> Optional[JobRun]:
         """Job's last run (JobRun object)
@@ -959,7 +954,7 @@ class Job(SchedulerObject):
         if not scheduler_address:
             scheduler_address = self.scheduler_address
         client = Client(scheduler_address)
-        f = Future(self.name + "_graph", client=client)
+        f = Future(self.name, client=client)
         f.cancel(force=True)
         client.close()
 
@@ -1279,42 +1274,6 @@ class Job(SchedulerObject):
     def stop(self):
         self.backend.cancel(self)
         self.last_run.status = "killed"
-
-
-class Backend(ABC):
-    @abstractmethod
-    def compute(self, job: Job) -> Any:
-        pass
-
-    @abstractmethod
-    def cancel(self, job: Job) -> bool:
-        pass
-
-
-class DaskBackend(Backend):
-    def __init__(self, scheduler_address):
-        self.scheduler_address = scheduler_address
-
-    def compute(self, job: Job):
-        graph = dask.delayed()(job.tasks, name=job.name + "_graph")
-        result = graph.compute()
-        return result
-
-    def cancel(self, job: Job):
-        client = Client(self.scheduler_address)
-        f = Future(job + "_graph", client=client)
-        f.cancel(force=True)
-        client.close()
-        return True
-
-
-class RedisBackend(Backend):
-    def compute(self, job: Job):
-        pass
-
-    def cancel(self, job: Job):
-        for rq_job in job._rq_job_ids:
-            cancel_job(rq_job)
 
 
 class Trigger(SchedulerObject):
