@@ -30,6 +30,7 @@ services:
       - ../docker/home:/home/analyst
       - ../docker/home/.config/odbc.ini:/etc/odbc.ini
     container_name: pytest_grizly_notebook
+    entrypoint: ["/bin/bash", "-c", "jupyter notebook --port=8888 --no-browser --ip=0.0.0.0 --allow-root --NotebookApp.token=''"]
     restart: "always"
   pytest_rq-worker:
     image: rq-worker
