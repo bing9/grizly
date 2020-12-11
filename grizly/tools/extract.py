@@ -7,6 +7,7 @@ from typing import Any, List, Optional, Union
 
 import dask
 import pandas as pd
+from pandas.core.base import NoNewAttributesMixin
 import pyarrow as pa
 import pyarrow.parquet as pq
 import s3fs
@@ -29,11 +30,6 @@ logging.basicConfig(
 
 
 class BaseExtract:
-    """
-    Common functions for all extracts. The logic for parallelization
-    must be defined in the subclass
-    """
-
     def __init__(
         self,
         qf: QFrame = None,
@@ -54,6 +50,49 @@ class BaseExtract:
         store: Store = None,
         **kwargs,
     ):
+        """Base Extract class. The logic for parallelization must be defined in the subclass.
+
+        Parameters
+        ----------
+        qf : QFrame, optional
+            The QFrame containing a query on the source table, by default None
+        name : str, optional
+            The name of the extract, by default None
+        staging_schema : str, optional
+            Staging schema, by default None
+        staging_table : str, optional
+            Staging table, by default None
+        prod_schema : str, optional
+            The schema where data will be moved after passing validations, by default None
+        prod_table : str, optional
+            The table where data will be moved after passing validations, by default None
+        output_dsn : str, optional
+            The DSN used for connecting to the output Source, by default None
+        output_dialect : str, optional
+            The dialect used for connecting to the output Source, by default None
+        output_source_name : str, optional
+            The name used for connecting to the output Source, by default None
+        autocast : bool, optional
+            Whether to automatically infer data types from parquet files
+            (this works similar to a Glue crawler). This is required because:
+            1) in some cases, original data types must be casted when dumping to parquet,
+            2) spectrum is incompatible with itself, ie. the Spectrum data types cannot be used
+            when creating spectrum tables, by default True
+        s3_root_url : str, optional
+            The root URL of the project, eg. s3://my_bucket/extracts, by default None
+        s3_bucket : str, optional
+            S3 bucket, by default None
+        dask_scheduler_address : str, optional
+            The address of the Dask scheduler where the computation should be executed,
+            by default None
+        if_exists : str, optional
+            What to do with the files and tables if they exist, by default "append"
+        priority : int, optional
+            Priority of the computation on the Dask cluster, by default -1
+        store : Store, optional
+            A store to create the store from. Typically you'd use Exract.from_json(),
+            by default None
+        """
         self.qf = qf
         self.name = name
         self.staging_schema = staging_schema
@@ -219,7 +258,7 @@ class BaseExtract:
     def empty_s3_dir(self, url, upstream=None):
 
         if upstream is False:
-            self.logger.warning("Received SKIP signal. Skipping...")
+            self.logger.warning("Received SKIP signal. Skipping 'empty_s3_dir()'...")
             return False
 
         self.logger.info(f"Emptying {url}...")
@@ -243,7 +282,7 @@ class BaseExtract:
         )
 
     @abstractmethod
-    def generate_tasks(self):
+    def extract(self):
         pass
 
     def register(
@@ -269,14 +308,12 @@ class BaseExtract:
         registry = registry or SchedulerDB(
             logger=self.logger, redis_host=redis_host, redis_port=redis_port
         )
-        extract_tasks = self.generate_tasks()
         self.extract_job = Job(self.name, logger=self.logger, db=registry)
-        self.extract_job.register(tasks=extract_tasks, remove_job_runs=remove_job_runs, **kwargs)
+        self.extract_job.register(func=self.extract, remove_job_runs=remove_job_runs, **kwargs)
 
-        validation_tasks = self._generate_validation_tasks()
         self.validation_job = Job(self.name + " - validation", logger=self.logger, db=registry)
         self.validation_job.register(
-            tasks=validation_tasks,
+            func=self.validate,
             owner="system",
             description=f"{self.name} extract validation",
             if_exists="replace",
@@ -408,7 +445,7 @@ class BaseExtract:
     def staging_to_prod(self, upstream=None):
 
         if upstream is False:
-            self.logger.warning("Received SKIP signal. Skipping...")
+            self.logger.warning("Received SKIP signal. Skipping 'staging_to_prod()'...")
             return
 
         self.logger.info("Moving data to prod...")
@@ -433,7 +470,7 @@ class BaseExtract:
             if_exists=self.table_if_exists,
         )
 
-    def _generate_validation_tasks(self, max_allowed_diff_percent=1):
+    def validate(self, max_allowed_diff_percent=1):
         groupby_cols = self.store.validation.groupby
         sort_by = groupby_cols if len(groupby_cols) > 1 else groupby_cols[0]
 
@@ -476,14 +513,16 @@ class BaseExtract:
         empty_prod = self.empty_s3_dir(self.s3_prod_url, upstream=validate)
         to_prod = self.staging_to_prod(upstream=empty_prod)
 
-        return [to_prod]
+        dask.delayed()([to_prod], name=self.name).compute()
 
 
 class SimpleExtract(BaseExtract):
     """"Extract data in single piece"""
 
-    def generate_tasks(self):
+    def extract(self) -> None:
         file_name = self.name_snake_case + ".parquet"
+
+        self.logger.info("Generating tasks...")
 
         start = self.begin_extract()
         qf_fixed = self.fix_qf_types(upstream=start)
@@ -496,9 +535,11 @@ class SimpleExtract(BaseExtract):
             upstream=s3,
         )
 
-        self.logger.debug("Tasks generated successfully")
+        self.logger.info("Tasks have been successfully generated.")
 
-        return [external_table_staging]
+        self.logger.info("Submitting to Dask...")
+        dask.delayed()([external_table_staging], name=self.name).compute()
+        self.logger.info("Tasks have been successfully submitted to Dask.")
 
 
 class SFDCExtract(BaseExtract):
@@ -517,7 +558,7 @@ class SFDCExtract(BaseExtract):
     overlapping content, it would load the duplicated rows.
     """
 
-    def generate_tasks(self) -> List[Delayed]:
+    def extract(self):
 
         self.logger.info("Generating tasks...")
 
@@ -565,7 +606,9 @@ class SFDCExtract(BaseExtract):
 
         self.logger.info("Tasks have been successfully generated.")
 
-        return [external_table_staging]
+        self.logger.info("Submitting to Dask...")
+        dask.delayed()([external_table_staging], name=self.name).compute()
+        self.logger.info("Tasks have been successfully submitted to Dask.")
 
     @dask.delayed
     def get_urls(self, upstream=None):
@@ -798,7 +841,7 @@ class DenodoExtract(BaseExtract):
 
         return [external_table_staging]
 
-    def generate_tasks(self, partitions_cache: str = "off") -> List[List[Delayed]]:
+    def extract(self, partitions_cache: str = "off") -> None:
         """Generate partitioning and extraction tasks
 
         Parameters
@@ -827,7 +870,9 @@ class DenodoExtract(BaseExtract):
 
         self.logger.info("Tasks have been successfully generated.")
 
-        return extract_tasks
+        self.logger.info("Submitting to Dask...")
+        dask.delayed()(extract_tasks, name=self.name).compute()
+        self.logger.info("Tasks have been successfully submitted to Dask.")
 
 
 class Extract:
