@@ -7,7 +7,6 @@ from typing import Any, List, Optional, Union
 
 import dask
 import pandas as pd
-from pandas.core.base import NoNewAttributesMixin
 import pyarrow as pa
 import pyarrow.parquet as pq
 import s3fs
@@ -47,7 +46,6 @@ class BaseExtract:
         dask_scheduler_address: str = None,
         if_exists: str = "append",
         priority: int = -1,
-        store: Store = None,
         validation: dict = None,
         **kwargs,
     ):
@@ -218,6 +216,8 @@ class BaseExtract:
     @dask.delayed
     @retry(Exception, tries=5, delay=5)
     def to_parquet(self, qf, file_name=None, upstream=None):
+
+        self.logger.info("Downloading data to parquet...")
 
         path = os.path.join(self.s3_staging_url, file_name)
 
@@ -458,10 +458,14 @@ class BaseExtract:
             if_exists=self.table_if_exists,
         )
 
-    def validate(self, max_allowed_diff_percent=None):
+    def validate(self, max_allowed_diff_percent=1):
+
+        if not self.validation:
+            self.logger.warning(f"No validation strategy specified for {self.name}")
+            return
 
         max_allowed_diff_percent = (
-            max_allowed_diff_percent or self.validation["max_allowed_diff_percent"]
+            self.validation.get("max_allowed_diff_percent") or max_allowed_diff_percent
         )
 
         groupby_cols = self.validation.get("groupby")
@@ -506,12 +510,10 @@ class BaseExtract:
         empty_prod = self.empty_s3_dir(self.s3_prod_url, upstream=validate)
         to_prod = self.staging_to_prod(upstream=empty_prod)
 
-        graph = dask.delayed()([to_prod], name=self.name)
-        # return graph
+        graph = dask.delayed()([to_prod], name=self.name + " (validation)")
         client = self._get_client()
         client.compute(graph, priority=self.priority)
         client.close()
-        # dask.delayed()([to_prod], name=self.name + " - validation").compute()
 
 
 class SimpleExtract(BaseExtract):
@@ -617,6 +619,7 @@ class SFDCExtract(BaseExtract):
 
     @dask.delayed
     def get_urls(self, upstream=None):
+        self.logger.info("Obtaining the list of URLs...")
         return self.qf.source._get_urls_from_response(query=self.qf.get_sql())
 
     @staticmethod
