@@ -48,6 +48,7 @@ class BaseExtract:
         if_exists: str = "append",
         priority: int = -1,
         store: Store = None,
+        validation: dict = None,
         **kwargs,
     ):
         """Base Extract class. The logic for parallelization must be defined in the subclass.
@@ -92,6 +93,9 @@ class BaseExtract:
         store : Store, optional
             A store to create the store from. Typically you'd use Exract.from_json(),
             by default None
+        validation: dict, optional
+            Definition of the validation to perform after a successful run.
+            Required keys: 'groupby', 'sum'. Optional key: 'max_allowed_diff_percent', by default 1.
         """
         self.qf = qf
         self.name = name
@@ -108,7 +112,7 @@ class BaseExtract:
         self.dask_scheduler_address = dask_scheduler_address
         self.if_exists = if_exists
         self.priority = priority
-        self.store = store
+        self.validation = validation
 
         self._load_attrs()
 
@@ -131,17 +135,16 @@ class BaseExtract:
         attrs = {k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)}
         _repr = ""
         for attr, value in attrs.items():
-            # TODO: trim all vals to :50
             line_len = len(attr)
             attr_val = self._get_attr_val(attr, init_val=value)
             if attr == "qf":
                 attr_val_str = self.qf.__class__.__name__
-            elif attr == "store" and self.store:
-                attr_val_str = str(self.store)[:50] + "..."
             elif attr == "partitions" and self.partitions:
-                attr_val_str = str(self.partitions)[:50] + "..."
+                attr_val_str = str(self.partitions)
             else:
                 attr_val_str = str(attr_val)
+            # trim output to 50 chars
+            attr_val_str = attr_val_str[:50] + "..." if len(attr_val_str) > 50 else attr_val_str
             if attr_val_str == "None":
 
                 line_len -= 9
@@ -175,7 +178,7 @@ class BaseExtract:
         self.name_snake_case = self._to_snake_case(self.name)
         self.staging_table = self.staging_table or self.name_snake_case
         self.prod_table = self.prod_table or self.name_snake_case
-        # TODO: remove the bucket line -- should be read by _get_attr_val()
+        # TODO: remove below line -- should be read by _get_attr_val()
         self.s3_bucket = self.s3_bucket or config.get_service("s3").get("bucket")
         self.s3_root_url = (
             self.s3_root_url or f"s3://{self.s3_bucket}/extracts/{self.name_snake_case}/"
@@ -189,17 +192,6 @@ class BaseExtract:
         # self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
         self.logger = logging.getLogger(self.name_snake_case)
         self.qf.logger = self.logger
-
-        if not self.store:
-            # construct self.store from parameters
-            attrs_final = {
-                k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)
-            }
-            qf_store = self.qf.store.to_dict()
-            attrs_dict = {
-                attr: (attrs_final[attr] if attr != "qf" else qf_store) for attr in attrs_final
-            }
-            self.store = Store(attrs_dict)
 
     @staticmethod
     def _to_snake_case(text):
@@ -335,15 +327,11 @@ class BaseExtract:
         """
         if_exists = "replace" if reregister else "skip"
         self.register(registry=registry, if_exists=if_exists, **kwargs)
-        self.extract_job.submit(
-            scheduler_address=self.dask_scheduler_address, priority=kwargs.get("priority")
-        )
+        self.extract_job.submit(scheduler_address=self.dask_scheduler_address)
         return True
 
-    def run(self, priority=-1, **kwargs):
-        self.extract_job.submit(
-            scheduler_address=self.dask_scheduler_address, priority=priority, **kwargs
-        )
+    def run(self, **kwargs):
+        self.extract_job.submit(scheduler_address=self.dask_scheduler_address, **kwargs)
         return True
 
     @dask.delayed
@@ -470,11 +458,16 @@ class BaseExtract:
             if_exists=self.table_if_exists,
         )
 
-    def validate(self, max_allowed_diff_percent=1):
-        groupby_cols = self.store.validation.groupby
+    def validate(self, max_allowed_diff_percent=None):
+
+        max_allowed_diff_percent = (
+            max_allowed_diff_percent or self.validation["max_allowed_diff_percent"]
+        )
+
+        groupby_cols = self.validation.get("groupby")
         sort_by = groupby_cols if len(groupby_cols) > 1 else groupby_cols[0]
 
-        sum_cols = self.store.validation.sum
+        sum_cols = self.validation.get("sum")
         cols = groupby_cols + sum_cols
         where = self.qf.store.select.get("where")
 
@@ -514,8 +507,9 @@ class BaseExtract:
         to_prod = self.staging_to_prod(upstream=empty_prod)
 
         graph = dask.delayed()([to_prod], name=self.name)
+        # return graph
         client = self._get_client()
-        client.compute(graph)
+        client.compute(graph, priority=self.priority)
         client.close()
         # dask.delayed()([to_prod], name=self.name + " - validation").compute()
 
@@ -882,11 +876,11 @@ class DenodoExtract(BaseExtract):
         self.logger.info("Tasks have been successfully generated.")
 
         self.logger.info("Submitting to Dask...")
-        # dask.delayed()(extract_tasks, name=self.name).compute()
-        graph = dask.delayed()([extract_tasks], name=self.name)
-        client = self._get_client()
-        client.compute(graph)
-        client.close()
+        dask.delayed()([extract_tasks], name="abc", dask_key_name="A").compute()
+        # graph = dask.delayed()(extract_tasks, name=self.name, dask_key_name="ABC")
+        # client = self._get_client()
+        # client.compute(graph)
+        # client.close()
         self.logger.info("Tasks have been successfully submitted to Dask.")
 
 
