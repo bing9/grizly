@@ -257,10 +257,9 @@ class BaseExtract:
 
         try:
             s3.rm(url, recursive=True)
+            self.logger.info(f"{url} has been successfully emptied.")
         except FileNotFoundError:
             self.logger.warning(f"Couldn't empty {url} as it doesn't exist")
-
-        self.logger.info(f"{url} has been successfully emptied.")
 
     @dask.delayed
     def create_external_table(self, qf, schema, table, s3_url, upstream: Delayed = None):
@@ -510,10 +509,7 @@ class BaseExtract:
         empty_prod = self.empty_s3_dir(self.s3_prod_url, upstream=validate)
         to_prod = self.staging_to_prod(upstream=empty_prod)
 
-        graph = dask.delayed()([to_prod], name=self.name + " (validation)")
-        client = self._get_client()
-        client.compute(graph, priority=self.priority)
-        client.close()
+        return dask.delayed()([to_prod], name=self.name + " (validation)").compute()
 
 
 class SimpleExtract(BaseExtract):
@@ -542,7 +538,6 @@ class SimpleExtract(BaseExtract):
         client = self._get_client()
         client.compute(graph)
         client.close()
-        # dask.delayed()([external_table_staging], name=self.name).compute()
         self.logger.info("Tasks have been successfully submitted to Dask.")
 
 
@@ -575,7 +570,7 @@ class SFDCExtract(BaseExtract):
         client.close()
 
         if self.if_exists == "replace":
-            wipe_staging = self.empty_s3_dir(url=self.s3_staging_url, upstream=chunks)
+            wipe_staging = self.empty_s3_dir(url=self.s3_staging_url)
         else:
             wipe_staging = None
 
@@ -589,9 +584,7 @@ class SFDCExtract(BaseExtract):
                 first_url_pos = url_chunk[0].split("-")[1]
                 last_url_pos = url_chunk[-1].split("-")[1]
                 file_name = f"{first_url_pos}-{last_url_pos}.parquet"
-                arrow_table = self.urls_to_arrow(
-                    qf=qf_fixed, urls=url_chunk, batch_no=batch_no, upstream=wipe_staging
-                )
+                arrow_table = self.urls_to_arrow(qf=qf_fixed, urls=url_chunk, batch_no=batch_no)
                 to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
                 s3_uploads.append(to_s3)
                 batch_no += 1
@@ -611,21 +604,19 @@ class SFDCExtract(BaseExtract):
         self.logger.info("Tasks have been successfully generated.")
 
         self.logger.info("Submitting to Dask...")
-        graph = dask.delayed()([external_table_staging], name=self.name)
-        client = self._get_client()
-        client.compute(graph)
-        client.close()
-        self.logger.info("Tasks have been successfully submitted to Dask.")
+        return dask.delayed()([external_table_staging], name=self.name + " graph").compute()
 
     @dask.delayed
     def get_urls(self, upstream=None):
         self.logger.info("Obtaining the list of URLs...")
         return self.qf.source._get_urls_from_response(query=self.qf.get_sql())
 
-    @staticmethod
     @dask.delayed
-    def chunk(iterable, chunksize):
-        return chunker(iterable, size=chunksize)
+    def chunk(self, iterable, chunksize):
+        self.logger.info("Generating URL batches...")
+        chunks = chunker(iterable, size=chunksize)
+        self.logger.info("URL batches have been successfully generated.")
+        return chunks
 
     @dask.delayed
     def qf_to_arrow(qf: QFrame) -> pa.Table:
@@ -879,12 +870,7 @@ class DenodoExtract(BaseExtract):
         self.logger.info("Tasks have been successfully generated.")
 
         self.logger.info("Submitting to Dask...")
-        dask.delayed()([extract_tasks], name="abc", dask_key_name="A").compute()
-        # graph = dask.delayed()(extract_tasks, name=self.name, dask_key_name="ABC")
-        # client = self._get_client()
-        # client.compute(graph)
-        # client.close()
-        self.logger.info("Tasks have been successfully submitted to Dask.")
+        return dask.delayed()([extract_tasks], name=self.name + " graph").compute()
 
 
 class Extract:
