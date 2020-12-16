@@ -954,7 +954,7 @@ class Job(SchedulerObject):
         if not scheduler_address:
             scheduler_address = self.scheduler_address
         client = Client(scheduler_address)
-        f = Future(self.name, client=client)
+        f = Future(self.name + " graph", client=client)
         f.cancel(force=True)
         client.close()
 
