@@ -30,7 +30,7 @@ from ..exceptions import JobAlreadyRunningError, JobNotFoundError, JobRunNotFoun
 from ..store import Store
 from ..utils.functions import dict_diff
 
-SubmitCondition = Literal["success", "fail", "result_change"]
+SubmitCondition = Literal["success", "fail", "result_change", "finished"]
 
 
 def _check_if_exists(raise_error=True):
@@ -1122,7 +1122,7 @@ class Job(SchedulerObject):
     ) -> Any:
 
         if self._is_running():
-            msg = f"Job {self.name} is already running. Please use Job.stop() or Job.restart()"
+            msg = f"Job {self.name} is already running. Please use Job._cancel() to cancel the job."
             raise JobAlreadyRunningError(msg)
 
         if to_dask:
@@ -1190,6 +1190,7 @@ class Job(SchedulerObject):
             "success": job_run.status == "success",
             "fail": job_run.status == "fail",
             "result_change": result_change_flag,
+            "finished": True,
         }
 
         return conditions_flags
@@ -1274,6 +1275,49 @@ class Job(SchedulerObject):
     def stop(self):
         self.backend.cancel(self)
         self.last_run.status = "killed"
+
+
+class Function(SchedulerObject):
+    prefix = "grizly:registry:functions:"
+
+    def info(self):
+        pass
+
+    def register(
+        self,
+        func: Callable,
+        owner: Optional[str] = None,
+        description: Optional[str] = None,
+        if_exists: Literal["fail", "replace", "skip"] = "fail",
+    ):
+        pass
+
+    def unregister(self):
+        pass
+
+    @property
+    def args(self) -> Tuple[Any]:
+        """Args passed to Job.func"""
+        return self._get("args")
+
+    @args.setter
+    @_check_if_exists()
+    def args(self, args: Tuple[Any]):
+        self.con.hset(
+            self.hash_name, "args", self._serialize(args),
+        )
+
+    @property
+    def kwargs(self) -> Dict[str, Any]:
+        """Kwargs passed to Job.func"""
+        return self._get("kwargs")
+
+    @kwargs.setter
+    @_check_if_exists()
+    def kwargs(self, kwargs: Dict[str, Any]):
+        self.con.hset(
+            self.hash_name, "kwargs", self._serialize(kwargs),
+        )
 
 
 class Trigger(SchedulerObject):
