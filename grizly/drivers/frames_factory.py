@@ -20,7 +20,7 @@ class QFrame:
         if source is None and dsn is None:
             raise ValueError("Please specify either source or dsn parameter")
 
-        if not isinstance(source, BaseReadSource):
+        if source and not isinstance(source, BaseReadSource):
             raise ValueError("'source' must be an instance of Source")
 
         source = source or Source(dsn=dsn, **kwargs)
