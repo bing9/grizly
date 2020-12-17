@@ -47,6 +47,11 @@ def orders_data():
                 "HiddenColumn": {"dtype": "CHAR(1)", "select": 0},
             },
             "table": "Orders",
+            "source": {
+                "dsn": "Chinook.sqlite",
+                "source_name": "sqlite",
+                "dialect": "mysql"
+            }
         }
     }
     return deepcopy(data)
@@ -61,6 +66,11 @@ def customers_data():
                 "Customer": {"dtype": "VARCHAR(500)", "as": "Customer"},
             },
             "table": "Customers",
+            "source": {
+                "dsn": "Chinook.sqlite",
+                "source_name": "sqlite",
+                "dialect": "mysql"
+            }
         }
     }
     return deepcopy(data)
