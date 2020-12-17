@@ -139,6 +139,15 @@ def test_from_json_s3(key, customers_qf, customers_data):
     assert qf.store.to_dict() == customers_data
 
 
+@pytest.mark.parametrize("key", ["key", None])
+def test_from_json_classmethod(key, customers_qf, customers_data):
+    store = customers_qf.store
+    customers_qf.store.to_json("qframe_data.json", key=key)
+    qf = QFrame.from_json(path="qframe_data.json", key=key)
+    os.remove("qframe_data.json")
+    assert qf.store.to_dict() == customers_data
+
+
 def test_from_json_github():
     # TODO
     pass
