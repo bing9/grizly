@@ -433,7 +433,7 @@ class BaseExtract:
 
         if upstream is False:
             self.logger.warning("Received SKIP signal. Skipping 'staging_to_prod()'...")
-            return
+            return False
 
         self.logger.info("Moving data to prod...")
 
@@ -456,11 +456,19 @@ class BaseExtract:
             s3_url=self.s3_prod_url,
             if_exists=self.table_if_exists,
         )
+        return True
+
+    @dask.delayed
+    def finish_validation(self, upstream=None):
+        if upstream is False:
+            self.logger.warning("Validation finished with the status fail.")
+            return False
+        self.logger.info("Validation finished with the status success.")
 
     def validate(self, max_allowed_diff_percent=1):
 
         if not self.validation:
-            self.logger.warning(f"No validation strategy specified for {self.name}")
+            self.logger.warning(f"No validation strategy specified for {self.name}.")
             return
 
         max_allowed_diff_percent = (
@@ -509,7 +517,9 @@ class BaseExtract:
         empty_prod = self.empty_s3_dir(self.s3_prod_url, upstream=validate)
         to_prod = self.staging_to_prod(upstream=empty_prod)
 
-        return dask.delayed()([to_prod], name=self.name + " (validation)").compute()
+        end = self.finish_validation(upstream=to_prod)
+
+        return dask.delayed()([end], name=self.name + " (validation)").compute()
 
 
 class SimpleExtract(BaseExtract):
