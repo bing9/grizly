@@ -12,7 +12,7 @@ from .sources.sources_factory import Source, SQLDB
 from .drivers.github import GitHubDriver
 
 # from .scheduling.orchestrate import Workflow, Listener, EmailListener, Schedule, Runner
-from .scheduling.registry import SchedulerDB, Job, Trigger
+from .scheduling.registry import SchedulerDB, Job, Trigger, Function
 from .tools.extract import Extract, SimpleExtract, SFDCExtract
 
 

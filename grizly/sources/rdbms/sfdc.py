@@ -148,15 +148,15 @@ class SFDB(RDBMSReadBase):
         records = self._sfdc_records_to_records(response)
         return records
 
-    def _fetch_records_iter(self, query: str, chunksize: int = 20) -> Iterable:
-        urls = self._get_urls_from_response(query=query)
-        url_chunks = chunker(urls, size=chunksize)
-        for url_chunk in url_chunks:
-            records_chunk = []
-            for url in url_chunk:
-                records = self._fetch_records_url(url)
-                records_chunk.extend(records)
-            yield records_chunk
+    # def _fetch_records_iter(self, query: str, chunksize: int = 20) -> Iterable:
+    #     urls = self._get_urls_from_response(query=query)
+    #     url_chunks = chunker(urls, size=chunksize)
+    #     for url_chunk in url_chunks:
+    #         records_chunk = []
+    #         for url in url_chunk:
+    #             records = self._fetch_records_url(url)
+    #             records_chunk.extend(records)
+    #         yield records_chunk
 
     def _get_urls_from_response(self, query: str) -> List[str]:
         """
@@ -173,7 +173,9 @@ class SFDB(RDBMSReadBase):
         """
         result = self.con.query(query, include_deleted=False)
         total_size = result["totalSize"]
-        second_url = result["nextRecordsUrl"]
+        second_url = result.get("nextRecordsUrl")
+        if not second_url:
+            return []
         # http://url/id-chunk_start, eg. for first chunk it's http://url/id-0,
         # for the second (with limit 250) it's http://url/id-250, and so on
         chunksize = int(second_url.split("-")[1])
@@ -254,15 +256,15 @@ class SFDB(RDBMSReadBase):
         """Alias for object."""
         return self.object(name=name)
 
-    @staticmethod
-    def map_types(types, to):
-        if to == "postgresql":
-            mapping_func = sfdc_to_sqlalchemy
+    @classmethod
+    def map_types(cls, dtypes: List[str], to: str = None):
+        if to == cls.dialect:
+            return dtypes
+        elif to == "postgresql":
+            return [sfdc_to_sqlalchemy(t) for t in dtypes]
         elif to == "pyarrow":
-            mapping_func = sfdc_to_pyarrow
+            return [sfdc_to_pyarrow(t) for t in dtypes]
         elif to == "python":
-            mapping_func = sfdc_to_python
+            return [sfdc_to_python(t) for t in dtypes]
         else:
-            raise NotImplementedError
-        mapped = [mapping_func(t) for t in types]
-        return mapped
+            raise NotImplementedError(f"Mapping from {cls.dialect} to {to} is not yet implemented")

@@ -6,6 +6,7 @@ from abc import abstractmethod
 from typing import Any, List, Optional, Union
 
 import dask
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import s3fs
@@ -20,17 +21,14 @@ from ..sources.filesystem.old_s3 import S3
 from ..sources.sources_factory import Source
 from ..store import Store
 from ..utils.functions import chunker, retry
-from ..utils.type_mappers import spectrum_to_redshift
 
 s3 = s3fs.S3FileSystem()
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
 
 
 class BaseExtract:
-    """
-    Common functions for all extracts. The logic for parallelization
-    must be defined in the subclass
-    """
-
     def __init__(
         self,
         qf: QFrame = None,
@@ -42,16 +40,61 @@ class BaseExtract:
         output_dsn: str = None,
         output_dialect: str = None,
         output_source_name: str = None,
-        output_table_type: str = "external",
         autocast: bool = True,
         s3_root_url: str = None,
         s3_bucket: str = None,
         dask_scheduler_address: str = None,
         if_exists: str = "append",
         priority: int = -1,
-        store: Store = None,
+        validation: dict = None,
         **kwargs,
     ):
+        """Base Extract class. The logic for parallelization must be defined in the subclass.
+
+        Parameters
+        ----------
+        qf : QFrame, optional
+            The QFrame containing a query on the source table, by default None
+        name : str, optional
+            The name of the extract, by default None
+        staging_schema : str, optional
+            Staging schema, by default None
+        staging_table : str, optional
+            Staging table, by default None
+        prod_schema : str, optional
+            The schema where data will be moved after passing validations, by default None
+        prod_table : str, optional
+            The table where data will be moved after passing validations, by default None
+        output_dsn : str, optional
+            The DSN used for connecting to the output Source, by default None
+        output_dialect : str, optional
+            The dialect used for connecting to the output Source, by default None
+        output_source_name : str, optional
+            The name used for connecting to the output Source, by default None
+        autocast : bool, optional
+            Whether to automatically infer data types from parquet files
+            (this works similar to a Glue crawler). This is required because:
+            1) in some cases, original data types must be casted when dumping to parquet,
+            2) spectrum is incompatible with itself, ie. the Spectrum data types cannot be used
+            when creating spectrum tables, by default True
+        s3_root_url : str, optional
+            The root URL of the project, eg. s3://my_bucket/extracts, by default None
+        s3_bucket : str, optional
+            S3 bucket, by default None
+        dask_scheduler_address : str, optional
+            The address of the Dask scheduler where the computation should be executed,
+            by default None
+        if_exists : str, optional
+            What to do with the files and tables if they exist, by default "append"
+        priority : int, optional
+            Priority of the computation on the Dask cluster, by default -1
+        store : Store, optional
+            A store to create the store from. Typically you'd use Exract.from_json(),
+            by default None
+        validation: dict, optional
+            Definition of the validation to perform after a successful run.
+            Required keys: 'groupby', 'sum'. Optional key: 'max_allowed_diff_percent', by default 1.
+        """
         self.qf = qf
         self.name = name
         self.staging_schema = staging_schema
@@ -61,14 +104,13 @@ class BaseExtract:
         self.output_dsn = output_dsn
         self.output_dialect = output_dialect
         self.output_source_name = output_source_name
-        self.output_table_type = output_table_type
         self.autocast = autocast
         self.s3_root_url = s3_root_url
         self.s3_bucket = s3_bucket
         self.dask_scheduler_address = dask_scheduler_address
         self.if_exists = if_exists
         self.priority = priority
-        self.store = store
+        self.validation = validation
 
         self._load_attrs()
 
@@ -77,12 +119,11 @@ class BaseExtract:
         store = Store.from_json(json_path=path, key=key)
         dsn = store.qframe.select.source.get("dsn")
         name = store.get("name")
-        logger = logging.getLogger("distributed.worker").getChild(name)
+        logger = logging.getLogger(name)
         qf = QFrame(dsn=dsn, logger=logger).from_dict(store.qframe)
         extract_params = {
             key: val for key, val in store.items() if key != "qframe" and val is not None
         }
-
         return cls(qf=qf, store=store, **extract_params)
 
     def __str__(self):
@@ -96,10 +137,12 @@ class BaseExtract:
             attr_val = self._get_attr_val(attr, init_val=value)
             if attr == "qf":
                 attr_val_str = self.qf.__class__.__name__
-            elif attr == "store" and self.store:
-                attr_val_str = str(self.store)[:50] + "..."
+            elif attr == "partitions" and self.partitions:
+                attr_val_str = str(self.partitions)
             else:
                 attr_val_str = str(attr_val)
+            # trim output to 50 chars
+            attr_val_str = attr_val_str[:50] + "..." if len(attr_val_str) > 50 else attr_val_str
             if attr_val_str == "None":
 
                 line_len -= 9
@@ -111,12 +154,14 @@ class BaseExtract:
         return _repr
 
     def _get_attr_val(self, attr, init_val):
+
+        NON_ENV_PARAMS = ("qf", "store")
+        if attr in NON_ENV_PARAMS:
+            return init_val
+
         attr_env = f"GRIZLY_EXTRACT_{attr.upper()}"
-        attr_val = (
-            init_val
-            # or config.get_service(attr)
-            or os.getenv(attr_env)
-        )
+        attr_val = init_val if init_val is not None else os.getenv(attr_env)
+
         return attr_val
 
     def _load_attrs(self):
@@ -130,7 +175,8 @@ class BaseExtract:
         # use automated defaults
         self.name_snake_case = self._to_snake_case(self.name)
         self.staging_table = self.staging_table or self.name_snake_case
-        # TODO: remove -- should be read automatically above once the structure is improved
+        self.prod_table = self.prod_table or self.name_snake_case
+        # TODO: remove below line -- should be read by _get_attr_val()
         self.s3_bucket = self.s3_bucket or config.get_service("s3").get("bucket")
         self.s3_root_url = (
             self.s3_root_url or f"s3://{self.s3_bucket}/extracts/{self.name_snake_case}/"
@@ -139,20 +185,11 @@ class BaseExtract:
             dsn=self.output_dsn, dialect=self.output_dialect, source=self.output_source_name
         )
         self.s3_staging_url = os.path.join(self.s3_root_url, "data", "staging")
+        self.s3_prod_url = os.path.join(self.s3_root_url, "data", "prod")
         self.table_if_exists = self._map_if_exists(self.if_exists)
-        self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
+        # self.logger = logging.getLogger("distributed.worker").getChild(self.name_snake_case)
+        self.logger = logging.getLogger(self.name_snake_case)
         self.qf.logger = self.logger
-
-        if not self.store:
-            # construct self.store from parameters
-            attrs_final = {
-                k: val for k, val in self.__dict__.items() if not str(hex(id(val))) in str(val)
-            }
-            qf_store = self.qf.store.to_dict()
-            attrs_dict = {
-                attr: (attrs_final[attr] if attr != "qf" else qf_store) for attr in attrs_final
-            }
-            self.store = Store(attrs_dict)
 
     @staticmethod
     def _to_snake_case(text):
@@ -171,21 +208,24 @@ class BaseExtract:
     def begin_extract(self):
         self.logger.info("Starting the extract process...")
 
-    @staticmethod
     @dask.delayed
-    def fix_qf_types(qf, upstream=None):
-        qf_c = qf.copy()
-        return qf_c.fix_types()
+    def fix_qf_types(self, upstream=None):
+        qf_fixed = self.qf.copy().fix_types()
+        return qf_fixed
 
     @dask.delayed
     @retry(Exception, tries=5, delay=5)
-    def to_parquet(self, qf, path, upstream=None):
+    def to_parquet(self, qf, file_name=None, upstream=None):
+
+        self.logger.info("Downloading data to parquet...")
+
+        path = os.path.join(self.s3_staging_url, file_name)
+
         # need to raise here as well for retries to work
         try:
             qf.to_parquet(path)
         except Exception:
             raise
-        return qf
 
     @dask.delayed
     def arrow_to_s3(self, arrow_table: Table, file_name: str = None):
@@ -207,75 +247,70 @@ class BaseExtract:
         _arrow_to_s3(arrow_table)
 
     @dask.delayed
-    def wipe_staging(self):
+    def empty_s3_dir(self, url, upstream=None):
+
+        if upstream is False:
+            self.logger.warning("Received SKIP signal. Skipping 'empty_s3_dir()'...")
+            return False
+
+        self.logger.info(f"Emptying {url}...")
+
         try:
-            s3.rm(self.s3_staging_url, recursive=True)
+            s3.rm(url, recursive=True)
+            self.logger.info(f"{url} has been successfully emptied.")
         except FileNotFoundError:
-            self.logger.debug(f"Couldn't wipe out {self.s3_staging_url} as it doesn't exist")
+            self.logger.warning(f"Couldn't empty {url} as it doesn't exist")
 
     @dask.delayed
-    def create_external_table(self, qf, upstream: Delayed = None):
+    def create_external_table(self, qf, schema, table, s3_url, upstream: Delayed = None):
         """Use processed QF rather than self.qf, as the types can be modified by to_arrow()"""
         qf.create_external_table(
-            schema=self.staging_schema,
-            table=self.staging_table,
+            schema=schema,
+            table=table,
             output_source=self.output_source,
-            s3_url=self.s3_staging_url,
+            s3_url=s3_url,
             if_exists=self.table_if_exists,
         )
 
-    @dask.delayed
-    def create_table(self, upstream: Delayed = None):
-        """Create and populate a table"""
-        qf = QFrame(
-            source=self.output_source,
-            schema=self.staging_schema,
-            table=self.staging_table,
-            logger=self.logger,
-        )
-        mapped_types = [spectrum_to_redshift(dtype) for dtype in qf.dtypes]
-        qf.source.create_table(
-            schema=self.prod_schema,
-            table=self.prod_table,
-            columns=qf.get_fields(aliased=True),
-            types=mapped_types,
-            if_exists="drop",  # always re-create from the external table
-        )
-        qf.source.write_to(
-            schema=self.output_schema_prod,
-            table=self.output_table_prod,
-            columns=qf.get_fields(aliased=True),
-            sql=qf.get_sql(),
-            if_exists="append",
-        )
-
     @abstractmethod
-    def generate_tasks(self):
+    def extract(self):
         pass
 
     def register(
         self,
         registry: Optional[SchedulerDB] = None,
         redis_host: Optional[str] = None,
-        redis_port: Optional[int] = None,
+        redis_port: Optional[int] = 6379,
+        remove_job_runs=False,
         **kwargs,
     ):
         """Submit the partitions and/or extract job
 
         Parameters
         ----------
-        kwargs: arguments to pass to Job.register()
+        kwargs: arguments to pass to extract_job.register()
 
         Examples
         ----------
         dev_registry = SchedulerDB(dev_scheduler_addr)
-        Extract().register(registry=dev_registry, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
+        e = Extract.from_json("store.json")
+        e.register(registry=dev_registry, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
         """
         registry = registry or SchedulerDB(
             logger=self.logger, redis_host=redis_host, redis_port=redis_port
         )
         self.extract_job = Job(self.name, logger=self.logger, db=registry)
-        self.extract_job.register(tasks=self.generate_tasks(), **kwargs)
+        self.extract_job.register(func=self.extract, remove_job_runs=remove_job_runs, **kwargs)
+
+        self.validation_job = Job(self.name + " - validation", logger=self.logger, db=registry)
+        self.validation_job.register(
+            func=self.validate,
+            owner="system",
+            description=f"{self.name} extract validation",
+            if_exists="replace",
+            remove_job_runs=False,
+            upstream={self.name: "success"},
+        )
 
     def unregister(self, registry: SchedulerDB = None, remove_job_runs: bool = False) -> bool:
         self.extract_job.unregister(remove_job_runs=remove_job_runs)
@@ -290,32 +325,230 @@ class BaseExtract:
 
         """
         if_exists = "replace" if reregister else "skip"
-        self.register(registry=registry, if_exists=if_exists)
+        self.register(registry=registry, if_exists=if_exists, **kwargs)
+        self.extract_job.submit(scheduler_address=self.dask_scheduler_address)
+        return True
+
+    def run(self, **kwargs):
         self.extract_job.submit(scheduler_address=self.dask_scheduler_address, **kwargs)
         return True
+
+    @dask.delayed
+    def _compare_dfs(
+        self,
+        df1: pd.DataFrame,
+        df2: pd.DataFrame,
+        sort_by: Union[str, List[str]] = None,
+        max_allowed_diff_percent: float = 1,
+    ) -> pd.DataFrame:
+        """Compare the sums of all numeric columns of df1 and df2 and show mismatches
+
+        Parameters
+        ----------
+        df1 : DataFrame
+            First df
+        df2 : DataFrame
+            Second df
+        sort_by: Union[str, List[str]], optional
+            The column(s) by which to sort the rows for comparison
+        max_allowed_diff_percent : float, optional
+            Allowed percentage difference per row, by default 1%
+        """
+
+        self.logger.info("Validating data...")
+
+        if (df1.sum() == df2.sum()).all():
+            self.logger.info("Amounts match.")
+            return
+
+        df1 = df1.copy()
+        df2 = df2.copy()
+
+        df1 = df1.sort_values(by=sort_by).reset_index(drop=True)
+        df2 = df2.sort_values(by=sort_by).reset_index(drop=True)
+
+        # make sure rows are in the same order, so we compare apples to apples
+        assert df1[sort_by].values.tolist() == df2[sort_by].values.tolist()
+
+        df1_numeric = df1.select_dtypes("number")
+        df2_numeric = df2.select_dtypes("number")
+
+        show_diffs = False
+        for col in df1_numeric:
+            col_diff = abs(df1_numeric[col] - df2_numeric[col])
+            for row_no, row_diff in enumerate(col_diff):
+                row_value = df1_numeric.loc[row_no, col]
+                if (row_diff / row_value) > (max_allowed_diff_percent / 100):
+                    show_diffs = True
+
+        if show_diffs:
+            non_numeric_cols = [
+                col for col in df1.columns if col not in df1.select_dtypes("number").columns
+            ]
+            df_non_numeric = df1[non_numeric_cols]
+            diffs = abs(df1_numeric - df2_numeric)
+            total = df1_numeric.sum().sum() + df2_numeric.sum().sum()
+            total_str = f"${(total/1e6):.2f}"
+            total_diff = diffs.sum().sum()
+            total_diff_str = f"${(total_diff/1e6):.2f}"
+            diffs_pretty = diffs.applymap("${0:,.0f}".format)
+            diff_df = pd.concat([df_non_numeric, diffs_pretty], axis=1)
+            total_col_diffs_str = ""
+            for col, val in zip(diffs.columns, diffs.sum()):
+                col_diff_str = f"{col}: ${(val/1e6):.2f} M"
+                total_col_diffs_str += col_diff_str + "\n"
+            msg = (
+                f"Amounts are different by a total of {total_diff_str} M, out of {total_str} M."
+                + "\n\n"
+            )
+            msg += "Differences per column:" + "\n"
+            msg += f"{total_col_diffs_str}" + "\n"
+            msg += "Differences per row:" + "\n"
+            msg += f"{diff_df.to_markdown(index=False)}"
+            self.logger.error(msg)
+            is_valid = False
+        else:
+            self.logger.info("Data has been successfully validated.")
+            is_valid = True
+        return is_valid
+
+    def _process_validation_qf(self, qf, where, groupby_cols, sum_cols):
+        qf_filtered = qf.copy().where(where)
+        qf_grouped = qf_filtered.groupby(groupby_cols)
+        qf_final = qf_grouped[sum_cols].agg("sum")
+        return qf_final
+
+    @dask.delayed
+    @retry(Exception, tries=3, delay=10)
+    def get_df(self, qf):
+        try:
+            df = qf.to_df()
+        except Exception:
+            # trigger retry
+            raise
+        return df
+
+    @dask.delayed
+    def staging_to_prod(self, upstream=None):
+
+        if upstream is False:
+            self.logger.warning("Received SKIP signal. Skipping 'staging_to_prod()'...")
+            return False
+
+        self.logger.info("Moving data to prod...")
+
+        urls = s3.ls(self.s3_staging_url)
+        for url in urls[1:]:  # [0] is the dir itself
+            prod_url = url.replace("staging", "prod")
+            s3.cp(url, prod_url)
+
+        self.logger.info("Parquet files have been successfully moved to prod.")
+        qf = QFrame(
+            source=Source(dsn=self.output_dsn, dialect="spectrum"),
+            schema=self.staging_schema,
+            table=self.staging_table,
+            logger=self.logger,
+        )
+        qf.create_external_table(
+            schema=self.prod_schema,
+            table=self.prod_table,
+            output_source=self.output_source,
+            s3_url=self.s3_prod_url,
+            if_exists=self.table_if_exists,
+        )
+        return True
+
+    @dask.delayed
+    def finish_validation(self, upstream=None):
+        if upstream is False:
+            self.logger.warning("Validation finished with the status fail.")
+            return False
+        self.logger.info("Validation finished with the status success.")
+
+    def validate(self, max_allowed_diff_percent=1):
+
+        if not self.validation:
+            self.logger.warning(f"No validation strategy specified for {self.name}.")
+            return
+
+        max_allowed_diff_percent = (
+            self.validation.get("max_allowed_diff_percent") or max_allowed_diff_percent
+        )
+
+        groupby_cols = self.validation.get("groupby")
+        sort_by = groupby_cols if len(groupby_cols) > 1 else groupby_cols[0]
+
+        sum_cols = self.validation.get("sum")
+        cols = groupby_cols + sum_cols
+        where = self.qf.store.select.get("where")
+
+        in_schema = self.qf.store.select.get("schema")
+        in_table = self.qf.store.select.get("table")
+
+        out_schema = self.staging_schema
+        out_table = self.staging_table
+
+        in_qf = QFrame(
+            dsn=self.qf.source.dsn,
+            schema=in_schema,
+            table=in_table,
+            columns=cols,
+            logger=self.logger,
+        )
+        out_qf = QFrame(
+            dsn=self.output_dsn,
+            schema=out_schema,
+            table=out_table,
+            columns=cols,
+            logger=self.logger,
+        )
+
+        in_qf_processed = self._process_validation_qf(in_qf, where, groupby_cols, sum_cols)
+        out_qf_processed = self._process_validation_qf(out_qf, where, groupby_cols, sum_cols)
+
+        # build dask graph
+        in_df = self.get_df(in_qf_processed)
+        out_df = self.get_df(out_qf_processed)
+
+        validate = self._compare_dfs(
+            in_df, out_df, sort_by=sort_by, max_allowed_diff_percent=max_allowed_diff_percent
+        )
+
+        empty_prod = self.empty_s3_dir(self.s3_prod_url, upstream=validate)
+        to_prod = self.staging_to_prod(upstream=empty_prod)
+
+        end = self.finish_validation(upstream=to_prod)
+
+        return dask.delayed()([end], name=self.name + " (validation)").compute()
 
 
 class SimpleExtract(BaseExtract):
     """"Extract data in single piece"""
 
-    def generate_tasks(self):
+    def extract(self) -> None:
         file_name = self.name_snake_case + ".parquet"
-        path = os.path.join(self.s3_root_url, file_name)
+
+        self.logger.info("Generating tasks...")
 
         start = self.begin_extract()
-        qf_fixed = self.fix_qf_types(self.qf, upstream=start)
-        s3 = self.to_parquet(qf=qf_fixed, path=path)
-        external_table = self.create_external_table(qf=qf_fixed, upstream=s3)
-        base_table = self.create_table(upstream=external_table)
+        qf_fixed = self.fix_qf_types(upstream=start)
+        s3 = self.to_parquet(qf=qf_fixed, file_name=file_name)
+        external_table_staging = self.create_external_table(
+            qf=qf_fixed,
+            schema=self.staging_schema,
+            table=self.staging_table,
+            s3_url=self.s3_staging_url,
+            upstream=s3,
+        )
 
-        if self.output_table_type == "base":
-            final_task = base_table
-        else:
-            final_task = external_table
+        self.logger.info("Tasks have been successfully generated.")
 
-        self.logger.debug("Tasks generated successfully")
-
-        return [final_task]
+        self.logger.info("Submitting to Dask...")
+        graph = dask.delayed()([external_table_staging], name=self.name)
+        client = self._get_client()
+        client.compute(graph)
+        client.close()
+        self.logger.info("Tasks have been successfully submitted to Dask.")
 
 
 class SFDCExtract(BaseExtract):
@@ -334,7 +567,8 @@ class SFDCExtract(BaseExtract):
     overlapping content, it would load the duplicated rows.
     """
 
-    def generate_tasks(self) -> List[Delayed]:
+    def extract(self):
+
         self.logger.info("Generating tasks...")
 
         start = self.begin_extract()
@@ -343,44 +577,60 @@ class SFDCExtract(BaseExtract):
         url_chunks = self.chunk(urls, chunksize=50)
         client = self._get_client()
         chunks = client.compute(url_chunks).result()
+        client.close()
 
-        wipe_staging = self.wipe_staging() if self.if_exists == "replace" else None
-
-        qf_fixed = self.fix_qf_types(self.qf, upstream=wipe_staging)
-
-        s3_uploads = []
-        batch_no = 1
-        for url_chunk in chunks:
-            first_url_pos = url_chunk[0].split("-")[1]
-            last_url_pos = url_chunk[-1].split("-")[1]
-            file_name = f"{first_url_pos}-{last_url_pos}.parquet"
-            arrow_table = self.urls_to_arrow(
-                qf=qf_fixed, urls=url_chunk, batch_no=batch_no, upstream=wipe_staging
-            )
-            to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
-            s3_uploads.append(to_s3)
-            batch_no += 1
-
-        external_table = self.create_external_table(upstream=s3_uploads)
-        base_table = self.create_table(upstream=external_table)
-
-        if self.output_table_type == "base":
-            final_task = base_table
+        if self.if_exists == "replace":
+            wipe_staging = self.empty_s3_dir(url=self.s3_staging_url)
         else:
-            final_task = external_table
+            wipe_staging = None
 
-        self.logger.info("Tasks generated successfully")
+        qf_fixed = self.fix_qf_types(upstream=wipe_staging)
 
-        return [final_task]
+        if chunks:
+            # extract `chunksize` URLs at a time
+            s3_uploads = []
+            batch_no = 1
+            for url_chunk in chunks:
+                first_url_pos = url_chunk[0].split("-")[1]
+                last_url_pos = url_chunk[-1].split("-")[1]
+                file_name = f"{first_url_pos}-{last_url_pos}.parquet"
+                arrow_table = self.urls_to_arrow(qf=qf_fixed, urls=url_chunk, batch_no=batch_no)
+                to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
+                s3_uploads.append(to_s3)
+                batch_no += 1
+        else:
+            # extract the table into a single parquet file
+            to_s3 = self.to_parquet(qf_fixed, file_name="1.parquet")
+            s3_uploads = [to_s3]
+
+        external_table_staging = self.create_external_table(
+            qf=qf_fixed,
+            schema=self.staging_schema,
+            table=self.staging_table,
+            s3_url=self.s3_staging_url,
+            upstream=s3_uploads,
+        )
+
+        self.logger.info("Tasks have been successfully generated.")
+
+        self.logger.info("Submitting to Dask...")
+        return dask.delayed()([external_table_staging], name=self.name + " graph").compute()
 
     @dask.delayed
     def get_urls(self, upstream=None):
+        self.logger.info("Obtaining the list of URLs...")
         return self.qf.source._get_urls_from_response(query=self.qf.get_sql())
 
-    @staticmethod
     @dask.delayed
-    def chunk(iterable, chunksize):
-        return chunker(iterable, size=chunksize)
+    def chunk(self, iterable, chunksize):
+        self.logger.info("Generating URL batches...")
+        chunks = chunker(iterable, size=chunksize)
+        self.logger.info("URL batches have been successfully generated.")
+        return chunks
+
+    @dask.delayed
+    def qf_to_arrow(qf: QFrame) -> pa.Table:
+        return qf.to_arrow()
 
     @dask.delayed
     def urls_to_arrow(
@@ -414,10 +664,11 @@ class SFDCExtract(BaseExtract):
 
 class DenodoExtract(BaseExtract):
     def __init__(
-        self, qf, partition_cols, *args, **kwargs,
+        self, qf, partition_cols, partitions: List[Any] = None, *args, **kwargs,
     ):
         super().__init__(qf, *args, **kwargs)
         self.partition_cols = partition_cols
+        self.partitions = partitions
 
     def _validate_store(self, store):
         pass
@@ -439,23 +690,17 @@ class DenodoExtract(BaseExtract):
 
         self.logger.debug("Retrieving source partitions..")
 
-        try:
-            # faster method, but this will fail if user is working on multiple schemas/tables
-            schema = self.qf.store["select"]["schema"]
-            table = self.qf.store["select"]["table"]
-            where = self.qf.store["select"]["where"]
+        schema = self.qf.store["select"]["schema"]
+        table = self.qf.store["select"]["table"]
+        where = self.qf.store["select"]["where"]
 
-            partitions_qf = (
-                self.qf.copy()
-                .from_table(table=table, schema=schema, columns=columns)
-                .where(where)
-                .groupby()
-            )
-        except KeyError:
-            # source qf queries multiple tables; use source qf
-            partitions_qf = self.qf.copy().select(columns).groupby()
-
+        partitions_qf = (
+            QFrame(dsn=self.qf.source.dsn, table=table, schema=schema, columns=columns)
+            .where(where)
+            .groupby()
+        )
         records = partitions_qf.to_records()
+
         if isinstance(columns, list):
             source_partitions = ["|".join(str(val) for val in row) for row in records]
         else:
@@ -540,6 +785,7 @@ class DenodoExtract(BaseExtract):
     def _get_source_partitions(self, cache: str = "off", upstream=None) -> Delayed:
         """Generate a task that retrieves the list of partitions from source data"""
         if cache == "on":
+
             partitions = self._get_cached_partitions(file_name="partitions.json")
         else:
             partitions = self.__get_source_partitions()
@@ -571,36 +817,45 @@ class DenodoExtract(BaseExtract):
 
     def _generate_extract_tasks(self, partitions) -> List[Delayed]:
         partition_cols_expr = self._get_partition_cols_expr()
-        uploads = []
+
+        wipe_staging = (
+            self.empty_s3_dir(self.s3_staging_url) if self.if_exists == "replace" else None
+        )
+
         if self.autocast:
-            qf_fixed = self.fix_qf_types(self.qf)
+            qf_fixed = self.fix_qf_types(upstream=wipe_staging)
         else:
             qf_fixed = self.qf
+
+        uploads = []
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
             file_name = f"{partition}.parquet"
-            where = f"{partition_cols_expr}='{partition_concatenated}'"
+            if partition == "None":
+                where = f"{partition_cols_expr} IS NULL"
+            else:
+                where = f"{partition_cols_expr}='{partition_concatenated}'"
             processed_qf = self.filter_qf(qf=qf_fixed, query=where)
-            s3 = self.to_parquet(processed_qf, os.path.join(self.s3_staging_url, file_name))
+            s3 = self.to_parquet(processed_qf, file_name=file_name)
             uploads.append(s3)
 
-        external_table = self.create_external_table(qf=qf_fixed, upstream=uploads)
+        # TODO: do not create this task if the table already exists and if_exists != 'replace'
+        external_table_staging = self.create_external_table(
+            qf=qf_fixed,
+            schema=self.staging_schema,
+            table=self.staging_table,
+            s3_url=self.s3_staging_url,
+            upstream=uploads,
+        )
 
-        if self.output_table_type == "base":
-            regular_table = self.create_table(upstream=external_table)
-            final_task = regular_table
-        else:
-            # TODO: do not create this task if the table already exists and if_exists != 'replace'
-            final_task = external_table
+        return [external_table_staging]
 
-        return [final_task]
-
-    def generate_tasks(self, partitions_cache: str = "off") -> List[List[Delayed]]:
+    def extract(self, partitions_cache: str = "off") -> None:
         """Generate partitioning and extraction tasks
 
         Parameters
         ----------
-        cache : bool, optional, by default True
+        partitions_cache : str, optional, by default "off"
             Whether to use caching for partitions list. This can be useful if partitions don't
             change often and the computation is expensive.
         Returns
@@ -609,74 +864,23 @@ class DenodoExtract(BaseExtract):
             Two lists: one with tasks for generating the list of partitions and the other with
             tasks for extracting these partitions into 'self.output_dsn'
         """
-        partition_task = self._generate_partition_task(cache=partitions_cache)
-        # compute partitions on the cluster
-        client = self._get_client()
-        partitions = client.compute(partition_task).result()
-        client.close()
+
+        self.logger.info("Generating tasks...")
+
+        if not self.partitions:
+            partition_task = self._generate_partition_task(cache=partitions_cache)
+            # compute partitions on the cluster
+            client = self._get_client()
+            partitions = client.compute(partition_task).result()
+            client.close()
+        else:
+            partitions = self.partitions
         extract_tasks = self._generate_extract_tasks(partitions=partitions)
 
-        return extract_tasks
+        self.logger.info("Tasks have been successfully generated.")
 
-    def register(
-        self,
-        registry: SchedulerDB = None,
-        crons: List[str] = None,
-        partitions_cache: str = "off",
-        if_exists: str = "skip",
-        remove_job_runs: bool = False,
-        **kwargs,
-    ) -> bool:
-        """Submit the partitions and/or extract job
-
-        Parameters
-        ----------
-        kwargs: arguments to pass to Job.register()
-
-        Examples
-        ----------
-        dev_registry = SchedulerDB(dev_scheduler_addr)
-        Extract().register(registry=dev_registry, crons=["0 12 * * MON"], if_exists="replace")
-        """
-        tasks = self.generate_tasks(partitions_cache=partitions_cache)
-
-        self.extract_job = Job(self.name, logger=self.logger, db=registry)
-        self.extract_job.register(
-            tasks=tasks,
-            crons=crons,
-            if_exists=if_exists,
-            remove_job_runs=remove_job_runs,
-            **kwargs,
-        )
-        return True
-
-    def unregister(self, registry: SchedulerDB = None, remove_job_runs: bool = False) -> bool:
-        self.extract_job.unregister(remove_job_runs=remove_job_runs)
-        return True
-
-    def submit(
-        self, registry: SchedulerDB, reregister: bool = False, **kwargs,
-    ):
-        """Submit the extract job
-
-        Parameters
-        ----------
-        kwargs: arguments to pass to Job.register() and Job.submit()
-
-        """
-        if reregister:
-            if_exists = "replace"
-        else:
-            if_exists = "skip"
-        self.register(registry=registry, if_exists=if_exists, **kwargs)
-        self.extract_job.submit(
-            scheduler_address=self.dask_scheduler_address, priority=kwargs.get("priority")
-        )
-        return True
-
-    def validate(self):
-        groupby_cols = self.store.validation.groupby
-        sum_cols = self.store.validation.sum
+        self.logger.info("Submitting to Dask...")
+        return dask.delayed()([extract_tasks], name=self.name + " graph").compute()
 
 
 class Extract:

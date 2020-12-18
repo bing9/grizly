@@ -5,12 +5,12 @@ boto==2.49
 boto3==1.14
 botocore==1.17
 configparser==5.0
-croniter==0.3
 dask==2.30
+dill==0.3.3
 distributed==2.30
 deprecation==2.1
 exchangelib==3.2
-fpdf==1.7
+fpdf==1.7.2
 graphviz==0.14
 ipython==7.17
 ipywidgets==7.5
@@ -24,7 +24,7 @@ pyarrow==1.0
 python-box==5.1
 pytz==2020.1
 pyzmq==19.0
-simple-salesforce==1.10
+simple-salesforce==1.10.1
 sphinx_rtd_theme==0.4
 sqlparse==0.3
 xlrd==1.2
@@ -35,7 +35,7 @@ rq==1.5
 rq-scheduler==0.10
 typer==0.3
 s3fs==0.4
-pyodbc==4.0
+pyodbc==4.0.30
 wkhtmltopdf==0.2
 termcolor==1.1
 # docker
@@ -43,4 +43,6 @@ bokeh==2.2
 jupyterlab==2.2
 jupyter-server-proxy==1.5
 dask_labextension==3.0
-jupyterlab-git==0.
+jupyterlab-git==0.23
+PyGithub==1.54
+tabulate==0.8.7

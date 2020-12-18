@@ -27,9 +27,10 @@ services:
     ports:
       - "1001:8888"
     volumes:
-      - ../..:/home/analyst
-      - ../../.config/odbc.ini:/etc/odbc.ini
+      - ../docker/home:/home/analyst
+      - ../docker/home/.config/odbc.ini:/etc/odbc.ini
     container_name: pytest_grizly_notebook
+    entrypoint: ["/bin/bash", "-c", "jupyter notebook --port=8888 --no-browser --ip=0.0.0.0 --allow-root --NotebookApp.token=''"]
     restart: "always"
   pytest_rq-worker:
     image: rq-worker
@@ -43,8 +44,8 @@ services:
     depends_on:
         - pytest_redis
     volumes:
-      - ../..:/home/analyst
-      - ../../.config/odbc.ini:/etc/odbc.ini
+      - ../docker/home:/home/analyst
+      - ../docker/home/.config/odbc.ini:/etc/odbc.ini
     restart: "always"
   pytest_rq-dashboard:
     image: rq-dashboard
@@ -66,7 +67,7 @@ services:
   pytest_rq-scheduler:
     image: rq-scheduler
     volumes:
-      - ../..:/home/analyst
+      - ../docker/home:/home/analyst
     container_name: pytest_rq-scheduler
     build:
       context: .
@@ -87,8 +88,8 @@ services:
   dask_worker:
     image: acoeteam/dask_worker:latest
     volumes:
-      - ../..:/home/analyst
-      - ../../.config/odbc.ini:/etc/odbc.ini
+      - ../docker/home:/home/analyst
+      - ../docker/home/.config/odbc.ini:/etc/odbc.ini
     env_file:
       - .env
     environment:

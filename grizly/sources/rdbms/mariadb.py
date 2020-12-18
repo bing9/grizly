@@ -19,13 +19,15 @@ class MariaDB(RDBMSWriteBase):
     _quote = "`"
     dialect = "mysql"
 
-    @staticmethod
-    def map_types(dtypes: List[str], to: str = None):
-        if to == "postgresql":
+    @classmethod
+    def map_types(cls, dtypes: List[str], to: str = None):
+        if to == cls.dialect:
+            return dtypes
+        elif to == "postgresql":
             return [mysql_to_postgresql(dtype) for dtype in dtypes]
         elif to == "python":
             return [mysql_to_python(dtype) for dtype in dtypes]
         elif to == "pyarrow":
             return [mysql_to_pyarrow(dtype) for dtype in dtypes]
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"Mapping from {cls.dialect} to {to} is not yet implemented")

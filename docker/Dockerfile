@@ -1,4 +1,4 @@
-FROM acoeteam/grizly_base:latest
+FROM acoeteam/base_notebook:latest
 
 
 # create and give priviledges to users
@@ -7,20 +7,22 @@ RUN useradd --create-home analyst && \
     find /usr/local/lib -type d -exec chmod 777 {} \; && \
     find /usr/local/bin -type d -exec chmod 777 {} \;
 
+
 WORKDIR /grizly
 
 COPY . .
 RUN export https_proxy=${HTTPS_PROXY} && \
     pip install --upgrade pip && \
     python setup.py clean --all && \
-    pip install -e . --user && \
+    pip install . && \
     pip install -r requirements.txt && \
     pip install -r requirements-dev.txt && \
     rm -rf /grizly
 
 ARG USER=analyst
 ENV USER ${USER}
-USER $USER
+USER ${USER}
+
 ENV HOME="/home/$USER"
 WORKDIR ${HOME}
 

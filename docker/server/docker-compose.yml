@@ -22,7 +22,7 @@ services:
       context: .
       dockerfile: rq-dashboard/Dockerfile
     ports:
-      - '5000:9181'
+      - '8500:9181'
     links:
       - redis
     depends_on:
@@ -39,7 +39,7 @@ services:
     depends_on:
       - redis
     volumes:
-      - ../../..:/home/analyst
+      - ../home:/home/analyst
     restart: "always"
   rq-worker:
     image: rq-worker
@@ -56,7 +56,7 @@ services:
     depends_on:
       - redis
     volumes:
-      - ../../..:/home/analyst
+      - ../home:/home/analyst
     restart: "always"
   dask_scheduler:
     image: acoeteam/dask_scheduler:latest
@@ -68,8 +68,11 @@ services:
   dask_worker:
     image: acoeteam/dask_worker:latest
     volumes:
-      - ../../..:/home/analyst
-      - ../../../.config/odbc.ini:/etc/odbc.ini
+      - ../home:/home/analyst
+      - ../home/.config/odbc.ini:/etc/odbc.ini
+    environment:
+      - GRIZLY_EXTRACT_STAGING_SCHEMA=${GRIZLY_EXTRACT_STAGING_SCHEMA}
+      - GRIZLY_EXTRACT_PROD_SCHEMA=${GRIZLY_EXTRACT_PROD_SCHEMA}
     depends_on:
       - dask_scheduler
     restart: "always"

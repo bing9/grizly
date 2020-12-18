@@ -909,11 +909,10 @@ def test_pivot_rds_1():
 def test_pivot_rds_2():
     qf = QFrame(dsn="redshift_acoe", table="table_tutorial", schema="grizly")
 
-    qf.orderby("col2", ascending=False)
     qf.assign(flag="CAST((CASE WHEN col2 = 0 THEN 1 ELSE 0 END) AS CHAR(1))", dtype="CHAR(1)")
 
-    # col2 has only two values (1.3 and 0.0), the records should be in this order
-    # so pivot with sort=True should sort them to put first 0 then 1
+    # col2 has only two values (1.3 and 0.0)
+    # so pivot with sort=True should sort records to put first 0 then 1
 
     # sorted
     qf1 = qf.copy()
@@ -937,39 +936,10 @@ def test_pivot_rds_2():
                                 WHEN col2 = 0 THEN 1
                                 ELSE 0
                             END) AS CHAR(1)) AS "flag"
-            FROM grizly.table_tutorial
-            ORDER BY 2 DESC) sq
+            FROM grizly.table_tutorial) sq
             GROUP BY 1"""
 
     assert clean_testexpr(sql) == clean_testexpr(qf1.get_sql())
-
-    # NOT sorted
-    qf2 = qf.copy()
-    qf2.pivot(rows=["col1"], columns=["flag"], values="col4", sort=False)
-
-    sql = """SELECT sq."col1" AS "col1",
-                sum(CASE
-                    WHEN "flag"='1' THEN "col4"
-                    ELSE 0
-                END) AS "1",
-                sum(CASE
-                        WHEN "flag"='0' THEN "col4"
-                        ELSE 0
-                    END) AS "0"
-            FROM
-            (SELECT "col1",
-                    "col2",
-                    "col3",
-                    "col4",
-                    CAST((CASE
-                                WHEN col2 = 0 THEN 1
-                                ELSE 0
-                            END) AS CHAR(1)) AS "flag"
-            FROM grizly.table_tutorial
-            ORDER BY 2 DESC) sq
-            GROUP BY 1"""
-
-    assert clean_testexpr(sql) == clean_testexpr(qf2.get_sql())
 
 
 def test_join_pivot_sqlite():

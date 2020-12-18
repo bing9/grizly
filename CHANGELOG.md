@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [0.4.2](https://github.com/kfk/grizly/compare/v0.4.1...v0.4.2) - 18-12-2020
+
+### Job
+
+- Deprecated `Job.tasks` and added `Job.func` instead [#660](https://github.com/tedcs/grizly/issues/660). Job can store any function not only dask tasks and it can also store parameters.
+
+    ```python
+    def my_func(a, b):
+        return a + b
+    
+    Job("my_job_name").register(func, 3, b=2, if_exists="replace")
+    ```
+- Added `Job.logs` [#506](https://github.com/tedcs/grizly/issues/506) and `Job.traceback`
+
+### Extract
+- Added automatic validations
+- Added `run()` method as a thin wrapper around `Job.submit()`
+- It's now preferred to run `Extract.register()` and then `Extract.run()` rather than `Extract.submit()`,
+which was confusing to use and to code, as well as inefficient
+
+### QFrame
+
+- Added possibility to read source information from json
+
 ## [0.4.1](https://github.com/kfk/grizly/compare/v0.4...v0.4.1) - 01-12-2020
 
 ### Overall
