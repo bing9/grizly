@@ -42,7 +42,7 @@ class SQLDriver(BaseDriver):
     >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
     >>> print(qf)
     SELECT "customer_id",
-            "sales"
+           "sales"
     FROM grizly.sales
 
     See Also
