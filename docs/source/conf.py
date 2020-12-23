@@ -15,14 +15,12 @@ import sys
 
 from grizly import __version__
 
-sys.path.insert(0, os.path.abspath("../.."))
+sys.path.insert(0, os.path.abspath("../../tutorials"))
 
 
 # -- Project information -----------------------------------------------------
 
 project = "grizly"
-copyright = "2019, Alessio"
-author = "Alessio"
 
 # The full version, including alpha/beta/rc tags
 release = __version__
@@ -87,6 +85,7 @@ master_doc = "index"
 
 autosummary_generate = True
 autodoc_default_options = {"members": True, "inherited-members": True}
+numpydoc_attributes_as_param_list = False
 
 # spell checking
 spelling_lang = "en_US"

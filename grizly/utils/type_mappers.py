@@ -101,6 +101,7 @@ def pyarrow_to_rds(dtype):
 
 
 def postgresql_to_pyarrow(dtype):
+    dtype = dtype.upper()
     mapping = {
         "BOOL": pa.bool_(),
         "BOOLEAN": pa.bool_(),
@@ -139,6 +140,7 @@ def rds_to_pyarrow(dtype):
 
 
 def mysql_to_pyarrow(dtype):
+    dtype = dtype.upper()
     # TODO: fix below mapper
     mapping = {
         "BOOL": pa.bool_(),
@@ -264,7 +266,49 @@ def sfdc_to_python(dtype):
     return _map_type(mapping, dtype, default=str)
 
 
+def denodo_to_python(dtype):
+    dtype = dtype.upper()
+    mapping = {
+        "VARCHAR": str,
+        "NVARCHAR": str,
+        "DATETIME": datetime.datetime,
+        "TIMESTAMP": datetime.datetime,
+        "DATE": datetime.date,
+        "FLOAT": np.float32,
+        "FLOAT8": np.float32,
+        "NUMERIC": np.float64,
+        "DOUBLE PRECISION": np.float64,
+        "DECIMAL": np.float64,
+        "INTEGER": int,
+        "SMALLINT": int,
+        "BIGINT": int,
+    }
+    return _map_type(mapping, dtype, default=str)
+
+
+def denodo_to_pyarrow(dtype):
+    dtype = dtype.upper()
+    mapping = {
+        "VARCHAR": pa.string(),
+        "NVARCHAR": pa.string(),
+        "DATE": pa.date32(),
+        "DATETIME": pa.timestamp("ms", tz="utc"),
+        "TIMESTAMP": pa.timestamp("ms", tz="utc"),
+        "FLOAT": pa.float32(),
+        "FLOAT8": pa.float32(),
+        "NUMERIC": pa.float64(),
+        "DOUBLE PRECISION": pa.float64(),
+        "DECIMAL": pa.float64(),
+        "INT8": pa.int8(),
+        "INTEGER": pa.int32(),
+        "SMALLINT": pa.int32(),
+        "BIGINT": pa.int64(),
+    }
+    return _map_type(mapping, dtype, default=pa.string(), method="intermediate")
+
+
 def postgresql_to_python(dtype):
+    dtype = dtype.upper()
     # TODO: fix below mapper
     mapping = {
         "BOOL": bool,
@@ -304,6 +348,7 @@ def sql_to_python(dtype):
 
 
 def mysql_to_python(dtype):
+    dtype = dtype.upper()
     # TODO: fix below mapper
     mapping = {
         "BOOL": bool,
@@ -339,7 +384,24 @@ def mysql_to_python(dtype):
 
 
 def python_to_sql(dtype):
-    mapping = {str: "VARCHAR(50)", int: "INTEGER", float: "FLOAT8"}
+    mapping = {
+        str: "VARCHAR(50)",
+        int: "INTEGER",
+        float: "FLOAT8",
+        datetime.date: "DATE",
+        datetime.datetime: "DATETIME",
+    }
+    return _map_type(mapping, dtype, default="VARCHAR(255)")
+
+
+def spectrum_to_postgresql(dtype):
+    mapping = {
+        "double": "DOUBLE PRECISION",
+        "varchar": "VARCHAR",
+        "int": "INTEGER",
+        "timestamp": "TIMESTAMP",
+        "date": "DATE",
+    }
     return _map_type(mapping, dtype, default="VARCHAR(255)")
 
 

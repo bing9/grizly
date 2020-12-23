@@ -5,15 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## [0.4.2](https://github.com/kfk/grizly/compare/v0.4.1...v0.4.2) - 18-12-2020
+
+### Job
+
+- Deprecated `Job.tasks` and added `Job.func` instead [#660](https://github.com/tedcs/grizly/issues/660). Job can store any function not only dask tasks and it can also store parameters.
+
+    ```python
+    def my_func(a, b):
+        return a + b
+    
+    Job("my_job_name").register(func, 3, b=2, if_exists="replace")
+    ```
+- Added `Job.logs` [#506](https://github.com/tedcs/grizly/issues/506) and `Job.traceback`
+
+### Extract
+- Added automatic validations
+- Added `run()` method as a thin wrapper around `Job.submit()`
+- It's now preferred to run `Extract.register()` and then `Extract.run()` rather than `Extract.submit()`,
+which was confusing to use and to code, as well as inefficient
+
+### QFrame
+
+- Added possibility to read source information from json
+
+## [0.4.1](https://github.com/kfk/grizly/compare/v0.4...v0.4.1) - 01-12-2020
+
+### Overall
+
+- Rewritten the `Extract` tutorial to adapt it to grizly v0.4
+
+### Config
+- `address` key was changed to `auth_address`, and `send_as` is now simply `address`.
+This makes it more explicit that you can authenticate using one address, and use another mailbox
+with these credentials (eg. to send as another email address)
+
+### QFrame
+- Fixed bugs [#446](https://github.com/tedcs/grizly/issues/446), [#505](https://github.com/tedcs/grizly/issues/505) and [#653](https://github.com/tedcs/grizly/issues/653)
+
+### git s3
+
+- `pull` option works now with the number (position in track list) [#646](https://github.com/tedcs/grizly/issues/646)
+- Fixed `synced` option [#647](https://github.com/tedcs/grizly/issues/647)
+
+## [0.4](https://github.com/kfk/grizly/compare/v0.4.0rc0...v0.4) - 18-11-2020
+
+### Overall changes
+
+The documentation has been cleaned up and the bugs from previous release candidate has been fixed.
+
+### git s3
+
+- Added first version of git s3 cli https://github.com/tedcs/grizly/issues/517
+
+### Scheduling
+
+- Added option to run a Job on upstream job `result_change`, `success` or `fail` https://github.com/tedcs/grizly/issues/500
+
 ## [0.4.0rc0](https://github.com/kfk/grizly/compare/v0.3.8...v0.4.0rc0) - 26-10-2020
 
 ### Overall changes
 
-This release contains a lot of internal api changes. We extened QFrame to support also Salesforce database and we are planning to extend it to be able to query filesystems and APIs. To make your life easier we want to manage sources configuration in grizly config file so that you only need to pass dsn (datasource name). We also moved to new scheduling infrastructure so **old orchestrate has been removed**.
+This release contains a lot of internal api changes. We extended QFrame to support also Salesforce database and we are planning to extend it to be able to query filesystems and APIs. To make your life easier we want to manage sources configuration in grizly config file so that you only need to pass dsn (data source name). We also moved to new scheduling infrastructure so **old orchestrate has been removed**.
 
 ### QFrame
 
-- Added `_fix_types()`, which changes the datatypes inside QFrame (self.data)
+- Added `_fix_types()`, which changes the data types inside QFrame (self.data)
 based on what types are actually retrieved from the top 100 rows
 - Added QFrame.store with `to_dict()` and `to_json()` methods
 - Added SFDC driver - requires right configuration file and then can be used like
@@ -128,13 +185,13 @@ based on what types are actually retrieved from the top 100 rows
 
 - Removed package PageLayout
 - Added the possibility to run and cancel control checks (eg. `grizly workflow run "sales daily news control check" --local`). To cancel checks running on prod, run eg. `grizly workflow cancel "sales daily news control check"`
-- **IMPORTANT**: Engine strings (`engine` or `engine_str` parameters) are deprecated since version `0.3.6`. They are replaced with suitable datasource names (`dsn` parameter) [#455](https://github.com/kfk/grizly/issues/455)
+- **IMPORTANT**: Engine strings (`engine` or `engine_str` parameters) are deprecated since version `0.3.6`. They are replaced with suitable data source names (`dsn` parameter) [#455](https://github.com/kfk/grizly/issues/455)
 - Added experimental.py with the experimental Extract class
 - Removed SQLAlchemy from requirements
 
 ### Orchestrate
 
-- Changed `worklows_dir` to use the current `GRIZLY_WORKFLOWS_HOME`
+- Changed `workflows_dir` to use the current `GRIZLY_WORKFLOWS_HOME`
 
 ### Workflow
 
@@ -217,7 +274,7 @@ based on what types are actually retrieved from the top 100 rows
 
 ### SQLDB
 
-- `get_columns()` - added char and numeric precision while retriving types from redshift
+- `get_columns()` - added char and numeric precision while retrieving types from redshift
 
 ### New classes and functions
 
@@ -288,7 +345,7 @@ This release contains mostly some bug fixes like hard-coded paths.
 - Github
 - S3 (replaced AWS)
 - Config (used to set configuration)
-- Crosstab (used to bulid crosstab tables)
+- Crosstab (used to build crosstab tables)
 - SQLDB (contains all functions which interacts with databases)
 
 ### Removed classes and functions
@@ -312,7 +369,7 @@ This release contains mostly some bug fixes like hard-coded paths.
 - get_denodo_columns (moved to SQLDB method)
 - get_redshift_columns (moved to SQLDB method)
 
-### Deprecated functions (WILL BE ROMOVED IN 0.4)
+### Deprecated functions (WILL BE REMOVED IN 0.4)
 
 ** old function -> what should be used instead **
 
@@ -337,7 +394,7 @@ This release contains mostly some bug fixes like hard-coded paths.
 - **IMPORTING MODULES**
 We changed folder structure. This may affect those of you who does for example 
 `from grizly.orchestrate import ...`
-Please check the new structure after dowloading 0.3 grizly to your local folder or do
+Please check the new structure after downloading 0.3 grizly to your local folder or do
 `from grizly import [module1], [module2], ...`
 - **CONFIGURATION**
 For the S3 we use AWS configuration so if you don't have it in `.aws` folder please add it. Also for parquet files you need iam_role specified in `.aws/credentials` file. Config class deals with other configuration (for example Email configuration) so in each workflow you have to specify Config first (check docs).

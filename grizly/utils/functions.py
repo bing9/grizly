@@ -1,3 +1,4 @@
+import datetime
 import json
 import logging
 import os
@@ -6,11 +7,13 @@ from sys import platform
 from time import sleep
 from typing import Iterable, List, TypeVar
 
-import deprecation
 import openpyxl
 import pandas as pd
+import pytz
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
+
+import deprecation
 
 from .type_mappers import sfdc_to_sqlalchemy
 
@@ -249,6 +252,10 @@ def dict_diff(first: dict, second: dict, by: str = "keys") -> dict:
         diff = {k: second[k] for k in set(second) - set(first)}
     elif by == "values":
         diff = {k: second[k] for k, _ in set(second.items()) - set(first.items())}
+    elif by == "any":
+        keys_diff = {k: second[k] for k in set(second) - set(first)}
+        vals_diff = {k: second[k] for k, _ in set(second.items()) - set(first.items())}
+        diff = {**keys_diff, **vals_diff}
     else:
         raise NotImplementedError("Can only compare by keys or values.")
     return diff
@@ -304,3 +311,11 @@ def make_batches(iterable, size):
 def chunker(seq: Iterable, size: int) -> List[Iterable]:
     """Take a list and return a list with elements grouped in chunks of 'size'"""
     return [seq[pos : pos + size] for pos in range(0, len(seq), size)]
+
+
+def get_past_date(n: int, unit: str) -> datetime.datetime:
+    """Return the datetime n unit(s) in the past"""
+    now = datetime.datetime.now(pytz.UTC)  # SFDC API requires UTC
+    period = eval(f"datetime.timedelta({unit}={n})")
+    past_date = now - period
+    return past_date

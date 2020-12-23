@@ -3,37 +3,69 @@ from functools import partial
 import json
 import os
 import re
-from typing import Literal
+from typing import Any, List, Literal, Literal, Tuple, Union
+import warnings
 
 import deprecation
 import sqlparse
 
-from ..sources.filesystem.old_s3 import S3
-from ..sources.rdbms.rdbms_factory import RDBMS
+from .. import types
+from ..sources.sources_factory import Source
 from ..store import Store
-from ..types import Redshift, Source
+from ..utils.deprecation import deprecated_params
 from ..utils.functions import isinstance2
 from .base import BaseDriver
 
 deprecation.deprecated = partial(deprecation.deprecated, deprecated_in="0.4", removed_in="0.4.5")
+deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="0.4.5")
 
 
 class SQLDriver(BaseDriver):
+    """Class that builds select statement upon a table in relational database.
+
+    Parameters
+    ----------
+    dsn : str, optional
+        Datasource name that should be read from config, by default None
+    schema : str, optional
+        Schema name, by default None
+    table : str, optional
+        Table name, by default None
+    columns : list, optional
+        Columns that should be retrived, if None then all columns are retrived, by default None
+    source : Source, optional
+        Instead of dsn Source class can be specified, by default None
+
+    Examples
+    --------
+    >>> from grizly import QFrame
+    >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
+    >>> print(qf)
+    SELECT "customer_id",
+           "sales"
+    FROM grizly.sales
+
+    See Also
+    --------
+    SQLDriver.from_dict
+    SQLDriver.from_json
+
+    """
+
     def __init__(
         self,
         dsn: str = None,
         schema: str = None,
         table: str = None,
-        columns: list = None,
-        source: Source = None,
-        *args,
+        columns: List[str] = None,
+        source: types.Source = None,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
 
-        self.source = source or RDBMS(dsn=dsn, *args, **kwargs)
+        self.source = source or Source(dsn=dsn, **kwargs)
 
-        if self.store == Store() and table:
+        if not self.store and table:
             self.store = self._load_store_from_table(schema=schema, table=table, columns=columns)
 
     def __str__(self):
@@ -74,14 +106,30 @@ class SQLDriver(BaseDriver):
 
         return Store(_dict)
 
+    # TODO: probably from_table method should be deprecated
     def from_table(
         self,
         table: str,
         schema: str = None,
-        columns: list = None,
+        columns: List[str] = None,
         json_path: str = None,
         subquery: str = None,
     ):
+        """Generate QFrame by pulling columns and types from specified table.
+
+        Parameters
+        ----------
+        table : str
+            Name of table
+        schema : str, optional
+            Name of schema, by default None
+        columns : list, optional
+            List of column names to retrive, by default None
+        json_path : str, optional
+            Path to output json file, by default None
+        subquery : str, optional
+            Name of the query in json file. If this name already exists it will be overwritten, by default None
+        """
         self.store = self._load_store_from_table(table=table, schema=schema, columns=columns)
 
         if json_path:
@@ -99,8 +147,8 @@ class SQLDriver(BaseDriver):
             nrows = 0
         return nrows
 
-    def create_sql_blocks(self):
-        """Creates blocks which are used to generate an SQL"""
+    def _create_sql_blocks(self):
+        """Create blocks which are used to generate an SQL."""
         if self.store == {}:
             self.logger.info("Your QFrame is empty.")
             return self
@@ -108,8 +156,8 @@ class SQLDriver(BaseDriver):
             self.store["select"]["sql_blocks"] = self._build_column_strings()
             return self
 
-    def select(self, fields: list):
-        """Creates a subquery that looks like "SELECT sq.col1, sq.col2 FROM (some sql) sq".
+    def select(self, fields: Union[str, List[str]]):
+        """Create a subquery that looks like "SELECT sq.col1, sq.col2 FROM (some sql) sq".
 
         NOTE: Selected fields will be placed in the new QFrame. Names of new fields are created
         as a concat of "sq." and alias in the parent QFrame.
@@ -122,7 +170,6 @@ class SQLDriver(BaseDriver):
 
         Examples
         --------
-        >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
         >>> qf = qf.rename({"customer_id": "Id"})
         >>> print(qf)
         SELECT "customer_id" AS "Id",
@@ -141,7 +188,7 @@ class SQLDriver(BaseDriver):
         -------
         QFrame
         """
-        self.create_sql_blocks()
+        self._create_sql_blocks()
         sq_fields = deepcopy(self.store["select"]["fields"])
         new_fields = {}
 
@@ -178,20 +225,20 @@ class SQLDriver(BaseDriver):
 
     def pivot(
         self,
-        rows: list,
-        columns: list,
+        rows: Union[str, List[str]],
+        columns: Union[str, List[str]],
         values: str,
         aggtype: str = "sum",
         prefix: str = None,
         sort: bool = True,
     ):
-        """Reshapes QFrame to generate pivot table
+        """Reshape QFrame to generate a pivot table.
 
         Parameters
         ----------
-        rows : list
+        rows : str or list
             Columns which will be grouped
-        columns : list
+        columns : str or list
             Columns to use to make new QFrame columns
         values : str
             Column(s) to use for populating new QFrame values
@@ -220,9 +267,9 @@ class SQLDriver(BaseDriver):
 
         qf = self.copy()
         qf.select(columns).groupby()
-        if sort:
-            qf.orderby(qf.get_fields())
         col_values = qf.to_records()
+        if sort:
+            col_values = sorted(col_values)
 
         value = self._get_fields_names([values], aliased=True)[0]
         value_type = self.store["select"]["fields"][self._get_fields_names([values])[0]]["dtype"]
@@ -235,9 +282,10 @@ class SQLDriver(BaseDriver):
             for val in col_value:
                 val = str(val)
                 if not re.match("^[a-zA-Z0-9_]*$", val):
-                    self.logger.warning(
+                    warnings.warn(
                         f"Value '{val}' contains special characters. You may consider"
-                        " cleaning your columns first with QFrame.assign method before pivoting."
+                        " cleaning your columns first with QFrame.assign method before pivoting.",
+                        UserWarning,
                     )
                 col_name.append(val)
             col_name = "_".join(col_name)
@@ -260,11 +308,10 @@ class SQLDriver(BaseDriver):
         return self
 
     def get_sql(self):
-        """Overwrites the SQL statement inside the class and prints saved string.
+        """Get SQL statement generated by the object.
 
         Examples
         --------
-        >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
         >>> print(qf.get_sql())
         SELECT "customer_id",
                "sales"
@@ -274,25 +321,25 @@ class SQLDriver(BaseDriver):
         -------
         QFrame
         """
-        self.create_sql_blocks()
+        self._create_sql_blocks()
         return self._get_sql(data=self.store, sqldb=self.source)
 
     @property
     def sql(self):
+        """Query generated by QFrame"""
         return self.get_sql()
 
+    @deprecated_params({"char_size": None, "sqldb": "output_source"})
     def create_table(
         self,
-        table,
-        schema="",
-        char_size=500,
-        dsn=None,
-        rdbms=None,
+        table: str,
+        schema: str = None,
+        dsn: str = None,
+        output_source: types.Source = None,
         if_exists: Literal["fail", "skip", "drop"] = "skip",
-        **kwargs,
+        **source_kwargs,
     ):
-        """Creates a new empty QFrame table in database if the table doesn't exist.
-        TODO: Remove engine_str, db, dsn and dialect and leave sqldb
+        """Create a new empty table in database based on QFrame's fields and types.
 
         Parameters
         ----------
@@ -300,40 +347,49 @@ class SQLDriver(BaseDriver):
             Name of SQL table.
         schema : str, optional
             Specify the schema.
-        char_size : int, optional
-            Default size of the VARCHAR field in the database column, by default 500
+        if_exists : {'fail', 'skip', 'drop'}, optional
+            How to behave if the table already exists, by default 'skip'
+
+            * skip: Leave old table.
+            * fail: Raise a ValueError.
+            * drop: Drop table before creating new one.
 
         Returns
         -------
         QFrame
         """
-        sqldb = kwargs.get("sqldb")
-        if sqldb:
-            rdbms = sqldb
-            self.logger.warning(
-                "Parameter sqldb in QFrame is deprecated as of 0.4 and will be removed in 0.4.5."
-                " Please use rdbms parameter instead.",
-            )
 
-        rdbms = rdbms or (
-            self.source if dsn is None else RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+        output_source = output_source or (
+            self.source if dsn is None else Source(dsn=dsn, logger=self.logger, **source_kwargs)
         )
-        mapped_types = rdbms.map_types(self.get_dtypes(), to=rdbms.dialect)
 
-        rdbms.create_table(
+        dtypes = self.get_dtypes()
+        if self.source.dialect != output_source.dialect:
+            dtypes = output_source.map_types(dtypes, to=output_source.dialect)
+
+        output_source.create_table(
             type="base_table",
             columns=self.get_fields(aliased=True),
-            types=mapped_types,
+            types=dtypes,
             table=table,
             schema=schema,
-            char_size=char_size,
             if_exists=if_exists,
         )
         return self
 
-    def create_external_table(self, table, schema=None, dsn=None, if_exists=None, **kwargs):
-        """Creates a new empty QFrame table in database if the table doesn't exist.
-        TODO: Remove engine_str, db, dsn and dialect and leave sqldb
+    def create_external_table(
+        self,
+        table: str,
+        schema: str = None,
+        dsn: str = None,
+        output_source: types.Source = None,
+        if_exists: str = None,
+        bucket: str = None,
+        s3_key: str = None,
+        s3_url: str = None,
+        **source_kwargs,
+    ):
+        """Create a new empty external table based on QFrame's fields and types.
 
         Parameters
         ----------
@@ -346,20 +402,17 @@ class SQLDriver(BaseDriver):
         -------
         QFrame
         """
-        if dsn is None:
-            destination = self.source
-        else:
-            destination = RDBMS(dsn=dsn, logger=self.logger, **kwargs)
+        output_source = output_source or (
+            self.source if dsn is None else Source(dsn=dsn, logger=self.logger, **source_kwargs)
+        )
 
-        if not isinstance2(destination, Redshift):
-            raise NotImplementedError("Writing to external tables is only supported in Redshift")
+        if not isinstance2(output_source, types.Redshift):
+            msg = f"Writing to external tables is only supported in Redshift. Got {output_source}"
+            raise NotImplementedError(msg)
 
-        bucket = kwargs.get("bucket")
-        s3_key = kwargs.get("s3_key")
-        s3_url = kwargs.get("s3_url")
         columns = self.get_fields(aliased=True)
-        mapped_types = self.source.map_types(self.get_dtypes(), to=destination.dialect)
-        destination.create_table(
+        mapped_types = self.source.map_types(self.get_dtypes(), to=output_source.dialect)
+        output_source.create_table(
             table_type="external",
             columns=columns,
             types=mapped_types,
@@ -372,8 +425,16 @@ class SQLDriver(BaseDriver):
         )
         return self
 
-    def to_table(self, table, schema="", if_exists="fail", char_size=500):
-        """Inserts values from QFrame object into given table. Name of columns in qf and table have to match each other.
+    def to_table(
+        self,
+        table: str,
+        schema: str = "",
+        if_exists: Literal["fail", "replace", "append", "drop"] = "fail",
+        char_size=500,
+    ):
+        """Insert values generated by QFrame's query into given table.
+
+        Names of columns in qf and table have to match each other.
 
         Parameters
         ----------
@@ -381,41 +442,48 @@ class SQLDriver(BaseDriver):
             Name of SQL table
         schema: str
             Specify the schema
-        if_exists : {'fail', 'replace', 'append'}, optional
+        if_exists : {'fail', 'replace', 'append', 'drop'}, optional
             How to behave if the table already exists, by default 'fail'
 
             * fail: Raise a ValueError.
             * replace: Clean table before inserting new values.
             * append: Insert new values to the existing table.
-
-        char_size : int, optional
-            Default size of the VARCHAR field in the database column, by default 500
+            * drop: Drop table before inserting values.
 
         Returns
         -------
         QFrame
         """
+        if if_exists in ("fail", "drop"):
+            if_exists_create = if_exists
+            if_exists_write = "replace"
+        else:
+            if_exists_create = "skip"
+            if_exists_write = if_exists
+
         self.source.create_table(
             columns=self.get_fields(aliased=True),
             types=self.get_dtypes(),
             table=table,
             schema=schema,
             char_size=char_size,
+            if_exists=if_exists_create,
         )
         self.source.write_to(
             table=table,
             columns=self.get_fields(aliased=True),
             sql=self.get_sql(),
             schema=schema,
-            if_exists=if_exists,
+            if_exists=if_exists_write,
         )
         return self
 
-    def to_records(self):
-        """Writes QFrame to records.
+    def to_records(self) -> List[Tuple[Any]]:
+        """Write QFrame's result to records.
 
         Examples
         --------
+        >>> from grizly import QFrame
         >>> qf = QFrame(dsn="redshift_acoe", table="table_tutorial", schema="grizly")
         >>> qf.orderby("col1").to_records()
         [('item1', 1.3, None, 3.5), ('item2', 0.0, None, None)]
@@ -431,35 +499,41 @@ class SQLDriver(BaseDriver):
 
         return records
 
-    def _validate_data(self, data):
-        data = super()._validate_data(data=data)
-        select_data = data["select"]
+    def _validate_store(self, store):
+
+        if not store:
+            return
+
+        store = super()._validate_store(store=store)
+
+        select_data = store["select"]
         if (
             "table" not in select_data
             and "join" not in select_data
             and "union" not in select_data
-            and "sq" not in data
+            and "sq" not in store
         ):
             raise AttributeError("Missing 'table' attribute.")
 
-        return data
+        return store
 
-    def _get_sql(self, data, sqldb):
+    @classmethod
+    def _get_sql(cls, data, sqldb):
         if data == {}:
             return ""
 
-        data["select"]["sql_blocks"] = SQLDriver(source=sqldb, store=data)._build_column_strings()
+        data["select"]["sql_blocks"] = cls(source=sqldb, store=data)._build_column_strings()
         sql = ""
 
         if "union" in data["select"]:
             iterator = 1
             sq_data = deepcopy(data[f"sq{iterator}"])
-            sql += self._get_sql(sq_data, sqldb)
+            sql += cls._get_sql(sq_data, sqldb)
 
             for _ in data["select"]["union"]["union_type"]:
                 union_type = data["select"]["union"]["union_type"][iterator - 1]
                 sq_data = deepcopy(data[f"sq{iterator+1}"])
-                right_table = self._get_sql(sq_data, sqldb)
+                right_table = cls._get_sql(sq_data, sqldb)
 
                 sql += f" {union_type} {right_table}"
                 iterator += 1
@@ -482,13 +556,13 @@ class SQLDriver(BaseDriver):
             elif "join" in data["select"]:
                 iterator = 1
                 sq_data = deepcopy(data[f"sq{iterator}"])
-                left_table = self._get_sql(sq_data, sqldb)
+                left_table = cls._get_sql(sq_data, sqldb)
                 sql += f" FROM ({left_table}) sq{iterator}"
 
                 for _ in data["select"]["join"]["join_type"]:
                     join_type = data["select"]["join"]["join_type"][iterator - 1]
                     sq_data = deepcopy(data[f"sq{iterator+1}"])
-                    right_table = self._get_sql(sq_data, sqldb)
+                    right_table = cls._get_sql(sq_data, sqldb)
                     on = data["select"]["join"]["on"][iterator - 1]
 
                     sql += f" {join_type} ({right_table}) sq{iterator+1}"
@@ -498,7 +572,7 @@ class SQLDriver(BaseDriver):
 
             elif "table" not in data["select"] and "join" not in data["select"] and "sq" in data:
                 sq_data = deepcopy(data["sq"])
-                sq = self._get_sql(sq_data, sqldb)
+                sq = cls._get_sql(sq_data, sqldb)
                 sql += f" FROM ({sq}) sq"
 
             if "where" in data["select"] and data["select"]["where"] != "":
@@ -641,15 +715,23 @@ class SQLDriver(BaseDriver):
         self.logger.info(f"Data saved in {json_path}")
 
 
-def join(qframes=[], join_type=None, on=None, unique_col=True):
-    """Joins QFrame objects. Returns QFrame.
+def join(
+    qframes: List[SQLDriver],
+    join_type: Union[str, List[str]],
+    on: Union[str, List[str]],
+    unique_col: bool = True,
+):
+    """Join QFrames.
 
-    Name of each field is a concat of: "sq" + position of parent QFrame in qframes + "." + alias in their parent QFrame.
-    If the fields have the same aliases in their parent QFrames they will have the same aliases in joined QFrame.
+    Name of each field is a concat of
+    `sq` + position of origin QFrame in `qframes` + `.` + alias in origin QFrame.
+    If the fields have the same aliases
+    in their origin QFrames they will have the same aliases in joined QFrame.
 
-    By default the joined QFrame will contain all fields from the first QFrame and all fields from the other QFrames
-    which are not in the first QFrame. This approach prevents duplicates. If you want to choose the columns, set unique_col=False and
-    after performing join please remove fields with the same aliases or rename the aliases.
+    By default the joined QFrame will contain all fields from the first QFrame
+    and all fields from the other QFrames which are not in the first QFrame.
+    This approach prevents duplicates. If you want to choose the columns, set `unique_col=False` and
+    after performing join please remove fields with the same aliases or rename them.
 
     Parameters
     ----------
@@ -658,18 +740,21 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
     join_type : str or list
         Join type or a list of join types.
     on : str or list
-        List of on join conditions. In case of CROSS JOIN set the condition on 0.
-        NOTE: Structure of the elements of this list is very specific. You always have to use prefix "sq{qframe_position}."
+        List of on join conditions. In case of CROSS JOIN set the condition to 0.
+        NOTE: Structure of the elements of this list is very specific.
+        You always have to use prefix "sq{qframe_position}."
         if you want to refer to the column. Check examples.
-    unique_col : boolean, optional
-        If True the joined QFrame will cotain all fields from the first QFrame and all fields from other QFrames which
-        are not repeated. If False the joined QFrame will contain all fields from every QFrame, default True
+    unique_col : bool, optional
+        If True the joined QFrame will cotain all fields from the first QFrame
+        and all fields from other QFrames which are not repeated. If False the
+        joined QFrame will contain all fields from every QFrame, default True
 
 
     NOTE: Order of the elements in join_type and on list is important.
 
     Examples
     --------
+    >>> from grizly import get_path, QFrame
     >>> dsn = get_path("grizly_dev", "tests", "Chinook.sqlite")
     >>> playlist_track_qf = QFrame(dsn=dsn, db="sqlite", dialect="mysql", table="PlaylistTrack", columns=["PlaylistId", "TrackId"])
     >>> print(playlist_track_qf)
@@ -715,7 +800,7 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
             first_source = q.source
         else:
             assert first_source == q.source, f"QFrames have different datasources"
-        q.create_sql_blocks()
+        q._create_sql_blocks()
         iterator += 1
         data[f"sq{iterator}"] = deepcopy(q.data)
         sq = deepcopy(q.data["select"])
@@ -746,17 +831,22 @@ def join(qframes=[], join_type=None, on=None, unique_col=True):
 
     out_qf = SQLDriver(store=data, source=qframes[0].source, logger=qframes[0].logger)
 
-    out_qf.logger.info("Data joined successfully.")
+    out_qf.logger.debug("Data joined successfully.")
     if not unique_col:
-        out_qf.logger.warning(
+        warnings.warn(
             "Please remove or rename duplicated columns."
-            "Use your_qframe.show_duplicated_columns() to check duplicates."
+            "Use your_qframe.show_duplicated_columns() to check duplicates.",
+            UserWarning,
         )
     return out_qf
 
 
-def union(qframes=[], union_type=None, union_by="position"):
-    """Unions QFrame objects. Returns QFrame.
+def union(
+    qframes: List[SQLDriver],
+    union_type: Union[Literal["UNION", "UNION ALL"], List[Literal["UNION", "UNION ALL"]]],
+    union_by: Literal["position", "name"] = "position",
+):
+    """Union QFrames.
 
     Parameters
     ----------
@@ -772,7 +862,6 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     Examples
     --------
-    >>> qf = QFrame(dsn="redshift_acoe", schema="grizly", table="sales")
     >>> qf1 = qf.copy()
     >>> qf2 = qf.copy()
     >>> qf3 = qf.copy()
@@ -798,7 +887,7 @@ def union(qframes=[], union_type=None, union_by="position"):
         union_type = [union_type]
 
     assert len(qframes) >= 2, "You have to specify at least 2 qframes to perform a union."
-    assert len(qframes) == len(union_type) + 1, "Incorrect list size."
+    assert len(qframes) == len(union_type) + 1, "Incorrect list size in parameter union_type."
     assert set(item.upper() for item in union_type) <= {
         "UNION",
         "UNION ALL",
@@ -809,7 +898,7 @@ def union(qframes=[], union_type=None, union_by="position"):
     data = {"select": {"fields": {}}}
 
     main_qf = qframes[0]
-    main_qf.create_sql_blocks()
+    main_qf._create_sql_blocks()
     data["sq1"] = deepcopy(main_qf.data)
     old_fields = deepcopy(main_qf.data["select"]["fields"])
     new_fields = deepcopy(main_qf.data["select"]["sql_blocks"]["select_aliases"])
@@ -818,8 +907,8 @@ def union(qframes=[], union_type=None, union_by="position"):
 
     iterator = 2
     for qf in qframes:
-        assert main_qf.source == qf.source, f"QFrames have different datasources"
-        qf.create_sql_blocks()
+        assert main_qf.source == qf.source, "QFrames have different datasources"
+        qf._create_sql_blocks()
         qf_aliases = qf.data["select"]["sql_blocks"]["select_aliases"]
         assert len(new_fields) == len(
             qf_aliases
@@ -844,7 +933,7 @@ def union(qframes=[], union_type=None, union_by="position"):
                         ordered_fields.append(field)
                         break
             qf.rearrange(ordered_fields)
-            qf.create_sql_blocks()
+            qf._create_sql_blocks()
 
         for new_field in new_fields:
             field_position = new_fields.index(new_field)
@@ -873,6 +962,6 @@ def union(qframes=[], union_type=None, union_by="position"):
     data["select"]["union"] = {"union_type": union_type}
 
     out_qf = SQLDriver(store=data, source=qframes[0].source, logger=qframes[0].logger)
-    out_qf.logger.info("Data unioned successfully.")
+    out_qf.logger.debug("Data unioned successfully.")
 
     return out_qf

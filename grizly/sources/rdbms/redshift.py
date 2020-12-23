@@ -1,10 +1,25 @@
 from typing import List, Literal
 
-from ...utils.type_mappers import postgresql_to_pyarrow, postgresql_to_python
-from .base import RDBMSBase
+from ...utils.type_mappers import (
+    postgresql_to_pyarrow,
+    postgresql_to_python,
+    spectrum_to_postgresql,
+)
+from .base import RDBMSWriteBase
 
 
-class Redshift(RDBMSBase):
+class Redshift(RDBMSWriteBase):
+    """
+    Class that represents Redshift database.
+
+    https://aws.amazon.com/redshift/
+
+    Examples
+    --------
+    >>> from grizly import Source
+    >>> sql_source = Source(dsn="redshift_acoe")
+    """
+
     dialect = "postgresql"
 
     def create_table(
@@ -53,7 +68,7 @@ class Redshift(RDBMSBase):
         schema: str = None,
         if_exists: str = "skip",
     ):
-        """Creates an external table"""
+        """Create an external table."""
         valid_if_exists = ("fail", "skip", "drop")
         if if_exists not in valid_if_exists:
             raise ValueError(
@@ -95,7 +110,7 @@ class Redshift(RDBMSBase):
         return self
 
     def get_tables(self, schema=None, base_table=True, view=True, external_table=True):
-        """Extends parent class with external tables"""
+        """Extends parent class with external tables."""
         output = super().get_tables(schema=schema, base_table=base_table, view=view)
 
         if external_table:
@@ -116,7 +131,7 @@ class Redshift(RDBMSBase):
         return records
 
     def get_columns(self, table, schema=None, column_types=False, columns=None):
-        """Extends parent class with external tables"""
+        """Extends parent class with external tables."""
         if (schema, table) in self._get_external_tables(schema=schema):
             return self._get_external_columns(
                 schema=schema, table=table, column_types=column_types, columns=columns
@@ -150,11 +165,23 @@ class Redshift(RDBMSBase):
 
         return (col_names, col_types) if column_types else col_names
 
-    @staticmethod
-    def map_types(dtypes: List[str], to: str = None):
-        if to == "python":
+    @classmethod
+    def map_types(cls, dtypes: List[str], to: str = None):
+        if to == cls.dialect:
+            return dtypes
+        elif to == "python":
             return [postgresql_to_python(dtype) for dtype in dtypes]
         elif to == "pyarrow":
             return [postgresql_to_pyarrow(dtype) for dtype in dtypes]
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"Mapping from {cls.dialect} to {to} is not yet implemented")
+
+
+class RedshiftSpectrum(Redshift):
+    @staticmethod
+    def map_types(dtypes: List[str], to: str = None):
+        if to == "postgresql":
+            mapping_func = spectrum_to_postgresql
+        else:
+            raise NotImplementedError(f"Mapping to {to} is not yet implemented")
+        return [mapping_func(dtype) for dtype in dtypes]

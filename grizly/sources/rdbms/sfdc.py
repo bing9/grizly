@@ -1,20 +1,18 @@
-import logging
+import datetime
+import math
 import os
-from logging import Logger
 from sqlite3.dbapi2 import NotSupportedError
 from typing import Any, Dict, Iterable, List
-import math
-import pytz
-import datetime
 
+import pytz
 from simple_salesforce import Salesforce
 from simple_salesforce.login import SalesforceAuthenticationFailed
 
 from ...config import Config
 from ...config import config as default_config
-from ...utils.functions import chunker
+from ...utils.functions import chunker, get_past_date
 from ...utils.type_mappers import sfdc_to_pyarrow, sfdc_to_python, sfdc_to_sqlalchemy
-from .base import BaseTable, RDBMSBase
+from .base import BaseTable, RDBMSReadBase
 
 
 class SFDCTable(BaseTable):
@@ -56,13 +54,37 @@ class SFDCTable(BaseTable):
             dtypes.append(_type)
         return dtypes
 
+    def set_password(self, user: str, password: str) -> dict:
+        return self.con.set_password(user, password)
+
     def deleted(self, n: int, unit: str = "days") -> List[str]:
+        """Show deleted records"""
         end = datetime.datetime.now(pytz.UTC)  # SFDC API requires UTC
         period = eval(f"datetime.timedelta({unit}={n})")
         start = end - period
         response = self.sf_table.deleted(start, end)
         ids = [record["id"] for record in response["deletedRecords"]]
         return ids
+
+    def modified(self, n: int, unit: str = "days", columns: List[str] = ["Id"]) -> List[tuple]:
+        """Show modified records"""
+        start = get_past_date(n=n, unit=unit)
+        return self._filter_by_date(_date=start, filter_column="SystemModstamp", columns=columns)
+
+    def created(self, n: int, unit: str = "days", columns: List[str] = ["Id"]) -> List[tuple]:
+        """Show new records"""
+        start = get_past_date(n=n, unit=unit)
+        return self._filter_by_date(_date=start, filter_column="CreatedDate", columns=columns)
+
+    def _filter_by_date(
+        self, _date: datetime.datetime, filter_column: str, columns: List[str] = ["Id"]
+    ) -> List[tuple]:
+        # WARNING - this only returns the first 2k records
+        cols_sql = ", ".join(columns)
+        query = f"SELECT {cols_sql} FROM {self.name} WHERE {filter_column} > {_date.isoformat()}"
+        response = self.source.con.query(query)
+        records = self.source._sfdc_records_to_records(response)
+        return records
 
     @property
     def nrows(self):
@@ -74,7 +96,18 @@ class SFDCTable(BaseTable):
         pass
 
 
-class SFDB(RDBMSBase):
+class SFDB(RDBMSReadBase):
+    """
+    Class that represents Salesforce database (ready only).
+
+    https://www.salesforce.com/
+
+    Examples
+    --------
+    >>> from grizly import Source
+    >>> sql_source = Source(dsn="sfdc")
+    """
+
     _context = ""
     _quote = ""
     _use_ordinal_position_notation = False
@@ -115,15 +148,15 @@ class SFDB(RDBMSBase):
         records = self._sfdc_records_to_records(response)
         return records
 
-    def _fetch_records_iter(self, query: str, chunksize: int = 20) -> Iterable:
-        urls = self._get_urls_from_response(query=query)
-        url_chunks = chunker(urls, size=chunksize)
-        for url_chunk in url_chunks:
-            records_chunk = []
-            for url in url_chunk:
-                records = self._fetch_records_url(url)
-                records_chunk.extend(records)
-            yield records_chunk
+    # def _fetch_records_iter(self, query: str, chunksize: int = 20) -> Iterable:
+    #     urls = self._get_urls_from_response(query=query)
+    #     url_chunks = chunker(urls, size=chunksize)
+    #     for url_chunk in url_chunks:
+    #         records_chunk = []
+    #         for url in url_chunk:
+    #             records = self._fetch_records_url(url)
+    #             records_chunk.extend(records)
+    #         yield records_chunk
 
     def _get_urls_from_response(self, query: str) -> List[str]:
         """
@@ -140,7 +173,9 @@ class SFDB(RDBMSBase):
         """
         result = self.con.query(query, include_deleted=False)
         total_size = result["totalSize"]
-        second_url = result["nextRecordsUrl"]
+        second_url = result.get("nextRecordsUrl")
+        if not second_url:
+            return []
         # http://url/id-chunk_start, eg. for first chunk it's http://url/id-0,
         # for the second (with limit 250) it's http://url/id-250, and so on
         chunksize = int(second_url.split("-")[1])
@@ -188,12 +223,6 @@ class SFDB(RDBMSBase):
             )
             raise SalesforceAuthenticationFailed
 
-    @property
-    def tables(self):
-        """Alias for objects"""
-        return self.objects
-
-    # TODO: delete
     def get_columns(self, schema=None, table=None, columns=None, column_types=True):
         all_source_columns = self.table(table).columns
         all_source_dtypes = self.table(table).types
@@ -212,6 +241,10 @@ class SFDB(RDBMSBase):
             return cols_to_return
 
     @property
+    def tables(self):
+        return self.objects
+
+    @property
     def objects(self):
         table_names = [obj["name"] for obj in self.con.describe()["sobjects"]]
         return table_names
@@ -220,46 +253,18 @@ class SFDB(RDBMSBase):
         return SFDCTable(name=name, source=self)
 
     def table(self, name, schema=None):
-        """Alias for object"""
+        """Alias for object."""
         return self.object(name=name)
 
-    @staticmethod
-    def map_types(types, to):
-        if to == "postgresql":
-            mapping_func = sfdc_to_sqlalchemy
+    @classmethod
+    def map_types(cls, dtypes: List[str], to: str = None):
+        if to == cls.dialect:
+            return dtypes
+        elif to == "postgresql":
+            return [sfdc_to_sqlalchemy(t) for t in dtypes]
         elif to == "pyarrow":
-            mapping_func = sfdc_to_pyarrow
+            return [sfdc_to_pyarrow(t) for t in dtypes]
         elif to == "python":
-            mapping_func = sfdc_to_python
+            return [sfdc_to_python(t) for t in dtypes]
         else:
-            raise NotImplementedError
-        mapped = [mapping_func(t) for t in types]
-        return mapped
-
-    def copy_object(self):
-        raise NotImplementedError
-
-    def delete_object(self):
-        raise NotImplementedError
-
-    def create_object(self):
-        raise NotImplementedError
-
-    def copy_table(self, **kwargs):
-        raise NotSupportedError
-
-    def create_table(self, **kwargs):
-        raise NotSupportedError
-
-    def insert_into(self, **kwargs):
-        raise NotSupportedError
-
-    def delete_from(self, **kwargs):
-        raise NotSupportedError
-
-    def drop_table(self, **kwargs):
-        raise NotSupportedError
-
-    def write_to(self, **kwargs):
-        raise NotSupportedError
-
+            raise NotImplementedError(f"Mapping from {cls.dialect} to {to} is not yet implemented")

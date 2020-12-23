@@ -19,14 +19,12 @@ import pandas as pd
 from croniter import croniter
 from dask.core import get_dependencies
 from dask.distributed import fire_and_forget
-from dask.dot import _get_display_cls
-from dask.optimization import key_split
 from exchangelib.errors import ErrorFolderNotFound
 
 from ..config import Config
 from ..tools.email import Email, EmailAccount
 from ..utils.functions import get_path, retry
-from ..sources.rdbms.rdbms_factory import RDBMS as SQLDB
+from ..sources.sources_factory import Source as SQLDB
 
 
 workflows_dir = os.getenv("GRIZLY_WORKFLOWS_HOME") or "/home/acoe_workflows/workflows"
@@ -658,57 +656,3 @@ class Runner:
             self.logger.info(f"No pending workflows found")
             client.close()
         return None
-
-
-class SimpleGraph:
-    """Produces a simplified Dask graph"""
-
-    def __init__(self, format="png", filename=None):
-        self.format = format
-        self.filename = filename
-
-    @staticmethod
-    def _node_key(s):
-        if isinstance(s, tuple):
-            return s[0]
-        return str(s)
-
-    def visualize(self, x, filename="simple_computation_graph", format=None):
-
-        if hasattr(x, "dask"):
-            dsk = x.__dask_optimize__(x.dask, x.__dask_keys__())
-        else:
-            dsk = x
-
-        deps = {k: get_dependencies(dsk, k) for k in dsk}
-
-        g = graphviz.Digraph(araph_attr={"rankdir": "LR"})
-
-        nodes = set()
-        edges = set()
-        for k in dsk:
-            key = self._node_key(k)
-            if key not in nodes:
-                g.node(key, label=key_split(k), shape="rectangle")
-                nodes.add(key)
-            for dep in deps[k]:
-                dep_key = self._node_key(dep)
-                if dep_key not in nodes:
-                    g.node(dep_key, label=key_split(dep), shape="rectangle")
-                    nodes.add(dep_key)
-                # Avoid circular references
-                if dep_key != key and (dep_key, key) not in edges:
-                    g.edge(dep_key, key)
-                    edges.add((dep_key, key))
-
-        data = g.pipe(format=self.format)
-        display_cls = _get_display_cls(self.format)
-
-        if self.filename is None:
-            return display_cls(data=data)
-
-        full_filename = ".".join([filename, self.format])
-        with open(full_filename, "wb") as f:
-            f.write(data)
-
-        return display_cls(filename=full_filename)

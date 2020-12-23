@@ -1,0 +1,58 @@
+{
+    "config": {
+        "standard": {
+            "email": {
+                "address": "",
+                "password": "",
+                "send_as": ""
+            },
+            "proxies": {
+                "https": "",
+                "http": ""
+            },
+            "sources": {
+                "redshift_acoe": {
+                    "db": "redshift",
+                    "dialect": "postgresql"
+                },
+                "Redshift": {
+                    "db": "redshift",
+                    "dialect": "postgresql"
+                },
+                "DenodoPROD": {
+                    "db": "denodo",
+                    "dialect": "denodo"
+                },
+                "DenodoODBC": {
+                    "db": "denodo",
+                    "dialect": "denodo"
+                },
+                "aurora_db": {
+                    "db": "aurora",
+                    "dialect": "postgresql"
+                },
+                "retool_dev_db": {
+                    "db": "mariadb",
+                    "dialect": "mysql"
+                },
+                "tableau_postgre": {
+                    "db": "tableau",
+                    "dialect": "postgresql"
+                },
+                "sfdc": {
+                    "db": "sfdc",
+                    "username": "",
+                    "password": "",
+                    "organizationId": ""
+                },
+                "scheduling": {
+                    "redis_host": "",
+                    "redis_port": ""
+                }
+            },
+            "s3": {
+                "bucket": ""
+            }
+        }
+    }
+}
