@@ -22,7 +22,7 @@ services:
       context: .
       dockerfile: rq-dashboard/Dockerfile
     ports:
-      - '8500:9181'
+      - '5000:9181'
     links:
       - redis
     depends_on:
@@ -38,6 +38,8 @@ services:
       - redis
     depends_on:
       - redis
+    volumes:
+      - ../../..:/home/analyst
     restart: "always"
   rq-worker:
     image: rq-worker
@@ -54,20 +56,20 @@ services:
     depends_on:
       - redis
     volumes:
-      - ../docker_home:/home/analyst
+      - ../../..:/home/analyst
     restart: "always"
   dask_scheduler:
     image: acoeteam/dask_scheduler:latest
     ports:
-      - "8787:8787"
-      - "8786:8786"
+      - "8200:8787"
+      - "8999:8786"
     container_name: dask_scheduler
     restart: "always"
   dask_worker:
     image: acoeteam/dask_worker:latest
     volumes:
-      - ../docker_home:/home/analyst
-      - ../docker_home/.config/odbc.ini:/etc/odbc.ini
+      - ../../..:/home/analyst
+      - ../../../.config/odbc.ini:/etc/odbc.ini
     depends_on:
       - dask_scheduler
     restart: "always"

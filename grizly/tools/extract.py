@@ -1,53 +1,57 @@
-import json
-import os
-import dask
-from ..tools.qframe import QFrame
-from ..tools.s3 import S3
-from ..scheduling.orchestrate import Workflow
-import s3fs
-import pyarrow.parquet as pq
-from pyarrow import Table
-import logging
-from distributed import Client
-from typing import List, Any, Union
-from dask.delayed import Delayed
 import gc
+import json
+import logging
+import os
+from abc import abstractmethod
+from os import stat
+from typing import Any, List, Union, Optional
+
+import dask
+import pyarrow as pa
+import pyarrow.parquet as pq
+import s3fs
+from dask.delayed import Delayed
+from distributed import Client
+from pyarrow import Table
+import datetime
+
 from ..config import config
+from ..drivers.frames_factory import QFrame
+from ..scheduling.registry import Job, SchedulerDB
+from ..sources.filesystem.old_s3 import S3
+from ..types import BaseDriver
+from ..utils.functions import chunker
 
 WORKING_DIR = os.getcwd()
 
 
-class Extract:
+class BaseExtract:
     def __init__(
         self,
         name: str,
-        driver: QFrame,  # BaseDriver?
-        store_backend: str = "local",
-        store_path: str = None,
-        data_backend: str = "s3",
-        s3_bucket: str = None,
-        s3_key: str = None,
-        store: dict = None,
-        scheduler_address: str = None,
+        driver: BaseDriver,
+        s3_root_url: str = None,
+        output_external_table: str = None,
+        output_external_schema: str = None,
+        output_dsn: str = None,
         if_exists: str = "append",
-        logger: logging.Logger = None,
-        **kwargs,
+        output_table_type: str = "external",
     ):
+        self.bucket = config.get_service("s3")["bucket"]
         self.name = name
         self.name_snake_case = self._to_snake_case(name)
         self.driver = driver
-        self.store_backend = store_backend.lower()
-        self.bucket = s3_bucket or config.get_service("s3")["bucket"]
-        self.s3_key = s3_key or f"extracts/{self.name_snake_case}/"
-        self.store_path = store_path or self._get_default_store_path()
-        self.data_backend = data_backend
-        self.scheduler_address = scheduler_address
+        self.output_table_type = output_table_type
+        self.s3_root_url = s3_root_url or f"s3://{self.bucket}/extracts/{self.name_snake_case}/"
+        self.output_external_table = output_external_table or self.name_snake_case
+        self.output_external_schema = output_external_schema or os.getenv(
+            "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
+        )
+        self.output_dsn = output_dsn
         self.if_exists = if_exists
         self.table_if_exists = self._map_if_exists(if_exists)
         self.priority = 0
-        self.logger = logger or self.driver.logger
-        self.store = store or self.load_store()
-        self._load_attrs_from_store(self.store)
+        self.logger = self.driver.logger
 
     @staticmethod
     def _to_snake_case(text):
@@ -59,15 +63,6 @@ class Extract:
         mapping = {"skip": "skip", "append": "drop", "replace": "drop"}
         return mapping[if_exists]
 
-    def _get_default_store_path(self):
-        if self.store_backend == "local":
-            path = os.path.join(WORKING_DIR, "store.json")
-        elif self.store_backend == "s3":
-            path = "s3://" + os.path.join(self.bucket, self.s3_key, "store.json")
-        else:
-            raise NotImplementedError
-        return path
-
     def _get_client(self, scheduler_address: str = None):
         if not scheduler_address:
             scheduler_address = self.scheduler_address
@@ -76,13 +71,223 @@ class Extract:
         self.logger.debug("Client retrived")
         return client
 
+    @dask.delayed
+    def to_arrow(self):
+        self.logger.info("Writing data to arrow...")
+        pa = self.driver.to_arrow()
+        gc.collect()
+        return pa
+
+    @dask.delayed
+    def arrow_to_s3(self, arrow_table: Table, file_name: str = None):
+        def _arrow_to_s3(arrow_table):
+            def give_name(_):
+                return file_name
+
+            s3 = s3fs.S3FileSystem()
+            s3_staging_key = os.path.join(self.s3_root_url, "data", "staging")
+            self.logger.info(f"Uploading {file_name} to {s3_staging_key}...")
+            pq.write_to_dataset(
+                arrow_table,
+                root_path=s3_staging_key,
+                filesystem=s3,
+                use_dictionary=True,
+                compression="snappy",
+                partition_filename_cb=give_name,
+            )
+            self.logger.info(f"Successfully uploaded {file_name} to {s3_staging_key}")
+
+        _arrow_to_s3(arrow_table)
+
+    @dask.delayed
+    def to_s3(self, path):
+        self.driver.to_parquet(path)
+
+    @dask.delayed
+    def create_external_table(self, upstream: Delayed = None):
+        s3_staging_key = os.path.join(self.s3_root_url, "data", "staging")
+        # recreate the table even if if_exists is "append", because we append parquet files
+        self.driver.create_external_table(
+            schema=self.output_external_schema,
+            table=self.output_external_table,
+            dsn=self.output_dsn,
+            s3_url=s3_staging_key,
+            if_exists=self.table_if_exists,
+        )
+
+    @dask.delayed
+    def create_table(self, upstream: Delayed = None):
+        qf = QFrame(dsn=self.output_dsn, dialect="mysql", logger=self.logger).from_table(
+            schema=self.output_external_schema, table=self.output_external_table
+        )
+        qf.to_table(
+            schema=self.output_schema_prod,
+            table=self.output_table_prod,
+            if_exists=self.if_exists,  # here we use the unmapped if_exists
+        )
+
+    @abstractmethod
+    def generate_tasks(self):
+        pass
+
+    def register(
+        self,
+        db: Optional[SchedulerDB] = None,
+        redis_host: Optional[str] = None,
+        redis_port: Optional[int] = None,
+        **kwargs,
+    ):
+        """Submit the partitions and/or extract job
+
+        Parameters
+        ----------
+        kwargs: arguments to pass to Job.register()
+
+        Examples
+        ----------
+        db_dev = SchedulerDB(dev_scheduler_addr)
+        Extract().register(db=db_dev, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
+        """
+        db = db or SchedulerDB(logger=self.logger, redis_host=redis_host, redis_port=redis_port)
+        self.extract_job = Job(self.name, logger=self.logger, db=db)
+        self.extract_job.register(tasks=self.generate_tasks(), **kwargs)
+
+    def submit(self, db, if_exists=None, **kwargs):
+        """Submit the extract job
+
+        Parameters
+        ----------
+        kwargs: arguments to pass to Job.register() and Job.submit()
+
+        """
+        self.register(db=db, if_exists=if_exists)
+        self.extract_job.submit(**kwargs)
+
+
+class SimpleExtract(BaseExtract):
+    def generate_tasks(self):
+        file_name = self.name_snake_case + ".parquet"
+        path = os.path.join(self.s3_root_url, file_name)
+        s3 = self.driver.to_s3(path)
+        external_table = self.create_external_table(upstream=s3)
+        base_table = self.create_table(upstream=external_table)
+
+        if self.output_table_type == "base":
+            final_task = base_table
+        else:
+            final_task = external_table
+
+        self.logger.debug("Tasks generated successfully")
+
+        return [final_task]
+
+
+class SFDCExtract(BaseExtract):
+    def __init__(self, *args, scheduler_address=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
+
+    def generate_tasks(self) -> List[Delayed]:
+        self.logger.info("Generating tasks...")
+
+        urls = self.get_urls()
+        url_chunks = self.chunk(urls, chunksize=50)
+        client = self._get_client()
+        chunks = client.compute(url_chunks).result()
+
+        batch_no = 1
+        s3_uploads = []
+        for url_chunk in chunks:
+            first_url_pos = url_chunk[0].split("-")[1]
+            last_url_pos = url_chunk[-1].split("-")[1]
+            file_name = f"{first_url_pos}-{last_url_pos}.parquet"
+            arrow_table = self.urls_to_arrow(url_chunk, batch_no=batch_no)
+            to_s3 = self.arrow_to_s3(arrow_table, file_name=file_name)
+            s3_uploads.append(to_s3)
+            batch_no += 1
+
+        external_table = self.create_external_table(upstream=s3_uploads)
+        base_table = self.create_table(upstream=external_table)
+
+        if self.output_table_type == "base":
+            final_task = base_table
+        else:
+            final_task = external_table
+
+        self.logger.info("Tasks generated successfully")
+
+        return [final_task]
+
+    @dask.delayed
+    def get_urls(self):
+        return self.driver.source._get_urls_from_response(query=self.driver.get_sql())
+
+    @staticmethod
+    @dask.delayed
+    def chunk(iterable, chunksize):
+        return chunker(iterable, size=chunksize)
+
+    @dask.delayed
+    def urls_to_arrow(self, urls: List[str], batch_no: int) -> pa.Table:
+        self.logger.info(f"Converting batch no. {batch_no} into a pyarrow table...")
+        start = datetime.datetime.now()
+        records = []
+        for url in urls:
+            records_chunk: List[tuple] = self.driver.source._fetch_records_url(url)
+            redords_chunk_processed: List[tuple] = self.driver._cast_records(records_chunk)
+            records.extend(redords_chunk_processed)
+
+        cols = self.driver.columns
+
+        _dict = {col: [] for col in cols}
+        for record in records:
+            for i, col_val in enumerate(record):
+                col_name = cols[i]
+                _dict[col_name].append(col_val)
+
+        arrow_table = self.driver._dict_to_arrow(_dict)
+
+        duration = datetime.datetime.now() - start
+        self.logger.info(
+            f"Pyarrow table for batch no. {batch_no} has been successfully generated in {duration.seconds} second(s)."
+        )
+        gc.collect()
+        return arrow_table
+
+
+class Extract(BaseExtract):
+    def __init__(
+        self,
+        *args,
+        store_backend: str = "local",
+        store_path: str = None,
+        store: dict = None,
+        scheduler_address: str = None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.store_backend = store_backend.lower()
+        self.store_path = store_path or self._get_default_store_path()
+        self.scheduler_address = scheduler_address or os.getenv("DASK_SCHEDULER_ADDRESS")
+        self.store = store or self.load_store()
+        self._load_attrs_from_store(self.store)
+
+    def _get_default_store_path(self):
+        if self.store_backend == "local":
+            path = os.path.join(WORKING_DIR, "store.json")
+        elif self.store_backend == "s3":
+            path = os.path.join(self.s3_root_url, "store.json")
+        else:
+            raise NotImplementedError
+        return path
+
     def _validate_store(self, store):
         pass
 
     def _load_attrs_from_store(self, store):
-        """Load vlaues defined in store into attributes"""
+        """Load values defined in store into attributes"""
         self.partition_cols = store["partition_cols"]
-        self.output_dsn = store["output"].get("dsn") or self.driver.sqldb.dsn
+        self.output_dsn = store["output"].get("dsn") or self.driver.source.dsn
         self.output_external_schema = store["output"].get("external_schema") or os.getenv(
             "GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA"
         )
@@ -91,6 +296,7 @@ class Extract:
         )
         self.output_external_table = store["output"].get("external_table") or self.name_snake_case
         self.output_table_prod = store["output"].get("table") or self.name_snake_case
+        self.output_table_type = "base" if store["output"].get("table") else "external"
 
     def load_store(self):
         """Load store from backend into memory"""
@@ -116,7 +322,7 @@ class Extract:
             for column in columns:
                 # column = column.replace("sq.", "")
                 if column not in existing_columns:
-                    raise ValueError(f"QFrame does not contain {column}")
+                    raise ValueError(f"Driver does not contain {column}")
 
         columns = self.partition_cols
         existing_columns = self.driver.get_fields(aliased=True)
@@ -124,24 +330,23 @@ class Extract:
 
         self.logger.info(f"Obtaining the list of unique values in {columns}...")
 
-        where = self.driver.data["select"]["where"]
         try:
             # faster method, but this will fail if user is working on multiple schemas/tables
-            schema = self.driver.data["select"]["schema"]
-            table = self.driver.data["select"]["table"]
+            schema = self.driver.store["select"]["schema"]
+            table = self.driver.store["select"]["table"]
+            where = self.driver.store["select"]["where"]
 
-            partitions_qf = (
-                QFrame(sqldb=self.driver.sqldb, logger=self.logger)
+            partitions_driver = (
+                self.driver.copy()
                 .from_table(table=table, schema=schema, columns=columns)
                 .query(where)
                 .groupby()
             )
         except KeyError:
-            # source QFrame queries multiple tables; use source QFrame
-            qf_copy = self.driver.copy()
-            partitions_qf = qf_copy.select(columns).groupby()
+            # source driver queries multiple tables; use source driver
+            partitions_driver = self.driver.copy().select(columns).groupby()
 
-        records = partitions_qf.to_records()
+        records = partitions_driver.to_records()
         if isinstance(columns, list):
             values = ["|".join(str(val) for val in row) for row in records]
         else:
@@ -158,7 +363,7 @@ class Extract:
 
         self.logger.info("Starting the extract process...")
 
-        s3 = S3(s3_key=self.s3_key + "data/staging/")
+        s3 = S3(url=os.path.join(self.s3_root_url, "data", "staging"))
         existing_partitions = []
         for file_name in s3.list():
             extension = file_name.split(".")[-1]
@@ -188,8 +393,9 @@ class Extract:
     @dask.delayed
     def to_store_backend(self, serializable: Any, file_name: str):
         if self.store_backend == "s3":
-            s3 = S3(s3_key=self.s3_key, file_name=file_name)
-            self.logger.info(f"Copying {file_name} from memory to {self.s3_key}...")
+            url = os.path.join(self.s3_root_url, file_name)
+            s3 = S3(url=url)
+            self.logger.info(f"Copying {file_name} from memory to {url}...")
             s3.from_serializable(serializable)
         elif self.store_backend == "local":
             self.logger.info(f"Copying {file_name} from memory to {self.store_path}...")
@@ -201,7 +407,7 @@ class Extract:
     @dask.delayed
     def get_cached_distinct_values(self, file_name: str):
         if self.store_backend == "s3":
-            s3 = S3(url=self.store_path)
+            s3 = S3(url=os.path.join(self.root_url, file_name))
             values = s3.to_serializable()
         elif self.store_backend == "local":
             with open(self.store_path) as f:
@@ -216,85 +422,20 @@ class Extract:
         return queried
 
     @dask.delayed
-    def to_arrow(self, driver: QFrame, partition: str = None):
-        self.logger.info(f"Downloading data for partition {partition}...")
-        pa = driver.to_arrow()
-        self.logger.info(f"Data for partition {partition} has been successfully downloaded")
-        gc.collect()
-        return pa
-
-    @dask.delayed
-    def arrow_to_data_backend(self, arrow_table: Table, s3_key: str = None, file_name: str = None):
-        def arrow_to_s3(arrow_table):
-            def give_name(_):
-                return file_name
-
-            s3 = s3fs.S3FileSystem()
-            file_name = s3_key.split("/")[-1]
-            s3_key_root = (
-                "s3://acoe-s3/" + s3_key[: s3_key.index(file_name) - 1]
-            )  # -1 removes the last slash
-            self.logger.info(f"Uploading {file_name} to {s3_key_root}...")
-            pq.write_to_dataset(
-                arrow_table,
-                root_path=s3_key_root,
-                filesystem=s3,
-                use_dictionary=True,
-                compression="snappy",
-                partition_filename_cb=give_name,
-            )
-            self.logger.info(f"Successfully uploaded {file_name} to {s3_key}")
-
-        if self.data_backend == "s3":
-            arrow_to_s3(arrow_table)
-        elif self.data_backend == "local":
-            working_dir = os.path.dirname(self.store_path)
-            pq.write_table(arrow_table, os.path.join(working_dir, file_name))
-        else:
-            raise NotImplementedError
-
-    @dask.delayed
-    def create_external_table(self, upstream: Delayed = None):
-        s3_key = self.s3_key + "data/staging/"
-        # recreate the table even if if_exists is "append", because we append parquet files
-        if self.data_backend == "s3":
-            self.driver.create_external_table(
-                schema=self.output_external_schema,
-                table=self.output_external_table,
-                dsn=self.output_dsn,
-                bucket=self.bucket,
-                s3_key=s3_key,
-                if_exists=self.table_if_exists,
-            )
-        else:
-            raise ValueError("Exteral tables are only supported for S3 backend")
-
-    @dask.delayed
-    def create_table(self, upstream: Delayed = None):
-        if self.data_backend == "s3":
-            qf = QFrame(dsn=self.output_dsn, dialect="mysql", logger=self.logger).from_table(
-                schema=self.output_external_schema, table=self.output_external_table
-            )
-            qf.to_table(
-                schema=self.output_schema_prod,
-                table=self.output_table_prod,
-                if_exists=self.if_exists,  # here we use the unmapped if_exists
-            )
-        else:
-            # qf.to_table()
-            raise NotImplementedError
-
-    @dask.delayed
     def remove_table(self, schema, table):
         pass
 
-    def generate_workflow(
+    @staticmethod
+    @dask.delayed
+    def to_parquet(driver, path):
+        driver.to_parquet(path)
+
+    def generate_tasks(
         self,
-        scheduler_address: str,
+        scheduler_address: str = None,
         refresh_partitions_list: bool = True,
         download_if_older_than: int = 0,
         cache_distinct_values: bool = True,
-        output_table_type: str = "external",
         **kwargs,
     ):
 
@@ -331,6 +472,7 @@ class Extract:
             client.close()
         if not partitions:
             self.logger.warning("No partitions to download")
+        self.partition_tasks = [partitions_to_download]
 
         if len(self.partition_cols) > 1:
             partition_cols_casted = [
@@ -344,56 +486,63 @@ class Extract:
             self.logger.info("Skipping...")
             return
 
-        # create the workflow
         uploads = []
         for partition in partitions:
             partition_concatenated = partition.replace("|", "")
-            s3_key = self.s3_key + "data/staging/" + f"{partition}.parquet"
+            file_name = f"{partition}.parquet"
             where = f"{partition_cols}='{partition_concatenated}'"
-            processed_driver = self.query_driver(query=where)
-            arrow_table = self.to_arrow(driver=processed_driver, partition=partition)
-            push_to_backend = self.arrow_to_data_backend(arrow_table, s3_key=s3_key)
-            if not self.if_exists == "skip":
-                uploads.append(push_to_backend)
-            else:
-                uploads.append(arrow_table)
-        if not self.if_exists == "skip":
-            external_table = self.create_external_table(upstream=uploads)
-            if output_table_type == "base":
-                regular_table = self.create_table(upstream=external_table)
-                # clear_spectrum = self.remove_table(self.output_schema, self.output_table, upstream=regular_table)
-                final_task = regular_table
-            else:
-                final_task = external_table
-        else:
-            final_task = uploads
-        wf = Workflow(name=self.name, tasks=[final_task])
-        self.workflow = wf
-        self.logger.debug("Workflow generated successfully")
-        return wf
+            processed_qf = self.query_driver(query=where)
+            s3 = self.to_parquet(
+                processed_qf, os.path.join(self.s3_root_url, "data", "staging", file_name)
+            )
+            uploads.append(s3)
 
-    def submit(self, scheduler_address, **kwargs):
-        """Submit to cluster
+        external_table = self.create_external_table(upstream=uploads)
+        if self.output_table_type == "base":
+            regular_table = self.create_table(upstream=external_table)
+            # clear_spectrum = self.remove_table(self.output_schema, self.output_table, upstream=regular_table)
+            final_task = regular_table
+        else:
+            final_task = external_table
+        self.extract_tasks = [final_task]
+        # return [final_task]
+
+    def register(self, db=None, crons=None, **kwargs):
+        """Submit the partitions and/or extract job
 
         Parameters
         ----------
-        kwargs: arguments to pass to Workflow.submit()
+        kwargs: arguments to pass to Job.register()
 
         Examples
-        --------
-        Extract().submit(scheduler_address="grizly_scheduler:8786")
+        ----------
+        db_dev = SchedulerDB(dev_scheduler_addr)
+        Extract().register(db=db_dev, crons="0 12 * * MON", if_exists="replace")  # Mondays 12 AM
         """
-        wf = self.generate_workflow(scheduler_address, **kwargs)
-        # client = self._get_client(scheduler_address)
-        wf.submit(scheduler_address=scheduler_address, **kwargs)
-        # client.close()
+        partitions_job_name = self.name + " - partitions"
+        self.partitions_job = Job(partitions_job_name, logger=self.logger, db=db)
+        self.extract_job = Job(self.name, logger=self.logger, db=db)
+        self.generate_tasks()  # calculate partition tasks
+        self.partitions_job.register(tasks=self.partition_tasks, crons=crons or [], **kwargs)
+        self.extract_job.register(tasks=self.extract_tasks, upstream=partitions_job_name, **kwargs)
+
+    def submit(
+        self, **kwargs,
+    ):
+        """Submit the extract job
+
+        Parameters
+        ----------
+        kwargs: arguments to pass to Job.register() and Job.submit()
+
+        """
+        self.register(**kwargs)
+        self.partitions_job.submit(
+            client=kwargs.get("client"),
+            scheduler_address=kwargs.get("scheduler_address"),
+            priority=kwargs.get("priority"),
+            to_dask=kwargs.get("to_dask"),
+        )
 
     def validate(self):
-        # json1 = gen_json()
-        # qf1 = load_qf(json_path="")
         pass
-
-    @dask.delayed
-    def load_qf(self, dsn, json_path, subquery, upstream=None):
-        qf = QFrame(dsn=self.input_dsn).from_json(json_path=json_path, subquery=subquery)
-        return qf

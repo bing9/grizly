@@ -2,5 +2,5 @@
 Class SQLDB
 =============
 
-.. autoclass:: grizly.SQLDB
+.. autoclass:: grizly.tools.sqldb.SQLDB
    :members:

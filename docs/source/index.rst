@@ -18,7 +18,6 @@ Welcome to grizly's documentation!
    content/api_SQLDB
    content/api_Crosstab
    content/api_Job
-   .. content/api_Extract
 
 
 Indices and tables

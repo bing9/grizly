@@ -1,5 +1,4 @@
 __pycache__
-*.ini
 *.egg-info
 build
 .pytest_cache
@@ -11,3 +10,5 @@ build
 docker_home
 *.png
 dask-worker-space
+*.ini
+*.toml

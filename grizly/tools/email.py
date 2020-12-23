@@ -5,43 +5,45 @@ from exchangelib import (
     Message,
     Configuration,
     DELEGATE,
-    IMPERSONATION,
     FaultTolerance,
     HTMLBody,
     FileAttachment,
 )
-from ..config import Config
-from ..utils import get_path
-from os.path import basename
+from ..config import config as grizly_config
 import os
 import logging
 from typing import Union, List
 from time import sleep
+from ..utils.deprecation import deprecated_params
+from functools import partial
+
+deprecated_params = partial(deprecated_params, deprecated_in="0.4", removed_in="0.4.2")
 
 
 class EmailAccount:
-    def __init__(
-        self, email_address=None, email_password=None, alias=None, config_key="standard", proxy=None,
-    ):
-        config = Config().get_service(config_key=config_key, service="email")
+    @deprecated_params(params_mapping={"email_address": "address", "email_password": "password"})
+    def __init__(self, address=None, password=None, alias=None, proxy=None, **kwargs):
+        config = grizly_config.get_service("email")
         self.logger = logging.getLogger(__name__)
-        self.email_address = email_address or os.getenv("EMAIL_ADDRESS") or config.get("email_address")
-        self.email_password = email_password or os.getenv("EMAIL_PASSWORD") or config.get("email_password")
+        self.address = address or os.getenv("GRIZLY_EMAIL_ADDRESS") or config.get("address")
+        self.password = password or os.getenv("GRIZLY_EMAIL_PASSWORD") or config.get("password")
         self.alias = alias
-        self.credentials = Credentials(self.email_address, self.email_password)
+        self.credentials = Credentials(self.address, self.password)
         self.config = Configuration(
-            server="smtp.office365.com", credentials=self.credentials, retry_policy=FaultTolerance(max_wait=2 * 60),
+            server="smtp.office365.com",
+            credentials=self.credentials,
+            retry_policy=FaultTolerance(max_wait=2 * 60),
         )
         self.proxy = (
             proxy
             or os.getenv("GRIZLY_PROXY")
             or os.getenv("HTTPS_PROXY")
-            or Config().get_service(config_key=config_key, service="proxies").get("https")
+            or grizly_config.get_service("proxies").get("https")
         )
         if self.proxy:
             os.environ["HTTPS_PROXY"] = self.proxy
         try:
-            smtp_address = self.email_address
+            smtp_address = self.address
             if self.alias:
                 smtp_address = self.alias
             self.account = Account(
@@ -49,15 +51,18 @@ class EmailAccount:
                 credentials=self.credentials,
                 config=self.config,
                 autodiscover=False,
-                access_type=DELEGATE  # IMPERSONATION
+                access_type=DELEGATE,
             )
         except:
             self.logger.exception(
-                f"Email account {self.email_address}, proxy: {self.proxy if self.proxy else ''} could not be accessed."
+                f"Email account {self.address}, proxy: {self.proxy if self.proxy else ''} could not be accessed."
             )
             raise ConnectionError(
                 "Connection to Exchange server failed. Please check your credentials and/or proxy settings"
             )
+
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}("{self.address}")'
 
 
 class Email:
@@ -75,13 +80,14 @@ class Email:
         [description], by default None
     is_html : bool, optional
         [description], by default False
-    email_address : str, optional
+    address : str, optional
         Email address used to send an email, by default None
-    email_password : str, optional
-        Password to the email specified in email_address, by default None
+    password : str, optional
+        Password to the email specified in address, by default None
     config_key : str, optional
         Config key, by default 'standard'"""
 
+    @deprecated_params(params_mapping={"email_address": "address", "email_password": "password"})
     def __init__(
         self,
         subject: str,
@@ -89,26 +95,25 @@ class Email:
         attachment_paths: str = None,
         logger=None,
         is_html: bool = False,
-        email_address: str = None,
-        email_password: str = None,
-        config_key: str = None,
+        address: str = None,
+        password: str = None,
         proxy: str = None,
+        **kwargs,
     ):
         self.subject = subject
         self.body = body if not is_html else HTMLBody(body)
         self.logger = logger or logging.getLogger(__name__)
-        self.config_key = config_key or "standard"
-        if None in [email_address, email_password]:
-            config = Config().get_service(config_key=self.config_key, service="email")
-        self.email_address = email_address or config.get("email_address") or os.getenv("EMAIL_ADDRESS")
-        self.email_password = email_password or config.get("email_password") or os.getenv("EMAIL_PASSWORD")
+        if None in [address, password]:
+            config = grizly_config.get_service("email")
+        self.address = address or config.get("address") or os.getenv("GRIZLY_EMAIL_ADDRESS")
+        self.password = password or config.get("password") or os.getenv("GRIZLY_EMAIL_PASSWORD")
         self.attachment_paths = self.to_list(attachment_paths)
         self.attachments = self.get_attachments(self.attachment_paths)
         try:
             self.proxy = (
                 proxy
                 or os.getenv("HTTPS_PROXY")
-                or Config().get_service(config_key=self.config_key, service="proxies").get("https")
+                or grizly_config.get_service("proxies").get("https")
             )
         except:
             self.proxy = None
@@ -123,17 +128,14 @@ class Email:
         if not attachment_paths:
             return None
 
-        names = [self.get_attachment_name(attachment_path) for attachment_path in attachment_paths]
+        names = [os.path.basename(attachment_path) for attachment_path in attachment_paths]
         contents = [
-            self.get_attachment_content(attachment_path, name) for attachment_path, name in zip(attachment_paths, names)
+            self.get_attachment_content(attachment_path, name)
+            for attachment_path, name in zip(attachment_paths, names)
         ]
         attachments = [self.get_attachment(name, content) for name, content in zip(names, contents)]
 
         return attachments
-
-    def get_attachment_name(self, attachment_path: str):
-        """Return attachment name"""
-        return basename(attachment_path)
 
     def get_attachment_content(self, attachment_path, attachment_name):
         """ Get the content of a file in binary format """
@@ -206,7 +208,9 @@ class Email:
         None
         """
 
-        BaseProtocol.HTTP_ADAPTER_CLS = NoVerifyHTTPAdapter  # change this in the future to avoid warnings
+        BaseProtocol.HTTP_ADAPTER_CLS = (
+            NoVerifyHTTPAdapter  # change this in the future to avoid warnings
+        )
 
         if self.proxy:
             os.environ["HTTPS_PROXY"] = self.proxy
@@ -216,14 +220,14 @@ class Email:
 
         if not send_as:
             try:
-                send_as = Config().get_service(config_key=self.config_key, service="email").get("send_as")
+                send_as = grizly_config.get_service("email").get("send_as")
             except KeyError:
                 pass
-            send_as = self.email_address
+            send_as = self.address
 
-        email_address = self.email_address
-        email_password = self.email_password
-        account = EmailAccount(email_address, email_password).account
+        address = self.address
+        password = self.password
+        account = EmailAccount(address, password).account
 
         m = Message(
             account=account,
@@ -241,7 +245,7 @@ class Email:
 
         try:
             m.send_and_save()
-        except Exception as e:
+        except Exception:
             # retry once
             sleep(1)
             try:

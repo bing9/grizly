@@ -31,7 +31,7 @@ def test_from_json():
                     "organizationId": "OrgId",
                 },
             },
-            "sqldb": {
+            "sources": {
                 "redshift_acoe": {"db": "redshift", "dialect": "postgresql"},
                 "DenodoPROD": {"db": "denodo", "dialect": "denodo"},
                 "aurora_db": {"db": "aurora", "dialect": "postgresql"},

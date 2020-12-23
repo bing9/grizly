@@ -14,11 +14,14 @@ services:
     volumes:
       - 'redis_data:/bitnami/redis/data'
     container_name: pytest_redis
+    restart: "always"
   pytest_grizly_notebook:
     image: grizly_notebook:latest
     environment:
       - HTTPS_PROXY=${PROXY}
       - GRIZLY_REDIS_HOST=pytest_redis
+      - GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA=${GRIZLY_EXTRACT_STAGING_EXTERNAL_SCHEMA}
+      - GRIZLY_DASK_SCHEDULER_ADDRESS=dask_scheduler:8786
     ports:
       - "1001:8888"
     volumes:
@@ -84,8 +87,12 @@ services:
     volumes:
       - ../..:/home/analyst
       - ../../.config/odbc.ini:/etc/odbc.ini
+    environment:
+      - HTTPS_PROXY=${PROXY}
     depends_on:
       - dask_scheduler
+    links:
+      - pytest_grizly_notebook
     restart: "always"
 
 volumes:
